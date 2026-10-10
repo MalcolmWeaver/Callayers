@@ -57,7 +57,18 @@ Camera creation persists for the current user. Registration of the source DLL is
 - **Save / Ctrl+S** saves a `.callayers.json` file. **Ctrl+Shift+S** saves under another name. **Open / Ctrl+O** reopens it.
 - **File → New deck** clears the scene after offering to save changes. Closing the window also protects unsaved work.
 
-Text appears in the video as it is typed, but its native editing box, caret, selection border, resize handles, and toolbar do not. The file format supports one scene and up to 100 total elements, including up to 12 cards. Text-only decks remain version 1; decks containing cards use version 2. Both reopen in this build. Multi-scene management comes later.
+Text appears in the video as it is typed, but its native editing box, caret, selection border, resize handles, and toolbar do not. The file format supports one scene and up to 100 text/card elements, including up to 12 cards, plus up to 512 ink strokes (65,536 points total). Text-only decks remain version 1; decks containing cards use version 2; decks with ink use version 3. All three reopen in this build. Multi-scene management comes later.
+
+## Pen, eraser, and laser
+
+- Open **Draw** and choose **Pen**, **Eraser**, or **Laser**. With the stage focused, **P**, **E**, and **L** select them directly; prompt/text fields keep their normal typing behavior.
+- Pen: drag on the stage to draw; click for a dot. Choose Mint, White, Periwinkle, Coral, or Yellow and Fine/Medium/Bold thickness. Ink appears above cards and text in the outgoing camera video.
+- Each stroke is one undo action. Save/reopen retains its color, thickness, and normalized stage position. Completed drawings are not selectable or movable objects.
+- Eraser: drag across ink to remove whole strokes. One eraser drag is one undo action and never removes text or cards.
+- Laser: hold the mouse button and drag to point. The coral trail fades over 0.9 seconds, is never saved, and never enters undo history.
+- **Escape** cancels an in-progress stroke/erase, clears the laser, and returns to Select. Switching tools or losing mouse capture finishes the current stroke.
+
+Drawing is sampled in stage coordinates and repainted on the app's frame timer. The initial version uses fixed-width mouse/Windows-promoted pen input; pressure sensitivity is not implemented.
 
 ## AI cards (step 4)
 

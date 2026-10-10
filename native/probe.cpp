@@ -122,6 +122,11 @@ void ProbeDevice(const Device& device,unsigned count,const std::wstring& expecta
                 unsigned bright=0;for(UINT y=120;y<270;++y)for(UINT x=80;x<1100;++x)if(data[y*Width+x]>220)++bright;
                 if(bright>1000)++textFrames;
             }
+            if(expectation==L"--expect-ink"){
+                // A white test stroke crosses the middle at 80% stage height.
+                unsigned widest=0;for(UINT y=848;y<880;++y){unsigned bright=0;for(UINT x=900;x<1020;++x)if(data[y*Width+x]>=230)++bright;widest=std::max(widest,bright);}
+                if(widest>=115)++textFrames;
+            }
             if(expectation==L"--expect-cards"){
                 // Sample the animated bar inside the default large card, excluding
                 // the independently moving background diagnostic pattern.
@@ -143,6 +148,7 @@ void ProbeDevice(const Device& device,unsigned count,const std::wstring& expecta
         if(expectation==L"--expect-idle")Require(idleCount==count,"expected only idle frames");
         if(expectation==L"--expect-recovery")Require(liveBeforeIdle&&idleCount>=8&&liveAfterIdle,"expected live -> idle -> live in one reader session");
         if(expectation==L"--expect-text")Require(textFrames==count,"generated text pixels missing from outgoing camera frames");
+        if(expectation==L"--expect-ink")Require(textFrames==count,"white ink stroke missing from outgoing camera frames");
         if(expectation==L"--expect-cards"){
             std::cout<<"Card-region changes: "<<cardChanges<<"; transparent background frames: "<<transparentFrames<<"\n";
             Require(cardChanges>count/3&&transparentFrames==count,"live card animation or transparent background missing");

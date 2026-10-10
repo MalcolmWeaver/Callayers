@@ -145,11 +145,16 @@ public:
     <Button x:Name="Select" Content="↖  Select" ToolTipService.ToolTip="Select and move elements"/>
     <Button x:Name="Text" Content="T  Text" ToolTipService.ToolTip="Place text (T)"/>
     <Button x:Name="Card" Content="+  Card" ToolTipService.ToolTip="Create a new card with AI"/>
+    <Button x:Name="Draw" Content="Draw" ToolTipService.ToolTip="Pen (P), eraser (E), or laser (L)"><Button.Flyout><MenuFlyout><MenuFlyoutItem x:Name="PenTool" Text="Pen"/><MenuFlyoutItem x:Name="EraserTool" Text="Eraser — whole strokes"/><MenuFlyoutItem x:Name="LaserTool" Text="Laser — fades away"/></MenuFlyout></Button.Flyout></Button>
     <Button x:Name="DeleteCard" Content="Delete card" Visibility="Collapsed"/>
     <Border Width="1" Height="23" Background="#49474F" Margin="8,0"/>
     <Button x:Name="Undo" Content="↶" ToolTipService.ToolTip="Undo (Ctrl+Z)" AutomationProperties.Name="Undo"/>
     <Button x:Name="Redo" Content="↷" ToolTipService.ToolTip="Redo (Ctrl+Y)" AutomationProperties.Name="Redo"/>
     <TextBlock x:Name="ToolHint" Text="Choose Text, then click the stage" Foreground="#AAA8B2" VerticalAlignment="Center" Margin="14,0"/>
+    <StackPanel x:Name="InkProperties" Orientation="Horizontal" Spacing="7" Visibility="Collapsed">
+     <ComboBox x:Name="InkColor" Width="128" AutomationProperties.Name="Pen color"><x:String>Mint</x:String><x:String>White</x:String><x:String>Periwinkle</x:String><x:String>Coral</x:String><x:String>Yellow</x:String></ComboBox>
+     <ComboBox x:Name="InkWidth" Width="104" AutomationProperties.Name="Pen thickness"><x:String>Fine</x:String><x:String>Medium</x:String><x:String>Bold</x:String></ComboBox>
+    </StackPanel>
     <StackPanel x:Name="TextProperties" Orientation="Horizontal" Spacing="7" Visibility="Collapsed">
      <Border Width="1" Height="23" Background="#49474F" Margin="8,0"/>
      <ComboBox x:Name="Font" Width="142" AutomationProperties.Name="Font family"><x:String>Segoe UI</x:String><x:String>Arial</x:String><x:String>Georgia</x:String><x:String>Consolas</x:String></ComboBox>
@@ -196,6 +201,10 @@ public:
         sources.SelectionChanged([this,camera](auto&&,auto&&){if(!syncing)try{camera(Find<controls::ComboBox>(L"Camera").SelectedIndex());}catch(...){EditorError(window);}});
         Action(L"Card",[this]{editor.NewCardSelection();Bottom<controls::TextBox>(L"Prompt").Focus(ux::FocusState::Programmatic);});Action(L"DeleteCard",[this]{editor.Command(TextEditorUI::DeleteId);});
         Action(L"Output",output);Action(L"Color",[this]{editor.ChooseTextColor();});
+        for(auto pair:{std::pair{L"PenTool",TextEditorUI::DrawTool::Pen},{L"EraserTool",TextEditorUI::DrawTool::Eraser},{L"LaserTool",TextEditorUI::DrawTool::Laser}})
+            Find<controls::MenuFlyoutItem>(pair.first).Click([this,tool=pair.second](auto&&,auto&&){try{editor.SetDrawingTool(tool);}catch(...){EditorError(window);}});
+        Find<controls::ComboBox>(L"InkColor").SelectionChanged([this](auto&&,auto&&){if(syncing)return;constexpr uint32_t colors[]{0xbaf2cd,0xffffff,0xa39bfa,0xff647c,0xffdc64};auto index=Find<controls::ComboBox>(L"InkColor").SelectedIndex();if(index>=0&&index<5)editor.SetPenColor(colors[index]);});
+        Find<controls::ComboBox>(L"InkWidth").SelectionChanged([this](auto&&,auto&&){if(syncing)return;auto index=Find<controls::ComboBox>(L"InkWidth").SelectedIndex();if(index>=0)editor.SetPenWidth(index==0?3:index==1?6:12);});
         Find<controls::ComboBox>(L"Font").SelectionChanged([this](auto&&,auto&&){if(syncing)return;try{auto value=winrt::unbox_value<winrt::hstring>(Find<controls::ComboBox>(L"Font").SelectedItem());editor.ChangeStyle([&](auto& t){t.family=value;});}catch(...){EditorError(window);}});
         Find<controls::ComboBox>(L"Alignment").SelectionChanged([this](auto&&,auto&&){if(syncing)return;try{auto index=Find<controls::ComboBox>(L"Alignment").SelectedIndex();editor.ChangeStyle([index](auto& t){t.alignment=index;});}catch(...){EditorError(window);}});
         Find<controls::Primitives::ToggleButton>(L"Bold").Click([this](auto&&,auto&&){if(syncing)return;try{auto bold=Find<controls::Primitives::ToggleButton>(L"Bold").IsChecked().Value();editor.ChangeStyle([bold](auto& t){t.bold=bold;});}catch(...){EditorError(window);}});
@@ -227,13 +236,19 @@ public:
     }
     void Refresh(){
         syncing=true;auto selection=editor.Selection();
+        auto tool=editor.DrawingTool();bool drawing=tool!=TextEditorUI::DrawTool::None,pen=tool==TextEditorUI::DrawTool::Pen;
+        Find<controls::Button>(L"Draw").Content(winrt::box_value(pen?L"Pen":tool==TextEditorUI::DrawTool::Eraser?L"Eraser":tool==TextEditorUI::DrawTool::Laser?L"Laser":L"Draw"));
+        Find<controls::Button>(L"Draw").Background(ux::Media::SolidColorBrush(drawing?winrt::Windows::UI::Color{255,76,69,116}:winrt::Windows::UI::Color{255,48,47,53}));
+        Find<controls::StackPanel>(L"InkProperties").Visibility(pen?ux::Visibility::Visible:ux::Visibility::Collapsed);
+        constexpr uint32_t colors[]{0xbaf2cd,0xffffff,0xa39bfa,0xff647c,0xffdc64};for(int i=0;i<5;++i)if(editor.PenColor()==colors[i])Find<controls::ComboBox>(L"InkColor").SelectedIndex(i);
+        Find<controls::ComboBox>(L"InkWidth").SelectedIndex(editor.PenWidth()<=3?0:editor.PenWidth()<=6?1:2);
         Find<controls::Button>(L"DeleteCard").Visibility(editor.CardSelected()?ux::Visibility::Visible:ux::Visibility::Collapsed);
         Find<controls::StackPanel>(L"TextProperties").Visibility(selection?ux::Visibility::Visible:ux::Visibility::Collapsed);
-        Find<controls::TextBlock>(L"ToolHint").Visibility(selection?ux::Visibility::Collapsed:ux::Visibility::Visible);
-        Find<controls::TextBlock>(L"ToolHint").Text(editor.TextTool()?L"Click the stage to place text":editor.CardSelected()?L"Drag to move; handles resize":L"Add text or generate a card");
+        Find<controls::TextBlock>(L"ToolHint").Visibility(selection||pen?ux::Visibility::Collapsed:ux::Visibility::Visible);
+        Find<controls::TextBlock>(L"ToolHint").Text(tool==TextEditorUI::DrawTool::Eraser?L"Drag across strokes to erase":tool==TextEditorUI::DrawTool::Laser?L"Drag to point; trails fade":editor.TextTool()?L"Click the stage to place text":editor.CardSelected()?L"Drag to move; handles resize":L"Add text, cards, or drawing");
         Find<controls::Button>(L"Undo").IsEnabled(editor.CanUndo());Find<controls::Button>(L"Redo").IsEnabled(editor.CanRedo());
         for(auto name:{L"Text",L"Select"}){
-            bool active=editor.TextTool()==(std::wstring_view(name)==L"Text");
+            bool active=!drawing&&editor.TextTool()==(std::wstring_view(name)==L"Text");
             Find<controls::Button>(name).Background(ux::Media::SolidColorBrush(active?winrt::Windows::UI::Color{255,76,69,116}:winrt::Windows::UI::Color{255,48,47,53}));
         }
         if(selection){auto& t=*selection;

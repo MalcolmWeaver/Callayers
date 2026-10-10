@@ -27,6 +27,15 @@ int main(){
         auto resized=ResizeCard(mixed.cards[0],2,.12,-.05);Expect(resized.html==mixed.cards[0].html&&resized.width>mixed.cards[0].width&&resized.height<mixed.cards[0].height,"card resize lost content or independent dimensions");
         auto duplicated=mixed;duplicated.cards[0].id=text.id;rejected=false;try{DecodeScene(EncodeScene(duplicated));}catch(...){rejected=true;}Expect(rejected,"cross-layer duplicate identity accepted");
         TextRenderer renderer;
+        InkStroke stroke;stroke.id=NewId();stroke.color=0xff647c;stroke.width=12;stroke.points={{.1,.2},{.4,.2},{.4,.4}};mixed.ink.push_back(stroke);
+        Expect(DecodeScene(EncodeScene(mixed))==mixed,"ink mixed deck round trip lost points/style");
+        SaveScene(file,mixed);Expect(LoadScene(file)==mixed,"ink disk save/reopen failed");std::filesystem::remove(file);
+        Expect(InkHit(stroke,{.2,.1},{.2,.3},1),"swept eraser missed crossing between samples");
+        Expect(!InkHit(stroke,{.8,.8},{.9,.9},18),"eraser hit a distant stroke");
+        auto badInk=mixed;badInk.ink[0].points[0].x=2;rejected=false;try{DecodeScene(EncodeScene(badInk));}catch(...){rejected=true;}Expect(rejected,"out-of-stage ink accepted");
+        badInk=mixed;badInk.ink[0].points.clear();rejected=false;try{DecodeScene(EncodeScene(badInk));}catch(...){rejected=true;}Expect(rejected,"empty stroke accepted");
+        Scene inkOnly;inkOnly.ink={stroke};auto inkPixels=renderer.Render(inkOnly);Expect(!inkPixels->luma.empty(),"ink absent from output compositor");
+        inkOnly.ink[0].points.resize(1);Expect(!renderer.Render(inkOnly)->luma.empty(),"single pen dot invisible");
         auto fitted=text;fitted.text=L"One line";renderer.FitHeight(fitted);double oneLine=fitted.height;
         fitted.text=L"One line\nSecond line\nThird line";renderer.FitHeight(fitted);Expect(fitted.height>oneLine*2,"multiline text did not grow its box");
         fitted.text=L"One line";renderer.FitHeight(fitted);Expect(fitted.height==oneLine,"deleting lines did not shrink the box");

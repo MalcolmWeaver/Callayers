@@ -11,6 +11,7 @@ namespace callayers {
 class TextEditorUI {
 public:
     enum {SelectId=201,TextId,UndoId,RedoId,DeleteId,FontId,SizeId,BoldId,ColorId,AlignId,NewIdControl,OpenId,SaveId,EditId};
+    enum class DrawTool {None,Pen,Eraser,Laser};
 private:
     HWND window,edit=nullptr;
     HFONT editFont=nullptr;
@@ -27,6 +28,15 @@ private:
     int selected=-1,selectedCard=-1,dragHandle=-1;
     bool textTool=false,dragging=false,syncing=false;
     bool nativeControls=true;
+    DrawTool drawTool=DrawTool::None;
+    bool marking=false,inkPending=false;
+    uint32_t penColor=0xbaf2cd;
+    double penWidth=6;
+    size_t inkPointCount=0;
+    Scene beforeInk;
+    InkPoint lastInk{};
+    struct LaserSample {InkPoint point;Clock::time_point time;bool start=false;};
+    std::vector<LaserSample> laser;
     POINT dragStart{};
     Scene beforeDrag,beforeEdit;
     RECT stage{};
@@ -50,10 +60,36 @@ private:
     int HitCard(POINT p){for(int i=static_cast<int>(document.scene.cards.size())-1;i>=0;--i){auto r=Rect(document.scene.cards[i]);if(PtInRect(&r,p))return i;}return -1;}
     int HitHandle(POINT p){if(!HasSelection())return -1;auto points=Handles(SelectionRect());for(int i=0;i<6;++i)if(std::abs(p.x-points[i].x)<=7&&std::abs(p.y-points[i].y)<=7)return i;return -1;}
     int HitText(POINT p){for(int i=static_cast<int>(document.scene.texts.size())-1;i>=0;--i){auto r=Rect(document.scene.texts[i]);if(PtInRect(&r,p))return i;}return -1;}
-    void Publish(){
-        publish(renderer.Render(document.scene));if(SceneChanged)SceneChanged(document.scene);
-        if(edit){auto local=document.scene;local.texts.erase(local.texts.begin()+selected);editingOverlay=renderer.Render(local);}
+    std::vector<InkMark> LaserMarks(Clock::time_point now){
+        std::vector<InkMark> marks;
+        for(size_t i=0;i<laser.size();++i){float alpha=static_cast<float>(std::clamp(1.-std::chrono::duration<double>(now-laser[i].time).count()/.9,0.,1.));if(alpha<=0)continue;
+            InkStroke stroke;stroke.color=0xff647c;stroke.width=10;stroke.points={laser[i].point};if(i&&!laser[i].start)stroke.points.insert(stroke.points.begin(),laser[i-1].point);
+            auto glow=stroke;glow.width=22;marks.push_back({std::move(glow),alpha*.18f});marks.push_back({std::move(stroke),alpha});
+        }return marks;
+    }
+    void Publish(bool notify=true,Clock::time_point now=Clock::now()){
+        auto marks=LaserMarks(now);publish(renderer.Render(document.scene,marks));if(notify&&SceneChanged)SceneChanged(document.scene);
+        if(edit){auto local=document.scene;local.texts.erase(local.texts.begin()+selected);editingOverlay=renderer.Render(local,marks);}
         InvalidateRect(window,nullptr,FALSE);UpdateTitle();
+    }
+    InkPoint StagePoint(POINT p)const{return {std::clamp(double(p.x-stage.left)/std::max(1L,stage.right-stage.left),0.,1.),std::clamp(double(p.y-stage.top)/std::max(1L,stage.bottom-stage.top),0.,1.)};}
+    void InkMove(POINT p,bool first=false){
+        auto point=StagePoint(p);
+        if(drawTool==DrawTool::Pen){
+            auto& stroke=document.scene.ink.back();
+            if(!first&&stroke.points.size()<MaxStrokePoints&&inkPointCount<MaxInkPoints&&PointSegmentDistance(point,stroke.points.back(),stroke.points.back())>=2){stroke.points.push_back(point);++inkPointCount;}
+        }else if(drawTool==DrawTool::Eraser){
+            std::erase_if(document.scene.ink,[&](const auto& stroke){return InkHit(stroke,lastInk,point,18);});
+        }else if(drawTool==DrawTool::Laser){
+            if(first||laser.empty()||PointSegmentDistance(point,laser.back().point,laser.back().point)>=2){laser.push_back({point,Clock::now(),first});if(laser.size()>256)laser.erase(laser.begin());}
+        }
+        lastInk=point;inkPending=true;
+    }
+    void FinishInk(bool commit=true){
+        if(!marking)return;marking=false;ReleaseCapture();
+        if(drawTool!=DrawTool::Laser){if(commit)document.Commit(beforeInk);else document.scene=beforeInk;}
+        else if(!commit)laser.clear();
+        inkPending=false;Publish(false);Sync();
     }
     void ClearEditBackground(){
         if(editBackground&&editOriginal)SelectObject(editBackground,editOriginal);
@@ -135,37 +171,47 @@ private:
         DWORD error=CommDlgExtendedError();if(error)throw HRESULT_FROM_WIN32(error);return {};
     }
     bool Save(bool saveAs=false){
-        FinishEdit(true);auto destination=path;
+        FinishInk();FinishEdit(true);auto destination=path;
         if(destination.empty()||saveAs)destination=FileDialog(true);if(destination.empty())return false;
         SaveScene(destination,document.scene);path=destination;document.Saved();Sync();return true;
     }
     void Open(){
-        FinishEdit(true);if(!MayDiscard())return;auto candidate=FileDialog(false);if(candidate.empty())return;
+        FinishInk();FinishEdit(true);if(!MayDiscard())return;auto candidate=FileDialog(false);if(candidate.empty())return;
         Scene loaded=LoadScene(candidate); // Validate fully before replacing the current scene.
         for(auto& text:loaded.texts)renderer.FitHeight(text);
-        auto overlay=renderer.Render(loaded);document.Loaded(std::move(loaded));path=candidate;selected=selectedCard=-1;publish(overlay);if(SceneChanged)SceneChanged(document.scene);Sync();
+        auto overlay=renderer.Render(loaded);laser.clear();document.Loaded(std::move(loaded));path=candidate;selected=selectedCard=-1;publish(overlay);if(SceneChanged)SceneChanged(document.scene);Sync();
     }
     void Delete(){FinishEdit(true);if(!HasSelection())return;auto before=document.scene;
         if(Selected())document.scene.texts.erase(document.scene.texts.begin()+selected);else document.scene.cards.erase(document.scene.cards.begin()+selectedCard);
         selected=selectedCard=-1;document.Commit(before);Publish();Sync();}
 
 public:
+    DrawTool DrawingTool()const{return drawTool;}
+    uint32_t PenColor()const{return penColor;}
+    double PenWidth()const{return penWidth;}
+    void SetPenColor(uint32_t color){FinishInk();penColor=color&0xffffff;Sync();}
+    void SetPenWidth(double width){FinishInk();if(std::isfinite(width))penWidth=std::clamp(width,1.,40.);Sync();}
+    void SetDrawingTool(DrawTool tool){FinishInk();FinishEdit(true);drawTool=tool;textTool=false;selected=selectedCard=-1;Sync();SetFocus(window);}
+    void TickInk(Clock::time_point now=Clock::now()){
+        bool hadLaser=!laser.empty();std::erase_if(laser,[&](const auto& sample){return now-sample.time>=std::chrono::milliseconds(900);});
+        if(inkPending||hadLaser){inkPending=false;Publish(false,now);}
+    }
     std::function<void()> StateChanged;
     std::function<void(const Scene&)> SceneChanged;
     bool CardSelected(){return SelectedCard()!=nullptr;}
     const Scene& CurrentScene()const{return document.scene;}
     std::wstring CardName(){return SelectedCard()?SelectedCard()->name:L"";}
-    void NewCardSelection(){FinishEdit(true);selected=selectedCard=-1;textTool=false;Sync();}
-    CardRequestTarget GenerationTarget(){FinishEdit(true);return CaptureCardTarget(document,SelectedCard()?SelectedCard()->id:L"");}
+    void NewCardSelection(){FinishInk();FinishEdit(true);selected=selectedCard=-1;textTool=false;drawTool=DrawTool::None;Sync();}
+    CardRequestTarget GenerationTarget(){FinishInk();FinishEdit(true);return CaptureCardTarget(document,SelectedCard()?SelectedCard()->id:L"");}
     bool TargetCurrent(const CardRequestTarget& target)const{return CardTargetCurrent(document,target);}
     bool AcceptGenerated(const CardRequestTarget& target,const std::wstring& html,const std::wstring& name){
-        FinishEdit(true);if(!ApplyGeneratedCard(document,target,html,name))return false;
-        if(target.creating&&!HasSelection()&&!textTool)selectedCard=static_cast<int>(document.scene.cards.size())-1;
+        FinishInk();FinishEdit(true);if(!ApplyGeneratedCard(document,target,html,name))return false;
+        if(target.creating&&!HasSelection()&&!textTool&&drawTool==DrawTool::None)selectedCard=static_cast<int>(document.scene.cards.size())-1;
         Publish();Sync();return true;
     }
 
     void AddSampleCard(){
-        FinishEdit(true);if(document.scene.cards.size()>=12||document.scene.cards.size()+document.scene.texts.size()>=100)throw std::runtime_error("This scene has reached its card limit.");
+        FinishInk();drawTool=DrawTool::None;FinishEdit(true);if(document.scene.cards.size()>=12||document.scene.cards.size()+document.scene.texts.size()>=100)throw std::runtime_error("This scene has reached its card limit.");
         auto before=document.scene;auto c=SampleCard(!document.scene.cards.empty());
         double offset=.025*(document.scene.cards.size()%4);c.x=std::min(1.-c.width,c.x+offset);c.y=std::min(1.-c.height,c.y+offset);
         document.scene.cards.push_back(c);selected=-1;selectedCard=static_cast<int>(document.scene.cards.size())-1;textTool=false;
@@ -207,9 +253,9 @@ public:
     bool IsEditing()const{return edit!=nullptr;}
     std::shared_ptr<Frame> EditingFrame(const Frame& background){return ComposeText(background,*editingOverlay);}
     void RefreshEdit(){if(edit)InvalidateRect(edit,nullptr,FALSE);}
-    void SetStage(RECT next){stage=next;PositionEdit();}
+    void SetStage(RECT next){FinishInk();stage=next;PositionEdit();}
     bool MayDiscard(){
-        FinishEdit(true);if(!document.Dirty())return true;
+        FinishInk();FinishEdit(true);if(!document.Dirty())return true;
         int answer=MessageBoxW(window,L"Save your changes before continuing?",L"Callayers",MB_YESNOCANCEL|MB_ICONQUESTION);
         if(answer==IDCANCEL)return false;if(answer==IDYES)return Save();return true;
     }
@@ -223,15 +269,16 @@ public:
         if(msg==WM_COMMAND){
             int id=LOWORD(wp),notification=HIWORD(wp);if(id<SelectId||id>EditId)return false;
             if(syncing)return true;
+            if(id!=EditId)FinishInk();
             if(id==EditId){
                 if(notification==EN_CHANGE&&edit&&Selected()){Selected()->text=ReadText(edit);renderer.FitHeight(*Selected());PositionEdit();Publish();}
                 if(notification==EN_KILLFOCUS)PostMessageW(window,WM_APP+21,0,0);return true;
             }
             if(id==SizeId&&notification!=EN_KILLFOCUS)return true;
             if((id==FontId||id==AlignId)&&notification!=CBN_SELCHANGE)return true;
-            if(id==SelectId||id==TextId){FinishEdit(true);textTool=id==TextId;Sync();SetFocus(window);return true;}
+            if(id==SelectId||id==TextId){FinishEdit(true);drawTool=DrawTool::None;textTool=id==TextId;Sync();SetFocus(window);return true;}
             if(id==SaveId){Save();return true;}if(id==OpenId){Open();return true;}
-            if(id==NewIdControl){FinishEdit(true);if(MayDiscard()){document.Loaded({});path.clear();selected=selectedCard=-1;Publish();Sync();}return true;}
+            if(id==NewIdControl){FinishEdit(true);if(MayDiscard()){laser.clear();document.Loaded({});path.clear();selected=selectedCard=-1;Publish();Sync();}return true;}
             if(id==UndoId||id==RedoId){FinishEdit(true);if(id==UndoId)document.Undo();else document.Redo();selected=selectedCard=-1;Publish();Sync();return true;}
             if(id==DeleteId){Delete();return true;}
             auto requestedFamily=ReadText(Control(FontId));auto requestedSize=ReadText(Control(SizeId));
@@ -249,6 +296,18 @@ public:
             }
             renderer.FitHeight(t);document.Commit(before);Publish();Sync();return true;
         }
+        if((msg==WM_LBUTTONDOWN||msg==WM_LBUTTONDBLCLK)&&drawTool!=DrawTool::None){
+            POINT p{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};if(!PtInRect(&stage,p))return false;FinishInk();FinishEdit(true);SetFocus(window);lastInk=StagePoint(p);
+            if(drawTool==DrawTool::Pen){
+                inkPointCount=0;for(const auto& stroke:document.scene.ink)inkPointCount+=stroke.points.size();
+                if(document.scene.ink.size()>=MaxInkStrokes||inkPointCount>=MaxInkPoints)throw std::runtime_error("Drawing limit reached. Erase some strokes before adding more.");
+            }
+            beforeInk=document.scene;
+            if(drawTool==DrawTool::Pen){InkStroke stroke;stroke.id=NewId();stroke.color=penColor;stroke.width=penWidth;stroke.points={lastInk};document.scene.ink.push_back(std::move(stroke));++inkPointCount;}
+            marking=true;SetCapture(window);InkMove(p,true);TickInk();return true;
+        }
+        if(msg==WM_MOUSEMOVE&&marking){InkMove({GET_X_LPARAM(lp),GET_Y_LPARAM(lp)});return true;}
+        if((msg==WM_LBUTTONUP||msg==WM_CAPTURECHANGED||msg==WM_CANCELMODE)&&marking){if(msg==WM_LBUTTONUP)InkMove({GET_X_LPARAM(lp),GET_Y_LPARAM(lp)});FinishInk();return true;}
         if(msg==WM_LBUTTONDOWN){
             FinishEdit(true);POINT p{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};if(!PtInRect(&stage,p))return false;SetFocus(window);
             if(textTool){
@@ -268,7 +327,7 @@ public:
         if((msg==WM_LBUTTONUP||msg==WM_CAPTURECHANGED)&&dragging){dragging=false;document.Commit(beforeDrag);ReleaseCapture();Sync();return true;}
         if(msg==WM_SETCURSOR&&LOWORD(lp)==HTCLIENT){
             POINT p;GetCursorPos(&p);ScreenToClient(window,&p);if(PtInRect(&stage,p)){
-                int handle=HitHandle(p);LPCWSTR cursor=handle>=4?IDC_SIZEWE:(handle==0||handle==2)?IDC_SIZENWSE:(handle==1||handle==3)?IDC_SIZENESW:textTool?IDC_IBEAM:IDC_ARROW;
+                int handle=HitHandle(p);LPCWSTR cursor=drawTool!=DrawTool::None?IDC_CROSS:handle>=4?IDC_SIZEWE:(handle==0||handle==2)?IDC_SIZENWSE:(handle==1||handle==3)?IDC_SIZENESW:textTool?IDC_IBEAM:IDC_ARROW;
                 SetCursor(LoadCursorW(nullptr,cursor));result=TRUE;return true;
             }
         }
@@ -280,11 +339,12 @@ public:
         if(control&&key=='O'){Open();return true;}
         if(edit)return false;
         if(GetFocus()==Control(SizeId)||GetFocus()==Control(FontId)||GetFocus()==Control(AlignId))return false;
-        if(control&&(key=='Z'||key=='Y')){if(key=='Y'||(GetKeyState(VK_SHIFT)&0x8000))document.Redo();else document.Undo();selected=selectedCard=-1;Publish();Sync();return true;}
-        if(key==VK_ESCAPE){if(dragging){dragging=false;document.scene=beforeDrag;ReleaseCapture();Publish();}selected=selectedCard=-1;textTool=false;Sync();return true;}
+        if(control&&(key=='Z'||key=='Y')){FinishInk();if(key=='Y'||(GetKeyState(VK_SHIFT)&0x8000))document.Redo();else document.Undo();selected=selectedCard=-1;Publish();Sync();return true;}
+        if(key==VK_ESCAPE){FinishInk(false);if(!laser.empty()){laser.clear();Publish(false);}if(dragging){dragging=false;document.scene=beforeDrag;ReleaseCapture();Publish();}selected=selectedCard=-1;textTool=false;drawTool=DrawTool::None;Sync();return true;}
         if(key==VK_DELETE){Delete();return true;}
         if(key==VK_F2&&Selected()){BeginEdit(document.scene);return true;}
-        if(!control&&key=='T'){textTool=true;Sync();return true;}
+        if(!control&&key=='T'){FinishInk();drawTool=DrawTool::None;textTool=true;Sync();return true;}
+        if(!control&&(key=='P'||key=='E'||key=='L')){SetDrawingTool(key=='P'?DrawTool::Pen:key=='E'?DrawTool::Eraser:DrawTool::Laser);return true;}
         return false;
     }
     void PaintAdorners(HDC dc){

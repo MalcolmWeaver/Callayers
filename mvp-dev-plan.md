@@ -225,6 +225,18 @@ Verification completed:
 
 **Exit:** the user can explain something spontaneously without generating a card.
 
+### Implementation status — October 10, 2026
+
+Implemented and locally verified; audience-view testing in a real call remains:
+
+- Draw menu with Pen, whole-stroke Eraser, and fading Laser. Stage shortcuts are P/E/L; text fields retain ordinary typing. Pen has five colors and three widths.
+- Ink uses normalized stage coordinates, rounded strokes/dots, and a foreground layer above cards and text. One pen stroke or eraser drag is one undo action. Escape cancels an active gesture; capture loss completes it.
+- Version-3 decks preserve ink geometry/style, with versions 1 and 2 still supported. Laser trails fade over 0.9 seconds and are excluded from saves, dirty state, and undo history.
+- Drawing remains fixed-width; pressure sensitivity and moving/scaling completed ink are not implemented.
+- Full Release build and all six suites pass. New checks cover ink disk/JSON round trips, invalid geometry, rendering, swept eraser hits, preservation of unrelated content, stroke/eraser undo, capture loss, and transient laser fade/history.
+- Running-app checks confirmed tool selection, color selection, drawing, single-step undo, and laser rendering. The registered Windows camera contained the test stroke in all 60 frames over 2.01 seconds. Undo removed it; a 15-frame negative-control check correctly found no stroke.
+- Remaining acceptance: comfort/latency on the user's actual pointing device and a real meeting check. No pressure-sensitive tablet testing or remote participant observation is claimed.
+
 ## 7. Add output zoom and Clear overlays
 
 **Build**

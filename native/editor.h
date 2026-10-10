@@ -31,10 +31,36 @@ inline CardElement ResizeCard(const CardElement& start,int handle,double dx,doub
     if(handle<4){double y=std::clamp((top?start.y:start.y+start.height)+dy,top?0.:start.y+.08,top?start.y+start.height-.08:1.);c.y=top?y:start.y;c.height=top?start.y+start.height-y:y-start.y;}
     return c;
 }
+struct InkPoint {
+    double x=0,y=0;
+    bool operator==(const InkPoint&)const=default;
+};
+struct InkStroke {
+    std::wstring id;
+    std::vector<InkPoint> points;
+    uint32_t color=0xbaf2cd;
+    double width=6;
+    bool operator==(const InkStroke&)const=default;
+};
+inline constexpr size_t MaxInkStrokes=512,MaxStrokePoints=4096,MaxInkPoints=65536;
+inline double PointSegmentDistance(InkPoint p,InkPoint a,InkPoint b){
+    double dx=(b.x-a.x)*Width,dy=(b.y-a.y)*Height,px=(p.x-a.x)*Width,py=(p.y-a.y)*Height;
+    double t=dx*dx+dy*dy>0?std::clamp((px*dx+py*dy)/(dx*dx+dy*dy),0.,1.):0.;return std::hypot(px-t*dx,py-t*dy);
+}
+inline bool InkHit(const InkStroke& stroke,InkPoint from,InkPoint to,double radius){
+    radius+=stroke.width/2;
+    for(size_t i=0;i<stroke.points.size();++i){auto a=stroke.points[i],b=stroke.points[i?i-1:i];
+        if(std::min({PointSegmentDistance(a,from,to),PointSegmentDistance(b,from,to),PointSegmentDistance(from,a,b),PointSegmentDistance(to,a,b)})<=radius)return true;
+        auto cross=[](InkPoint a,InkPoint b,InkPoint c){return (b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x);};
+        if(cross(a,b,from)*cross(a,b,to)<0&&cross(from,to,a)*cross(from,to,b)<0)return true;
+    }
+    return false;
+}
 struct Scene {
     std::wstring title=L"Untitled";
     std::vector<TextElement> texts;
     std::vector<CardElement> cards;
+    std::vector<InkStroke> ink;
     bool operator==(const Scene&)const=default;
 };
 inline std::wstring NewId(){GUID id;Check(CoCreateGuid(&id));wchar_t text[40];StringFromGUID2(id,text,40);return text;}
@@ -117,7 +143,7 @@ inline TextElement ResizeText(const TextElement& start,int handle,double dx,doub
 inline std::string EncodeScene(const Scene& scene){
     using namespace winrt::Windows::Data::Json;
     JsonObject root;root.SetNamedValue(L"format",JsonValue::CreateStringValue(L"callayers"));
-    root.SetNamedValue(L"version",JsonValue::CreateNumberValue(scene.cards.empty()?1:2));root.SetNamedValue(L"title",JsonValue::CreateStringValue(scene.title));
+    root.SetNamedValue(L"version",JsonValue::CreateNumberValue(!scene.ink.empty()?3:scene.cards.empty()?1:2));root.SetNamedValue(L"title",JsonValue::CreateStringValue(scene.title));
     JsonArray elements;
     for(const auto& t:scene.texts){
         JsonObject o;
@@ -136,6 +162,12 @@ inline std::string EncodeScene(const Scene& scene){
         o.SetNamedValue(L"x",JsonValue::CreateNumberValue(c.x));o.SetNamedValue(L"y",JsonValue::CreateNumberValue(c.y));
         o.SetNamedValue(L"width",JsonValue::CreateNumberValue(c.width));o.SetNamedValue(L"height",JsonValue::CreateNumberValue(c.height));elements.Append(o);
     }
+    for(const auto& stroke:scene.ink){
+        JsonObject o;o.SetNamedValue(L"type",JsonValue::CreateStringValue(L"ink"));o.SetNamedValue(L"id",JsonValue::CreateStringValue(stroke.id));
+        o.SetNamedValue(L"color",JsonValue::CreateNumberValue(stroke.color));o.SetNamedValue(L"width",JsonValue::CreateNumberValue(stroke.width));
+        JsonArray points;for(auto p:stroke.points){JsonArray pair;pair.Append(JsonValue::CreateNumberValue(p.x));pair.Append(JsonValue::CreateNumberValue(p.y));points.Append(pair);}
+        o.SetNamedValue(L"points",points);elements.Append(o);
+    }
     JsonObject shot;shot.SetNamedValue(L"elements",elements);JsonArray scenes;scenes.Append(shot);root.SetNamedValue(L"scenes",scenes);
     return winrt::to_string(root.Stringify());
 }
@@ -143,16 +175,29 @@ inline Scene DecodeScene(const std::string& bytes){
     using namespace winrt::Windows::Data::Json;
     if(bytes.size()>8*1024*1024)throw std::runtime_error("This deck is too large to open.");
     auto root=JsonObject::Parse(winrt::to_hstring(bytes));
-    if(root.GetNamedString(L"format")!=L"callayers"||(root.GetNamedNumber(L"version")!=1&&root.GetNamedNumber(L"version")!=2))
+    if(root.GetNamedString(L"format")!=L"callayers"||(root.GetNamedNumber(L"version")!=1&&root.GetNamedNumber(L"version")!=2&&root.GetNamedNumber(L"version")!=3))
         throw std::runtime_error("Unsupported Callayers file version.");
     auto scenes=root.GetNamedArray(L"scenes");
     if(scenes.Size()!=1)throw std::runtime_error("This editor currently supports one scene per file.");
     Scene scene;scene.title=root.GetNamedString(L"title");
     auto items=scenes.GetObjectAt(0).GetNamedArray(L"elements");
-    if(items.Size()>100)throw std::runtime_error("This scene exceeds the 100-element limit.");
+    if(items.Size()>100+MaxInkStrokes)throw std::runtime_error("This scene exceeds the element limit.");
+    size_t totalPoints=0;
     std::set<std::wstring> ids;
     for(const auto& item:items){
         auto o=item.GetObject();TextElement t;
+        if(o.GetNamedString(L"type")==L"ink"){
+            InkStroke stroke;stroke.id=o.GetNamedString(L"id");stroke.width=o.GetNamedNumber(L"width");double color=o.GetNamedNumber(L"color");auto points=o.GetNamedArray(L"points");
+            totalPoints+=points.Size();
+            if(stroke.id.empty()||!ids.insert(stroke.id).second||!std::isfinite(stroke.width)||stroke.width<1||stroke.width>40||
+                !std::isfinite(color)||color<0||color>0xffffff||color!=std::floor(color)||points.Size()==0||points.Size()>MaxStrokePoints||totalPoints>MaxInkPoints||scene.ink.size()>=MaxInkStrokes)
+                throw std::runtime_error("Invalid drawing or drawing limit exceeded.");
+            stroke.color=static_cast<uint32_t>(color);
+            for(const auto& value:points){auto pair=value.GetArray();if(pair.Size()!=2)throw std::runtime_error("Invalid ink point.");InkPoint p{pair.GetNumberAt(0),pair.GetNumberAt(1)};
+                if(!std::isfinite(p.x)||!std::isfinite(p.y)||p.x<0||p.y<0||p.x>1||p.y>1)throw std::runtime_error("Ink is outside the stage.");stroke.points.push_back(p);}
+            scene.ink.push_back(std::move(stroke));continue;
+        }
+        if(scene.cards.size()+scene.texts.size()>=100)throw std::runtime_error("This scene exceeds the 100-element limit.");
         if(o.GetNamedString(L"type")==L"card"){
             CardElement c;c.id=o.GetNamedString(L"id");c.html=o.GetNamedString(L"html");c.name=o.GetNamedString(L"name",L"Card");
             c.x=o.GetNamedNumber(L"x");c.y=o.GetNamedNumber(L"y");c.width=o.GetNamedNumber(L"width");c.height=o.GetNamedNumber(L"height");

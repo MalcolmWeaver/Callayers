@@ -26,6 +26,7 @@ inline std::shared_ptr<const TextOverlay> OverlayFromBgra(const BYTE* pixels,UIN
         }
     return result;
 }
+struct InkMark {InkStroke stroke;float opacity=1;};
 class TextRenderer {
     ComPtr<ID2D1Factory> d2d;
     ComPtr<IDWriteFactory> write;
@@ -51,8 +52,8 @@ public:
         t.height=std::clamp<double>(std::ceil(metrics.height+2)/Height,.01,1.);
         t.y=std::min(t.y,1.-t.height);
     }
-    std::shared_ptr<const TextOverlay> Render(const Scene& scene){
-        auto result=std::make_shared<TextOverlay>();if(scene.texts.empty())return result;
+    std::shared_ptr<const TextOverlay> Render(const Scene& scene,const std::vector<InkMark>& transient={}){
+        auto result=std::make_shared<TextOverlay>();if(scene.texts.empty()&&scene.ink.empty()&&transient.empty())return result;
         ComPtr<IWICBitmap> bitmap;Check(wic->CreateBitmap(Width,Height,GUID_WICPixelFormat32bppPBGRA,WICBitmapCacheOnLoad,&bitmap));
         ComPtr<ID2D1RenderTarget> target;
         auto properties=D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_SOFTWARE,D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM,D2D1_ALPHA_MODE_PREMULTIPLIED),96,96);
@@ -65,6 +66,18 @@ public:
             auto rect=D2D1::RectF(static_cast<float>(t.x*Width),static_cast<float>(t.y*Height),static_cast<float>((t.x+t.width)*Width),static_cast<float>((t.y+t.height)*Height));
             target->DrawText(t.text.c_str(),static_cast<UINT32>(t.text.size()),format.Get(),rect,brush.Get(),D2D1_DRAW_TEXT_OPTIONS_CLIP);
         }
+        ComPtr<ID2D1StrokeStyle> round;
+        auto style=D2D1::StrokeStyleProperties();style.startCap=style.endCap=style.dashCap=D2D1_CAP_STYLE_ROUND;style.lineJoin=D2D1_LINE_JOIN_ROUND;
+        Check(d2d->CreateStrokeStyle(style,nullptr,0,&round));
+        auto draw=[&](const InkStroke& stroke,float opacity){
+            if(stroke.points.empty())return;ComPtr<ID2D1SolidColorBrush> brush;Check(target->CreateSolidColorBrush(D2D1::ColorF(stroke.color,opacity),&brush));
+            auto point=[](InkPoint p){return D2D1::Point2F(static_cast<float>(p.x*Width),static_cast<float>(p.y*Height));};
+            auto width=static_cast<float>(stroke.width);
+            if(stroke.points.size()==1)target->FillEllipse(D2D1::Ellipse(point(stroke.points[0]),width/2,width/2),brush.Get());
+            else for(size_t i=1;i<stroke.points.size();++i)target->DrawLine(point(stroke.points[i-1]),point(stroke.points[i]),brush.Get(),width,round.Get());
+        };
+        for(const auto& stroke:scene.ink)draw(stroke,1);
+        for(const auto& mark:transient)draw(mark.stroke,mark.opacity);
         Check(target->EndDraw());
         std::vector<BYTE> pixels(Width*Height*4);Check(bitmap->CopyPixels(nullptr,Width*4,static_cast<UINT>(pixels.size()),pixels.data()));
         return OverlayFromBgra(pixels.data(),Width*4);

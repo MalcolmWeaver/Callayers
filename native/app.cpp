@@ -258,6 +258,7 @@ struct App {
         InvalidateRect(window,nullptr,FALSE);
     }
     void Tick(){
+        if(editor)editor->TickInk();
         if(shellOnly){
             if(frames->mode==1)frames->latest=Pattern(++frames->sequence);
             auto background=frames->latest.load();if(GetTickCount64()-background->header.capturedMs>750)background=frames->idle;
