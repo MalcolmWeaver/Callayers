@@ -18,7 +18,7 @@ The agreed scope and longer-term direction are in [project.md](project.md). This
 
 Build a clean shell progressively. Do not defer all usability work until the last milestone, and do not build a second camera backend preemptively.
 
-## 1. Establish the real camera path
+## 1. Establish the real camera path — complete
 
 **Build**
 
@@ -48,7 +48,7 @@ Fresh milestone-1 code is in `native/`, with CMake build and setup scripts. The 
 - Fixed a premature shutdown when Windows released the activation helper. The regression test releases that helper before requesting source characteristics and samples; it reproduced `MF_E_SHUTDOWN` before the fix and now passes.
 - The corrected source is registered. Windows camera-reader integration passes: 120 moving-pattern frames in 3.98 seconds, 120 webcam frames in 4.01 seconds, and 30 idle frames after the producer closes.
 - A single Windows reader remained connected for 420 frames (13.98 seconds) across producer close and restart, observing live output, 61 idle frames, and recovered live output.
-- The second-device Zoom check remains pending.
+- The user confirmed step 1 complete on October 10, 2026 and requested work on step 2. This records user acceptance; it does not claim an agent-observed Zoom call.
 - Preview repainting now uses a persistent offscreen buffer and one final blit, suppresses background erasure, and updates status controls only when their values change. This addresses the reported white flashing. The rebuilt app was reopened with the webcam, and the registered output passed a further 60-frame live test; visual confirmation of the preview remains with the user.
 
 Bootstrap differences: the first window uses Win32/GDI and CPU conversion, and frame transport uses a bounded local named pipe. The planned WinUI/D3D11 editor/compositor is not yet implemented. See [README.md](README.md) for build, registration, verification, and removal instructions.
@@ -70,6 +70,47 @@ Bootstrap differences: the first window uses Win32/GDI and CPU conversion, and f
 - Verify the remote participant sees text but no caret, selection handles, or editing controls. The local text editor is outside the video composition.
 
 **Exit:** a small usable scene editor exists before adding generated content.
+
+### Implementation status — October 10, 2026
+
+Implemented and ready for user acceptance:
+
+- Text tool with click-to-place, double-click/F2 editing, live typing, and commit/cancel. The edit box and caret are local only.
+- Selection and movement; corners scale text and its rectangle together, side handles change wrap width without changing font size.
+- Font family, reference-pixel size, bold, color, alignment, and deletion.
+- Undo/redo with each completed drag or typing session committed as one action.
+- New/Open/Save, Ctrl+S and Ctrl+Shift+S, version-1 JSON files, atomic file replacement, and unsaved-change prompts.
+- Immutable text overlays composed into the same NV12 frame used by preview and virtual-camera output. Selection adorners are painted only in the native editor.
+
+Verification completed:
+
+- All four automated suites pass: frame protocol, media-source lifecycle, editor document/rendering, and native editor interactions.
+- Document checks cover Unicode/style/geometry save-load, replacement of an existing file, invalid versions and duplicate identities, undo/redo, and resize semantics.
+- Interaction checks cover creating/typing, commit/cancel, selection without output changes, coalesced drag undo, and delete/undo.
+- Registered Windows camera delivered 90 frames in 2.98 seconds with the expected text pixels present in every frame.
+
+Remaining acceptance: try the editor in a meeting and confirm typing, handles, save/reopen, and editing controls behave as intended. This remains the native Win32 bootstrap shell, now with DirectWrite/Direct2D text rendering; the broader WinUI editor migration is not part of this slice.
+
+## 2.5. Establish the modern WinUI 3 shell
+
+**Build**
+
+- Replace the temporary Win32 controls with a native WinUI 3 / C++/WinRT shell, retaining the working camera output, scene model, text rendering, and save/undo behavior.
+- Establish the intended desktop layout: a clean top bar, large central stage, compact tool strip, and contextual text controls. Reserve room for the later card prompt and scene thumbnails without showing nonfunctional controls.
+- Apply consistent typography, spacing, subtle borders, restrained rounding, and a periwinkle accent. Keep the interface familiar on Windows while giving Callayers its own identity.
+- Introduce the Callayers frame-mark logo and wordmark, with a readable taskbar icon.
+- Preserve direct text editing over the stage, with text boxes fitted to their content height.
+- Keep camera status and save state clear without letting technical messages dominate the workspace.
+
+**Verify**
+
+- Review the running interface at typical laptop sizes and Windows display scaling settings; confirm controls remain readable and the stage gets the available space.
+- Create, edit, move, resize, undo, save, and reopen text using the new shell. Confirm keyboard shortcuts, focus, and unsaved-change prompts still work.
+- Confirm the live preview remains stable while typing, dragging, and resizing the window.
+- Verify in a real meeting that the webcam and text still reach the audience, with no editor controls or selection handles in the outgoing video.
+- Review the visual result with the user before adding the card interface.
+
+**Exit:** the working camera and text editor run inside the modern, branded WinUI 3 shell. This is an explicit MVP milestone before cards; step 9 refines the established design rather than introducing it for the first time.
 
 ## 3. Prove live card rendering
 

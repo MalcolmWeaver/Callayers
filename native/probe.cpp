@@ -107,7 +107,7 @@ void ProbeDevice(const Device& device,unsigned count,const std::wstring& expecta
         Check(attributes->SetUnknown(MF_SOURCE_READER_ASYNC_CALLBACK,callback.Get()));
         ComPtr<IMFSourceReader> reader;Check(MFCreateSourceReaderFromMediaSource(source.Get(),attributes.Get(),&reader));
         auto type=VideoType();Check(reader->SetCurrentMediaType(VideoStream,nullptr,type.Get()));
-        uint64_t first=0,last=0;unsigned changes=0,idleCount=0;bool liveBeforeIdle=false,liveAfterIdle=false;
+        uint64_t first=0,last=0;unsigned changes=0,idleCount=0,textFrames=0;bool liveBeforeIdle=false,liveAfterIdle=false;
         auto idle=Pattern(0,true);const auto idleHash=Hash(idle->pixels.data(),FrameBytes);
         LONGLONG prior=-1;auto began=Clock::now();
         for(unsigned i=0;i<count;){
@@ -117,7 +117,12 @@ void ProbeDevice(const Device& device,unsigned count,const std::wstring& expecta
             if(!callback->sample)continue;
             LONGLONG time;Check(callback->sample->GetSampleTime(&time));Require(time>prior,"non-monotonic timestamp");prior=time;
             ComPtr<IMFMediaBuffer> buffer;Check(callback->sample->ConvertToContiguousBuffer(&buffer));BYTE* data;DWORD length;
-            Check(buffer->Lock(&data,nullptr,&length));Require(length>=FrameBytes,"short frame");auto hash=Hash(data,length);buffer->Unlock();
+            Check(buffer->Lock(&data,nullptr,&length));Require(length>=FrameBytes,"short frame");auto hash=Hash(data,length);
+            if(expectation==L"--expect-text"){
+                unsigned bright=0;for(UINT y=120;y<270;++y)for(UINT x=80;x<1100;++x)if(data[y*Width+x]>220)++bright;
+                if(bright>1000)++textFrames;
+            }
+            buffer->Unlock();
             if(hash==idleHash)++idleCount;
             else if(idleCount==0)liveBeforeIdle=true;
             else if(liveBeforeIdle)liveAfterIdle=true;
@@ -128,6 +133,7 @@ void ProbeDevice(const Device& device,unsigned count,const std::wstring& expecta
         if(expectation==L"--expect-moving")Require(changes>count/2&&idleCount<count/10,"registered output is not live");
         if(expectation==L"--expect-idle")Require(idleCount==count,"expected only idle frames");
         if(expectation==L"--expect-recovery")Require(liveBeforeIdle&&idleCount>=8&&liveAfterIdle,"expected live -> idle -> live in one reader session");
+        if(expectation==L"--expect-text")Require(textFrames==count,"generated text pixels missing from outgoing camera frames");
         std::cout<<"PASS: registered camera samples and expectations\n";
         reader->Flush(AllStreams);source->Shutdown();
     }catch(...){source->Shutdown();throw;}

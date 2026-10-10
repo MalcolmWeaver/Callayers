@@ -1,6 +1,6 @@
 # Callayers
 
-Fresh implementation of milestone 1 in [mvp-dev-plan.md](mvp-dev-plan.md).
+Fresh implementation of milestones 1 and 2 in [mvp-dev-plan.md](mvp-dev-plan.md).
 The previous implementation remains deleted; nothing here restores it.
 
 ## Build
@@ -12,7 +12,7 @@ Requires Windows 11, CMake 3.24+, Visual Studio 2022 C++ build tools, and Window
 ```
 
 Outputs are in `build\Release`: `Callayers.exe`, `CallayersCamera.dll`, and `CameraProbe.exe`.
-The build script runs protocol/color conversion and media-source lifecycle tests.
+The build script runs protocol/color conversion, media-source lifecycle, editor document/rendering, and native editor interaction tests.
 The lifecycle test also releases the activation helper before using the source, guarding against premature shutdown during Windows startup.
 
 ## Register and run
@@ -27,7 +27,7 @@ This copies a versioned development DLL into `%ProgramFiles%\Callayers Developme
 
 Run `build\Release\Callayers.exe` as your normal user. Choose **Test pattern** or a webcam, then click **Start camera output**. Select **Callayers (Windows Virtual Camera)** in a meeting app; Windows controls the appended device-name suffix.
 
-The basic window is intentionally a milestone-1 diagnostic shell. It is not the final branded editor.
+The window is an early native editor. It is not the final branded interface.
 Launch with `--webcam --publish` to select the first available webcam and start output immediately.
 
 - Moving bar: active test pattern.
@@ -37,6 +37,19 @@ Launch with `--webcam --publish` to select the first available webcam and start 
 - Closing the app stops physical webcam capture. The registered virtual device remains available and supplies its own idle frames.
 
 Camera creation persists for the current user. Registration of the source DLL is machine-wide. The development producer is single-instance per machine, with local pipe access limited to its user, service identities, and administrators. This is a development build, not a signed release installer.
+
+## Text editor
+
+- Click **Text** (or press **T**), then click the stage to place text. Start typing to replace the placeholder.
+- **Ctrl+Enter** commits; **Escape** cancels the editing session. Clicking outside the text box also commits.
+- Double-click text or press **F2** on a selection to edit again. Enter creates a new line.
+- Drag the text box to move it. Corner handles scale the box and font together; left/right middle handles change wrapping width only.
+- Use the toolbar for font, size (1080p reference pixels), bold, color, and alignment. Click away from the size field to apply it.
+- **Delete** removes the selected text. **Ctrl+Z** undoes; **Ctrl+Y** or **Ctrl+Shift+Z** redoes. While typing, native text-field undo works until the session is committed.
+- **Save / Ctrl+S** saves a `.callayers.json` file. **Ctrl+Shift+S** saves under another name. **Open / Ctrl+O** reopens it.
+- **New** clears the scene after offering to save changes. Closing the window also protects unsaved work.
+
+Text appears in the video as it is typed, but its native editing box, caret, selection border, resize handles, and toolbar do not. The initial file format supports one scene and up to 100 text elements; multi-scene management comes in a later milestone. Generated-card text editing remains separate future work.
 
 ## Verify
 
@@ -63,13 +76,18 @@ For the final acceptance check, join a real Zoom call from a second device. Veri
 ## Architecture of this first slice
 
 - `native/app.cpp`: native Win32 preview, webcam selection, asynchronous Media Foundation capture, pattern generation, producer transport, and virtual-camera start.
+- `native/editor.h`: text model, coalesced document history, and validated versioned JSON save/load with atomic replacement.
+- `native/text_renderer.h`: DirectWrite/Direct2D text rasterization and immutable text overlays blended into NV12 frames.
+- `native/text_editor_ui.h`: native text editing, selection/dragging, handles, style controls, and file actions. Editor-only controls never enter the compositor.
 - `native/source.cpp`: COM activation, Media Foundation source and stream, 30-fps sample delivery, and idle fallback. Windows Frame Server loads this DLL.
 - `native/common.h`: fixed 1920×1080 NV12 protocol, BT.709 conversion, aspect-ratio handling, and bounded pipe transfers.
 - `native/probe.cpp`: frame tests, direct source activation/lifecycle test, device enumeration, and real Windows camera reader.
 
-Preview and output use the same complete NV12 frames. The initial transport is a local named pipe with bounded, acknowledged transfers, rather than shared-memory slots. A producer timestamp older than 750 ms is rejected; an absent producer yields a distinct static idle frame. The source schedules timestamps and frame pacing independently of the app.
+Preview and output use the same complete NV12 frames except during typing: the local preview omits the active text element so the native editing control can draw it over a buffered copy of the live background without doubling the text. The camera output continues using DirectWrite text and never includes selection or caret controls. Text boxes automatically fit their content height after typing, font changes, or width changes.
 
-The planned WinUI 3 shell, D3D11 compositor, and GPU conversion are **not implemented in this bootstrap**. It currently uses a Win32 window and CPU conversion/GDI preview to prove the camera path without a UI-framework dependency. Keep the protocol and virtual-camera boundary while introducing the planned compositor in the next stage. Profile before deciding whether to replace the pipe with shared memory.
+The initial transport is a local named pipe with bounded, acknowledged transfers, rather than shared-memory slots. A producer timestamp older than 750 ms is rejected; an absent producer yields a distinct static idle frame. The source schedules timestamps and frame pacing independently of the app.
+
+The planned WinUI 3 shell, D3D11 compositor, and GPU conversion are **not implemented in this bootstrap**. It uses a Win32 window, CPU frame composition, DirectWrite/Direct2D text rasterization, and a buffered GDI preview. Keep the protocol and virtual-camera boundary while introducing the planned GPU compositor. Profile before deciding whether to replace the pipe with shared memory.
 
 ## Remove development registration
 

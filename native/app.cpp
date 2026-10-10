@@ -1,4 +1,5 @@
 #include "common.h"
+#include "text_editor_ui.h"
 #include <commctrl.h>
 #include <fstream>
 
@@ -10,12 +11,14 @@ using Microsoft::WRL::Make;
 namespace {
 struct Frames {
     std::atomic<std::shared_ptr<Frame>> latest{Pattern(0,true)};
+    std::atomic<std::shared_ptr<Frame>> composed{Pattern(0,true)};
+    std::atomic<std::shared_ptr<const TextOverlay>> overlay;
     std::atomic<int> mode{1};
     std::atomic<HRESULT> error{S_OK};
     std::atomic<uint64_t> sequence{0};
     std::shared_ptr<Frame> idle=Pattern(0,true);
     std::shared_ptr<Frame> Current() {
-        auto f=latest.load();
+        auto f=composed.load();
         return GetTickCount64()-f->header.capturedMs>750?idle:f;
     }
 };
@@ -43,6 +46,12 @@ public:
             auto due=Clock::now();
             while(WaitForSingleObject(stop.value,0)!=WAIT_OBJECT_0) {
                 if(frames->mode==1)frames->latest=Pattern(++frames->sequence);
+                auto background=frames->latest.load();
+                if(GetTickCount64()-background->header.capturedMs>750)background=frames->idle;
+                auto overlay=frames->overlay.load();
+                auto output=overlay?ComposeText(*background,*overlay):std::make_shared<Frame>(*background);
+                output->header.capturedMs=GetTickCount64();
+                frames->composed=std::move(output);
                 due+=std::chrono::nanoseconds(1'000'000'000/Fps);
                 auto remaining=std::chrono::duration_cast<std::chrono::milliseconds>(due-Clock::now()).count();
                 if(remaining>0)WaitForSingleObject(stop.value,static_cast<DWORD>(remaining));else due=Clock::now();
@@ -194,6 +203,7 @@ struct App {
     HWND window=nullptr,choice=nullptr,status=nullptr,start=nullptr;
     std::shared_ptr<Frames> frames=std::make_shared<Frames>();
     std::unique_ptr<Publisher> publisher;
+    std::unique_ptr<TextEditorUI> editor;
     ComPtr<Capture> capture;
     ComPtr<IMFVirtualCamera> virtualCamera;
     std::thread activation;
@@ -229,11 +239,12 @@ struct App {
     void Layout(){
         RECT r;GetClientRect(window,&r);const int margin=20;
         MoveWindow(choice,margin,20,300,240,TRUE);MoveWindow(start,340,20,180,30,TRUE);
-        MoveWindow(status,margin,60,std::max(100L,r.right-40),45,TRUE);
-        const int availableW=std::max(1L,r.right-2*margin),availableH=std::max(1L,r.bottom-130);
+        MoveWindow(status,margin,100,std::max(100L,r.right-40),55,TRUE);
+        const int availableW=std::max(1L,r.right-2*margin),availableH=std::max(1L,r.bottom-180);
         const double scale=std::min(double(availableW)/Width,double(availableH)/Height);
         int w=static_cast<int>(Width*scale),h=static_cast<int>(Height*scale);
-        stage={(r.right-w)/2,115,(r.right+w)/2,115+h};
+        stage={(r.right-w)/2,165,(r.right+w)/2,165+h};
+        if(editor)editor->SetStage(stage);
         InvalidateRect(window,nullptr,FALSE);
     }
     void Tick(){
@@ -250,10 +261,16 @@ struct App {
         HRESULT error=frames->error.load();
         if(FAILED(error))message=L"Webcam unavailable: "+ErrorText(error)+L" Choose Test pattern or retry the webcam.";
         else if(frames->mode==2&&frame->header.mode==0)message=L"Waiting for webcam frames — idle image is being sent.";
+        message+=L"\r\nText: click to place · Double-click to edit · Ctrl+Enter to finish · Corners scale · Side handles wrap · Ctrl+S saves";
         if(message!=displayedStatus){SetWindowTextW(status,message.c_str());displayedStatus=message;}
         const BOOL canStart=!activating;
         if(IsWindowEnabled(start)!=canStart)EnableWindow(start,canStart);
         if(!IsIconic(window)){
+            if(editor&&editor->IsEditing()){
+                auto background=frames->latest.load();
+                if(GetTickCount64()-background->header.capturedMs>750)background=frames->idle;
+                frame=editor->EditingFrame(*background);
+            }
             ToBgra(*frame,preview);
             InvalidateRect(window,&stage,FALSE);
         }
@@ -263,6 +280,8 @@ LRESULT CALLBACK WindowProc(HWND window,UINT msg,WPARAM wp,LPARAM lp){
     auto app=reinterpret_cast<App*>(GetWindowLongPtrW(window,GWLP_USERDATA));
     if(msg==WM_NCCREATE){app=static_cast<App*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);app->window=window;SetWindowLongPtrW(window,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(app));}
     if(!app)return DefWindowProcW(window,msg,wp,lp);
+    try{
+    if(app->editor){LRESULT result;if(app->editor->Message(msg,wp,lp,result))return result;}
     switch(msg){
     case WM_CREATE:{
         app->choice=CreateWindowW(WC_COMBOBOXW,L"",WS_CHILD|WS_VISIBLE|CBS_DROPDOWNLIST|WS_VSCROLL,0,0,0,0,window,reinterpret_cast<HMENU>(101),nullptr,nullptr);
@@ -272,7 +291,9 @@ LRESULT CALLBACK WindowProc(HWND window,UINT msg,WPARAM wp,LPARAM lp){
         app->start=CreateWindowW(L"BUTTON",L"Start camera output",WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,0,0,0,0,window,reinterpret_cast<HMENU>(102),nullptr,nullptr);
         app->status=CreateWindowW(L"STATIC",L"",WS_CHILD|WS_VISIBLE,0,0,0,0,window,nullptr,nullptr,nullptr);
         for(HWND control:{app->choice,app->start,app->status})SendMessageW(control,WM_SETFONT,reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)),TRUE);
+        app->editor=std::make_unique<TextEditorUI>(window,[app](auto overlay){app->frames->overlay=std::move(overlay);});
         SetTimer(window,1,33,nullptr);return 0;}
+    case WM_GETMINMAXINFO:{auto info=reinterpret_cast<MINMAXINFO*>(lp);info->ptMinTrackSize={960,540};return 0;}
     case WM_SIZE:app->Layout();return 0;
     case WM_TIMER:app->Tick();return 0;
     case WM_COMMAND:
@@ -292,12 +313,15 @@ LRESULT CALLBACK WindowProc(HWND window,UINT msg,WPARAM wp,LPARAM lp){
             SetStretchBltMode(dc,HALFTONE);SetBrushOrgEx(dc,0,0,nullptr);
             auto r=app->stage;StretchDIBits(dc,r.left,r.top,r.right-r.left,r.bottom-r.top,0,0,Width,Height,app->preview.data(),&info,DIB_RGB_COLORS,SRCCOPY);
             }
+            if(app->editor)app->editor->PaintAdorners(dc);
             const auto& r=ps.rcPaint;
             BitBlt(target,r.left,r.top,r.right-r.left,r.bottom-r.top,dc,r.left,r.top,SRCCOPY);
         }
-        EndPaint(window,&ps);return 0;}
+        EndPaint(window,&ps);if(app->editor)app->editor->RefreshEdit();return 0;}
+    case WM_CLOSE:if(app->editor&&!app->editor->MayDiscard())return 0;DestroyWindow(window);return 0;
     case WM_DESTROY:KillTimer(window,1);PostQuitMessage(0);return 0;
     }
+    }catch(...){EditorError(window);return 0;}
     return DefWindowProcW(window,msg,wp,lp);
 }
 }
@@ -307,6 +331,10 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR command,int show){
     int result=0;
     try {
         App app;app.publisher=std::make_unique<Publisher>(app.frames);app.devices=Cameras();
+        if(wcsstr(command,L"--demo-text")){
+            Scene scene;TextElement text;text.id=NewId();text.text=L"Callayers text test";text.x=.05;text.y=.12;text.size=72;scene.texts.push_back(text);
+            TextRenderer renderer;app.frames->overlay=renderer.Render(scene);
+        }
         if(wcsstr(command,L"--headless")){
             if(wcsstr(command,L"--webcam")){
                 if(app.devices.empty())throw HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
@@ -316,7 +344,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR command,int show){
             unsigned seconds=15;auto arg=wcsstr(command,L"--seconds ");if(arg)seconds=std::clamp(static_cast<unsigned>(_wtoi(arg+10)),1u,300u);
             Sleep(seconds*1000);
         }else{
-            WNDCLASSW wc{};wc.hInstance=instance;wc.lpszClassName=L"CallayersStepOne";wc.lpfnWndProc=WindowProc;
+            WNDCLASSW wc{};wc.hInstance=instance;wc.lpszClassName=L"CallayersEditor";wc.lpfnWndProc=WindowProc;wc.style=CS_DBLCLKS;
             wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);RegisterClassW(&wc);
             HWND window=CreateWindowW(wc.lpszClassName,L"Callayers — Camera path",WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,CW_USEDEFAULT,CW_USEDEFAULT,1100,760,nullptr,nullptr,instance,&app);
             if(!window)throw HRESULT_FROM_WIN32(GetLastError());ShowWindow(window,show);
@@ -324,7 +352,11 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR command,int show){
                 SendMessageW(app.choice,CB_SETCURSEL,1,0);app.Select();
             }
             if(wcsstr(command,L"--publish"))app.StartOutput();
-            MSG message{};while(GetMessageW(&message,nullptr,0,0)>0){TranslateMessage(&message);DispatchMessageW(&message);}
+            MSG message{};while(GetMessageW(&message,nullptr,0,0)>0){
+                try{if(app.editor&&app.editor->Key(message))continue;}catch(...){EditorError(window);continue;}
+                if(IsDialogMessageW(window,&message))continue;
+                TranslateMessage(&message);DispatchMessageW(&message);
+            }
         }
     }catch(HRESULT hr){result=static_cast<int>(hr);if(!wcsstr(command,L"--headless"))MessageBoxW(nullptr,ErrorText(hr).c_str(),L"Callayers",MB_ICONERROR);}
     catch(...){result=3;}
