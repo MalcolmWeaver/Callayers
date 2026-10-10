@@ -73,7 +73,7 @@ Bootstrap differences: the first window uses Win32/GDI and CPU conversion, and f
 
 ### Implementation status — October 10, 2026
 
-Implemented and ready for user acceptance:
+Implemented; the user accepted the text-editor improvements and requested step 2.5:
 
 - Text tool with click-to-place, double-click/F2 editing, live typing, and commit/cancel. The edit box and caret are local only.
 - Selection and movement; corners scale text and its rectangle together, side handles change wrap width without changing font size.
@@ -89,7 +89,7 @@ Verification completed:
 - Interaction checks cover creating/typing, commit/cancel, selection without output changes, coalesced drag undo, and delete/undo.
 - Registered Windows camera delivered 90 frames in 2.98 seconds with the expected text pixels present in every frame.
 
-Remaining acceptance: try the editor in a meeting and confirm typing, handles, save/reopen, and editing controls behave as intended. This remains the native Win32 bootstrap shell, now with DirectWrite/Direct2D text rendering; the broader WinUI editor migration is not part of this slice.
+Follow-up improvements removed the opaque typing background and fitted text boxes to their content height, including after wrapping and font changes. Tests cover background preservation and automatic growth/shrinkage. Meeting-app visual confirmation remains a user check. The WinUI shell migration is tracked separately below.
 
 ## 2.5. Establish the modern WinUI 3 shell
 
@@ -111,6 +111,17 @@ Remaining acceptance: try the editor in a meeting and confirm typing, handles, s
 - Review the visual result with the user before adding the card interface.
 
 **Exit:** the working camera and text editor run inside the modern, branded WinUI 3 shell. This is an explicit MVP milestone before cards; step 9 refines the established design rather than introducing it for the first time.
+
+### Implementation status — October 10, 2026
+
+- C++/WinRT WinUI 3 shell implemented using XAML islands around the retained native stage. The scene model, text compositor, virtual-camera source, and deck format are retained.
+- Branded header, frame-mark logo and multi-resolution app icon; File/New/Open/Save/Save as; camera selection and start/stop; contextual text properties; undo/redo and compact status/footer.
+- DPI-aware island/stage layout and keyboard routing between the toolbar and stage. Card generation and scene thumbnails are intentionally absent until their features work.
+- Pinned build dependencies, generated C++ projections, and a signed Microsoft runtime setup script are included. The existing framework installation was missing the runtime support packages; those were installed for development verification.
+- Verification: all five automated suites pass, including shell command bindings without the legacy toolbar. A separate runtime smoke check passes WinUI initialization, control creation, event-loop operation, and clean shutdown.
+- Running-app checks cover text placement, direct typing, commit/cancel, contextual controls, camera selection, one-step toolbar undo, normal/maximized layouts, and reopening the user's saved deck through Ctrl+O. Ctrl+Enter no longer inserts an unwanted trailing blank line.
+- Registered camera checks pass 90 live webcam frames in 3.01 seconds and 90 pattern-plus-heading frames in 3.01 seconds, with text detected in every frame of the latter check.
+- Remaining acceptance: user review of the visual design, multiple Windows display-scaling settings, and a real meeting check. Those are not claimed by the automated camera reader or screenshots.
 
 ## 3. Prove live card rendering
 

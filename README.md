@@ -1,21 +1,29 @@
 # Callayers
 
-Fresh implementation of milestones 1 and 2 in [mvp-dev-plan.md](mvp-dev-plan.md).
+Fresh implementation of the camera, text editor, and WinUI shell milestones in [mvp-dev-plan.md](mvp-dev-plan.md).
 The previous implementation remains deleted; nothing here restores it.
 
 ## Build
 
-Requires Windows 11, CMake 3.24+, Visual Studio 2022 C++ build tools, and Windows SDK 10.0.26100.0 or newer. No downloaded packages are needed for this milestone.
+Requires Windows 11, CMake 3.24+, Visual Studio 2022 C++ build tools, and Windows SDK 10.0.26100.0 or newer. The build prepares pinned Windows App SDK 1.6.250602001 and WebView2 metadata 1.0.2651.64 from the local NuGet cache or downloads them from NuGet. C++/WinRT projections are generated into `build/generated`; no generated headers are checked in.
 
 ```powershell
 .\scripts\build.ps1
 ```
 
 Outputs are in `build\Release`: `Callayers.exe`, `CallayersCamera.dll`, and `CameraProbe.exe`.
-The build script runs protocol/color conversion, media-source lifecycle, editor document/rendering, and native editor interaction tests.
+The build script runs protocol/color conversion, media-source lifecycle, editor document/rendering, native editor interaction, and shell editor-command tests.
 The lifecycle test also releases the activation helper before using the source, guarding against premature shutdown during Windows startup.
 
 ## Register and run
+
+Install the shell's Windows App Runtime prerequisites once, as your normal desktop user:
+
+```powershell
+.\scripts\install-winui-runtime.ps1
+```
+
+The script downloads Microsoft's signed installer and validates its signature before running it. Having the framework package alone is insufficient; the runtime support packages must also be present.
 
 The Windows camera service must load the media-source DLL from a stable location with machine-wide COM registration. In **Administrator PowerShell**:
 
@@ -25,9 +33,9 @@ The Windows camera service must load the media-source DLL from a stable location
 
 This copies a versioned development DLL into `%ProgramFiles%\Callayers Development` and registers only the Callayers CLSID `{A487A33B-6EC3-43F1-A894-CA2D937619F0}`. Re-run after changing the DLL. No kernel driver or other camera registration is modified.
 
-Run `build\Release\Callayers.exe` as your normal user. Choose **Test pattern** or a webcam, then click **Start camera output**. Select **Callayers (Windows Virtual Camera)** in a meeting app; Windows controls the appended device-name suffix.
+Run `build\Release\Callayers.exe` as your normal user. Choose **Test pattern** or a webcam, then click **Start camera**. Select **Callayers (Windows Virtual Camera)** in a meeting app; Windows controls the appended device-name suffix.
 
-The window is an early native editor. It is not the final branded interface.
+The native WinUI 3 shell has a Callayers frame mark, a compact top bar, contextual text properties, and a large stage. File actions are in **File**; save state and camera status remain visible. Only implemented tools are shown.
 Launch with `--webcam --publish` to select the first available webcam and start output immediately.
 
 - Moving bar: active test pattern.
@@ -47,7 +55,7 @@ Camera creation persists for the current user. Registration of the source DLL is
 - Use the toolbar for font, size (1080p reference pixels), bold, color, and alignment. Click away from the size field to apply it.
 - **Delete** removes the selected text. **Ctrl+Z** undoes; **Ctrl+Y** or **Ctrl+Shift+Z** redoes. While typing, native text-field undo works until the session is committed.
 - **Save / Ctrl+S** saves a `.callayers.json` file. **Ctrl+Shift+S** saves under another name. **Open / Ctrl+O** reopens it.
-- **New** clears the scene after offering to save changes. Closing the window also protects unsaved work.
+- **File → New deck** clears the scene after offering to save changes. Closing the window also protects unsaved work.
 
 Text appears in the video as it is typed, but its native editing box, caret, selection border, resize handles, and toolbar do not. The initial file format supports one scene and up to 100 text elements; multi-scene management comes in a later milestone. Generated-card text editing remains separate future work.
 
@@ -65,6 +73,9 @@ Text appears in the video as it is typed, but its native editing box, caret, sel
 
 # Automated pattern, webcam, and same-reader restart checks.
 .\scripts\verify-camera.ps1
+
+# WinUI runtime/control startup and clean shutdown (normal desktop user).
+.\scripts\verify-shell.ps1
 ```
 
 The integration script briefly opens the physical webcam. It does not record, save, or upload its images. It must run as your normal desktop user, outside a restricted agent sandbox, after registration. A sandbox can deny the protected named pipe even when the normal application works.
@@ -79,6 +90,7 @@ For the final acceptance check, join a real Zoom call from a second device. Veri
 - `native/editor.h`: text model, coalesced document history, and validated versioned JSON save/load with atomic replacement.
 - `native/text_renderer.h`: DirectWrite/Direct2D text rasterization and immutable text overlays blended into NV12 frames.
 - `native/text_editor_ui.h`: native text editing, selection/dragging, handles, style controls, and file actions. Editor-only controls never enter the compositor.
+- `native/winui_shell.h`: C++/WinRT WinUI 3 chrome hosted in XAML islands, command bindings, contextual controls, keyboard focus, and status. The native stage remains a sibling surface.
 - `native/source.cpp`: COM activation, Media Foundation source and stream, 30-fps sample delivery, and idle fallback. Windows Frame Server loads this DLL.
 - `native/common.h`: fixed 1920×1080 NV12 protocol, BT.709 conversion, aspect-ratio handling, and bounded pipe transfers.
 - `native/probe.cpp`: frame tests, direct source activation/lifecycle test, device enumeration, and real Windows camera reader.
@@ -87,7 +99,7 @@ Preview and output use the same complete NV12 frames except during typing: the l
 
 The initial transport is a local named pipe with bounded, acknowledged transfers, rather than shared-memory slots. A producer timestamp older than 750 ms is rejected; an absent producer yields a distinct static idle frame. The source schedules timestamps and frame pacing independently of the app.
 
-The planned WinUI 3 shell, D3D11 compositor, and GPU conversion are **not implemented in this bootstrap**. It uses a Win32 window, CPU frame composition, DirectWrite/Direct2D text rasterization, and a buffered GDI preview. Keep the protocol and virtual-camera boundary while introducing the planned GPU compositor. Profile before deciding whether to replace the pipe with shared memory.
+The shell uses WinUI 3 controls around the retained native stage and text input surface. The planned D3D11 compositor and GPU conversion are **not implemented**: composition remains on the CPU, with DirectWrite/Direct2D text rasterization and a buffered GDI preview. Keep the protocol and virtual-camera boundary while introducing the planned GPU compositor. Profile before deciding whether to replace the pipe with shared memory.
 
 ## Remove development registration
 

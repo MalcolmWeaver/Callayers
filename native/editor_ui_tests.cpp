@@ -9,7 +9,7 @@ LRESULT CALLBACK WindowProc(HWND window,UINT msg,WPARAM wp,LPARAM lp){
 }
 void Expect(bool condition,const char* message){if(!condition)throw std::runtime_error(message);}
 }
-int main(){
+int main(int argc,char**){
     winrt::init_apartment(winrt::apartment_type::multi_threaded);
     HWND window=nullptr;
     try{
@@ -17,7 +17,7 @@ int main(){
         RegisterClassW(&wc);window=CreateWindowW(wc.lpszClassName,L"Editor test",WS_OVERLAPPEDWINDOW,0,0,1100,800,nullptr,nullptr,wc.hInstance,nullptr);
         Expect(window!=nullptr,"test window failed");
         std::shared_ptr<const TextOverlay> output;size_t published=0;
-        auto controller=std::make_unique<TextEditorUI>(window,[&](auto layer){output=layer;++published;});editor=controller.get();
+        auto controller=std::make_unique<TextEditorUI>(window,[&](auto layer){output=layer;++published;},argc==1);editor=controller.get();
         editor->SetStage({20,165,980,705});
         SendMessageW(window,WM_COMMAND,TextEditorUI::TextId,0);
         SendMessageW(window,WM_LBUTTONDOWN,MK_LBUTTON,MAKELPARAM(120,245));
@@ -61,6 +61,10 @@ int main(){
         SendMessageW(window,WM_LBUTTONDOWN,MK_LBUTTON,MAKELPARAM(150,270));SendMessageW(window,WM_LBUTTONUP,0,MAKELPARAM(150,270));
         SendMessageW(window,WM_COMMAND,TextEditorUI::DeleteId,0);Expect(output->luma.empty(),"delete failed");
         SendMessageW(window,WM_COMMAND,TextEditorUI::UndoId,0);Expect(ComposeText(*background,*output)->pixels==typing,"undo delete failed");
+        SendMessageW(window,WM_LBUTTONDOWN,MK_LBUTTON,MAKELPARAM(150,270));SendMessageW(window,WM_LBUTTONUP,0,MAKELPARAM(150,270));
+        editor->ChangeStyle([](auto& t){t.family=L"Georgia";t.size=84;t.bold=true;t.alignment=1;});
+        Expect(editor->Selection()->family==L"Georgia"&&editor->Selection()->size==84,"shell style command did not reach selected text");
+        editor->Command(TextEditorUI::UndoId);Expect(ComposeText(*background,*output)->pixels==typing,"shell style command did not undo in one step");
         editor=nullptr;controller.reset();DestroyWindow(window);
         std::cout<<"PASS: text tool, live typing, edit commit/cancel, select without output change, drag coalescing, delete/undo\n";
     }catch(const winrt::hresult_error& error){std::wcerr<<error.message().c_str()<<L"\n";return 1;}

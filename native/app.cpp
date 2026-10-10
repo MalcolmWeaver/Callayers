@@ -1,5 +1,6 @@
 #include "common.h"
 #include "text_editor_ui.h"
+#include "winui_shell.h"
 #include <commctrl.h>
 #include <fstream>
 
@@ -9,6 +10,10 @@ using Microsoft::WRL::RuntimeClassFlags;
 using Microsoft::WRL::ClassicCom;
 using Microsoft::WRL::Make;
 namespace {
+void StartupDiagnostic(const std::wstring& message){
+    wchar_t path[MAX_PATH]{};GetModuleFileNameW(nullptr,path,MAX_PATH);
+    std::ofstream log(std::filesystem::path(path).parent_path()/L"Callayers-startup.log",std::ios::app);log<<winrt::to_string(message)<<"\n";
+}
 struct Frames {
     std::atomic<std::shared_ptr<Frame>> latest{Pattern(0,true)};
     std::atomic<std::shared_ptr<Frame>> composed{Pattern(0,true)};
@@ -200,10 +205,13 @@ private:
 };
 
 struct App {
-    HWND window=nullptr,choice=nullptr,status=nullptr,start=nullptr;
+    HWND window=nullptr;
     std::shared_ptr<Frames> frames=std::make_shared<Frames>();
     std::unique_ptr<Publisher> publisher;
     std::unique_ptr<TextEditorUI> editor;
+    std::unique_ptr<WinUIShell> shell;
+    int cameraIndex=0;
+    bool shellOnly=false;
     ComPtr<Capture> capture;
     ComPtr<IMFVirtualCamera> virtualCamera;
     std::thread activation;
@@ -212,13 +220,13 @@ struct App {
     std::vector<Device> devices;
     std::vector<BYTE> preview;
     PreviewBuffer paintBuffer;
-    std::wstring displayedStatus;
-    std::wstring cameraStatus=L"Camera output not started. Choose Test pattern or a webcam.";
+    std::wstring cameraStatus=L"Camera output is off";
     RECT stage{};
     ~App(){if(capture)capture->Close();if(activation.joinable())activation.join();publisher.reset();}
     void StartOutput(){
         if(activating)return;
         if(activation.joinable())activation.join();
+        if(virtualCamera){Check(virtualCamera->Stop());virtualCamera.Reset();cameraStatus=L"Camera output is off";return;}
         activating=true;activationResult=S_FALSE;cameraStatus=L"Starting virtual camera…";
         activation=std::thread([this]{
             CoInitializeEx(nullptr,COINIT_MULTITHREADED);
@@ -230,24 +238,28 @@ struct App {
     void Select(){
         if(capture){capture->Close();capture.Reset();}
         frames->error=S_OK;frames->latest=Pattern(0,true);
-        int index=static_cast<int>(SendMessageW(choice,CB_GETCURSEL,0,0));
+        int index=cameraIndex;
         if(index<=0){frames->mode=1;return;}
         frames->mode=2;capture=Make<Capture>();
         HRESULT hr=capture->Open(devices.at(index-1),frames);
         if(FAILED(hr))frames->error=hr;
     }
     void Layout(){
-        RECT r;GetClientRect(window,&r);const int margin=20;
-        MoveWindow(choice,margin,20,300,240,TRUE);MoveWindow(start,340,20,180,30,TRUE);
-        MoveWindow(status,margin,100,std::max(100L,r.right-40),55,TRUE);
-        const int availableW=std::max(1L,r.right-2*margin),availableH=std::max(1L,r.bottom-180);
+        RECT r;GetClientRect(window,&r);const double dpi=GetDpiForWindow(window)/96.;const int margin=static_cast<int>(32*dpi),top=static_cast<int>(152*dpi),bottom=static_cast<int>(62*dpi);
+        if(shell)shell->Layout(r.right,r.bottom,dpi);
+        const int availableW=std::max(1L,r.right-2*margin),availableH=std::max(1L,r.bottom-top-bottom);
         const double scale=std::min(double(availableW)/Width,double(availableH)/Height);
         int w=static_cast<int>(Width*scale),h=static_cast<int>(Height*scale);
-        stage={(r.right-w)/2,165,(r.right+w)/2,165+h};
+        int y=top+(availableH-h)/2;stage={(r.right-w)/2,y,(r.right+w)/2,y+h};
         if(editor)editor->SetStage(stage);
         InvalidateRect(window,nullptr,FALSE);
     }
     void Tick(){
+        if(shellOnly){
+            if(frames->mode==1)frames->latest=Pattern(++frames->sequence);
+            auto background=frames->latest.load();if(GetTickCount64()-background->header.capturedMs>750)background=frames->idle;
+            auto overlay=frames->overlay.load();frames->composed=overlay?ComposeText(*background,*overlay):std::make_shared<Frame>(*background);
+        }
         HRESULT result=activationResult.exchange(S_FALSE);
         if(result==S_OK)cameraStatus=L"Callayers is available in meeting apps — 1920 × 1080, 30 fps.";
         else if(FAILED(result)){
@@ -261,10 +273,7 @@ struct App {
         HRESULT error=frames->error.load();
         if(FAILED(error))message=L"Webcam unavailable: "+ErrorText(error)+L" Choose Test pattern or retry the webcam.";
         else if(frames->mode==2&&frame->header.mode==0)message=L"Waiting for webcam frames — idle image is being sent.";
-        message+=L"\r\nText: click to place · Double-click to edit · Ctrl+Enter to finish · Corners scale · Side handles wrap · Ctrl+S saves";
-        if(message!=displayedStatus){SetWindowTextW(status,message.c_str());displayedStatus=message;}
-        const BOOL canStart=!activating;
-        if(IsWindowEnabled(start)!=canStart)EnableWindow(start,canStart);
+        if(shell)shell->Status(message,activating,!activating&&virtualCamera!=nullptr);
         if(!IsIconic(window)){
             if(editor&&editor->IsEditing()){
                 auto background=frames->latest.load();
@@ -284,28 +293,20 @@ LRESULT CALLBACK WindowProc(HWND window,UINT msg,WPARAM wp,LPARAM lp){
     if(app->editor){LRESULT result;if(app->editor->Message(msg,wp,lp,result))return result;}
     switch(msg){
     case WM_CREATE:{
-        app->choice=CreateWindowW(WC_COMBOBOXW,L"",WS_CHILD|WS_VISIBLE|CBS_DROPDOWNLIST|WS_VSCROLL,0,0,0,0,window,reinterpret_cast<HMENU>(101),nullptr,nullptr);
-        SendMessageW(app->choice,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(L"Test pattern"));
-        for(const auto& d:app->devices)SendMessageW(app->choice,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(d.name.c_str()));
-        SendMessageW(app->choice,CB_SETCURSEL,0,0);
-        app->start=CreateWindowW(L"BUTTON",L"Start camera output",WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,0,0,0,0,window,reinterpret_cast<HMENU>(102),nullptr,nullptr);
-        app->status=CreateWindowW(L"STATIC",L"",WS_CHILD|WS_VISIBLE,0,0,0,0,window,nullptr,nullptr,nullptr);
-        for(HWND control:{app->choice,app->start,app->status})SendMessageW(control,WM_SETFONT,reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)),TRUE);
-        app->editor=std::make_unique<TextEditorUI>(window,[app](auto overlay){app->frames->overlay=std::move(overlay);});
+        app->editor=std::make_unique<TextEditorUI>(window,[app](auto overlay){app->frames->overlay=std::move(overlay);},false);
+        app->shell=std::make_unique<WinUIShell>(window,*app->editor,app->devices,[app](int index){app->cameraIndex=index;app->Select();},[app]{app->StartOutput();});
         SetTimer(window,1,33,nullptr);return 0;}
-    case WM_GETMINMAXINFO:{auto info=reinterpret_cast<MINMAXINFO*>(lp);info->ptMinTrackSize={960,540};return 0;}
+    case WM_GETMINMAXINFO:{auto info=reinterpret_cast<MINMAXINFO*>(lp);double dpi=GetDpiForWindow(window)/96.;info->ptMinTrackSize={static_cast<LONG>(1000*dpi),static_cast<LONG>(600*dpi)};return 0;}
+    case WM_DPICHANGED:{auto r=reinterpret_cast<RECT*>(lp);SetWindowPos(window,nullptr,r->left,r->top,r->right-r->left,r->bottom-r->top,SWP_NOZORDER|SWP_NOACTIVATE);app->Layout();return 0;}
     case WM_SIZE:app->Layout();return 0;
-    case WM_TIMER:app->Tick();return 0;
-    case WM_COMMAND:
-        if(LOWORD(wp)==101&&HIWORD(wp)==CBN_SELCHANGE)app->Select();
-        if(LOWORD(wp)==102)app->StartOutput();return 0;
+    case WM_TIMER:if(wp==2){KillTimer(window,2);SendMessageW(window,WM_CLOSE,0,0);return 0;}app->Tick();return 0;
     case WM_ERASEBKGND:return 1; // WM_PAINT presents the complete buffered background.
     case WM_PAINT:{
         PAINTSTRUCT ps;HDC target=BeginPaint(window,&ps);
         RECT client;GetClientRect(window,&client);
         HDC dc=app->paintBuffer.Prepare(target,client.right,client.bottom);
         if(dc){
-            FillRect(dc,&client,GetSysColorBrush(COLOR_WINDOW));
+            HBRUSH background=CreateSolidBrush(RGB(28,28,32));FillRect(dc,&client,background);DeleteObject(background);
             FillRect(dc,&app->stage,static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));
             if(!app->preview.empty()){
             BITMAPINFO info{};info.bmiHeader.biSize=sizeof(BITMAPINFOHEADER);info.bmiHeader.biWidth=Width;info.bmiHeader.biHeight=-static_cast<LONG>(Height);
@@ -318,19 +319,31 @@ LRESULT CALLBACK WindowProc(HWND window,UINT msg,WPARAM wp,LPARAM lp){
             BitBlt(target,r.left,r.top,r.right-r.left,r.bottom-r.top,dc,r.left,r.top,SRCCOPY);
         }
         EndPaint(window,&ps);if(app->editor)app->editor->RefreshEdit();return 0;}
-    case WM_CLOSE:if(app->editor&&!app->editor->MayDiscard())return 0;DestroyWindow(window);return 0;
+    case WM_CLOSE:if(app->editor&&!app->editor->MayDiscard())return 0;app->shell.reset();DestroyWindow(window);return 0;
     case WM_DESTROY:KillTimer(window,1);PostQuitMessage(0);return 0;
     }
-    }catch(...){EditorError(window);return 0;}
+    }catch(...){
+        try{throw;}catch(const winrt::hresult_error& e){StartupDiagnostic(e.message().c_str());}catch(HRESULT hr){StartupDiagnostic(ErrorText(hr));}catch(...){StartupDiagnostic(L"Native window initialization failed");}
+        if(!app->shellOnly)EditorError(window);return msg==WM_CREATE?-1:0;
+    }
     return DefWindowProcW(window,msg,wp,lp);
 }
 }
 int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR command,int show){
-    HRESULT com=CoInitializeEx(nullptr,COINIT_MULTITHREADED);if(FAILED(com))return 1;
+    HRESULT com=CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED);if(FAILED(com))return 1;
     HRESULT startup=MFStartup(MF_VERSION);if(FAILED(startup)){CoUninitialize();return 2;}
     int result=0;
+    bool bootstrapped=false;
+    winrt::Microsoft::UI::Dispatching::DispatcherQueueController dispatcher{nullptr};
+    ux::Application xamlApplication{nullptr};hosting::WindowsXamlManager xamlManager{nullptr};
     try {
-        App app;app.publisher=std::make_unique<Publisher>(app.frames);app.devices=Cameras();
+        if(!wcsstr(command,L"--headless")){
+            PACKAGE_VERSION minimum{};Check(MddBootstrapInitialize(0x00010006,L"",minimum));bootstrapped=true;
+            dispatcher=winrt::Microsoft::UI::Dispatching::DispatcherQueueController::CreateOnCurrentThread();
+            xamlApplication=winrt::make<IslandApplication>();xamlManager=hosting::WindowsXamlManager::InitializeForCurrentThread();
+            xamlApplication.Resources().MergedDictionaries().Append(controls::XamlControlsResources());
+        }
+        App app;app.shellOnly=wcsstr(command,L"--shell-only")!=nullptr;if(!app.shellOnly)app.publisher=std::make_unique<Publisher>(app.frames);app.devices=Cameras();
         if(wcsstr(command,L"--demo-text")){
             Scene scene;TextElement text;text.id=NewId();text.text=L"Callayers text test";text.x=.05;text.y=.12;text.size=72;scene.texts.push_back(text);
             TextRenderer renderer;app.frames->overlay=renderer.Render(scene);
@@ -345,20 +358,25 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR command,int show){
             Sleep(seconds*1000);
         }else{
             WNDCLASSW wc{};wc.hInstance=instance;wc.lpszClassName=L"CallayersEditor";wc.lpfnWndProc=WindowProc;wc.style=CS_DBLCLKS;
+            wc.hIcon=LoadIconW(instance,MAKEINTRESOURCEW(101));
             wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);RegisterClassW(&wc);
-            HWND window=CreateWindowW(wc.lpszClassName,L"Callayers — Camera path",WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,CW_USEDEFAULT,CW_USEDEFAULT,1100,760,nullptr,nullptr,instance,&app);
+            HWND window=CreateWindowW(wc.lpszClassName,L"Callayers",WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,CW_USEDEFAULT,CW_USEDEFAULT,1280,850,nullptr,nullptr,instance,&app);
             if(!window)throw HRESULT_FROM_WIN32(GetLastError());ShowWindow(window,show);
+            if(wcsstr(command,L"--smoke-test"))SetTimer(window,2,1500,nullptr);
             if(wcsstr(command,L"--webcam")&&!app.devices.empty()){
-                SendMessageW(app.choice,CB_SETCURSEL,1,0);app.Select();
+                app.cameraIndex=1;app.shell->CameraIndex(1);app.Select();
             }
             if(wcsstr(command,L"--publish"))app.StartOutput();
             MSG message{};while(GetMessageW(&message,nullptr,0,0)>0){
-                try{if(app.editor&&app.editor->Key(message))continue;}catch(...){EditorError(window);continue;}
-                if(IsDialogMessageW(window,&message))continue;
+                try{if(app.shell&&app.shell->Key(message))continue;}catch(...){EditorError(window);continue;}
+                if(ContentPreTranslateMessage(&message))continue;
                 TranslateMessage(&message);DispatchMessageW(&message);
             }
         }
-    }catch(HRESULT hr){result=static_cast<int>(hr);if(!wcsstr(command,L"--headless"))MessageBoxW(nullptr,ErrorText(hr).c_str(),L"Callayers",MB_ICONERROR);}
+    }catch(const winrt::hresult_error& error){result=error.code();StartupDiagnostic(error.message().c_str());if(!wcsstr(command,L"--headless")&&!wcsstr(command,L"--shell-only"))MessageBoxW(nullptr,error.message().c_str(),L"Callayers",MB_ICONERROR);}
+    catch(HRESULT hr){result=static_cast<int>(hr);StartupDiagnostic(ErrorText(hr));if(!wcsstr(command,L"--headless")&&!wcsstr(command,L"--shell-only"))MessageBoxW(nullptr,ErrorText(hr).c_str(),L"Callayers",MB_ICONERROR);}
     catch(...){result=3;}
-    MFShutdown();CoUninitialize();return result;
+    if(xamlManager)xamlManager.Close();xamlManager=nullptr;xamlApplication=nullptr;
+    if(dispatcher){auto shutdown=dispatcher.ShutdownQueueAsync();while(shutdown.Status()==winrt::Windows::Foundation::AsyncStatus::Started){MSG message;while(PeekMessageW(&message,nullptr,0,0,PM_REMOVE)){TranslateMessage(&message);DispatchMessageW(&message);}MsgWaitForMultipleObjects(0,nullptr,FALSE,10,QS_ALLINPUT);}dispatcher=nullptr;}
+    if(bootstrapped)MddBootstrapShutdown();MFShutdown();CoUninitialize();return result;
 }

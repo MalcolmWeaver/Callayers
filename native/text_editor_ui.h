@@ -4,6 +4,7 @@
 #include <commdlg.h>
 #include <windowsx.h>
 #include <functional>
+#include <optional>
 
 namespace callayers {
 class TextEditorUI {
@@ -24,6 +25,7 @@ private:
     std::filesystem::path path;
     int selected=-1,dragHandle=-1;
     bool textTool=false,dragging=false,syncing=false;
+    bool nativeControls=true;
     POINT dragStart{};
     Scene beforeDrag,beforeEdit;
     RECT stage{};
@@ -67,6 +69,7 @@ private:
     }
     void UpdateTitle(){auto name=path.empty()?L"Untitled":path.filename().wstring();std::wstring title=L"Callayers — "+std::wstring(name)+(document.Dirty()?L" *":L"");SetWindowTextW(window,title.c_str());}
     void Sync(){
+        if(!nativeControls){UpdateTitle();InvalidateRect(window,nullptr,FALSE);if(StateChanged)StateChanged();return;}
         syncing=true;auto t=Selected();
         for(int id:{DeleteId,FontId,SizeId,BoldId,ColorId,AlignId})EnableWindow(Control(id),t!=nullptr);
         EnableWindow(Control(UndoId),document.CanUndo());EnableWindow(Control(RedoId),document.CanRedo());
@@ -91,6 +94,8 @@ private:
     }
     static LRESULT CALLBACK EditProc(HWND child,UINT msg,WPARAM wp,LPARAM lp,UINT_PTR,DWORD_PTR ref){
         auto self=reinterpret_cast<TextEditorUI*>(ref);
+        if(msg==WM_CHAR&&(wp==VK_ESCAPE||(wp==VK_RETURN&&(GetKeyState(VK_CONTROL)&0x8000))))return 0;
+        if(msg==WM_KEYDOWN&&wp=='A'&&(GetKeyState(VK_CONTROL)&0x8000)){SendMessageW(child,EM_SETSEL,0,-1);return 0;}
         if(msg==WM_ERASEBKGND)return 1;
         if(msg==WM_PAINT){PAINTSTRUCT ps;auto dc=BeginPaint(child,&ps);self->PaintEditSurface(child,dc);EndPaint(child,&ps);return 0;}
         if(msg==WM_PRINTCLIENT){self->PaintEditSurface(child,reinterpret_cast<HDC>(wp));return 0;}
@@ -137,7 +142,28 @@ private:
     }
     void Delete(){FinishEdit(true);if(!Selected())return;auto before=document.scene;document.scene.texts.erase(document.scene.texts.begin()+selected);selected=-1;document.Commit(before);Publish();Sync();}
 public:
-    TextEditorUI(HWND parent,std::function<void(std::shared_ptr<const TextOverlay>)> output):window(parent),publish(std::move(output)){
+    std::function<void()> StateChanged;
+    std::optional<TextElement> Selection(){if(auto t=Selected())return *t;return {};}
+    bool TextTool()const{return textTool;}
+    bool CanUndo()const{return document.CanUndo();}
+    bool CanRedo()const{return document.CanRedo();}
+    bool Dirty()const{return document.Dirty();}
+    std::wstring Name()const{return path.empty()?L"Untitled deck":path.filename().wstring();}
+    void SaveAs(){Save(true);}
+    void Command(int id){LRESULT result;Message(WM_COMMAND,id,0,result);}
+    void ChangeStyle(const std::function<void(TextElement&)>& change){
+        FinishEdit(true);if(!Selected())return;auto before=document.scene;change(*Selected());
+        renderer.FitHeight(*Selected());document.Commit(before);Publish();Sync();
+    }
+    void ChooseTextColor(){
+        ChangeStyle([this](TextElement& t){
+            static COLORREF palette[16]{};CHOOSECOLORW color{sizeof(color)};color.hwndOwner=window;color.lpCustColors=palette;color.Flags=CC_FULLOPEN|CC_RGBINIT;
+            color.rgbResult=RGB((t.color>>16)&255,(t.color>>8)&255,t.color&255);
+            if(ChooseColorW(&color))t.color=(GetRValue(color.rgbResult)<<16)|(GetGValue(color.rgbResult)<<8)|GetBValue(color.rgbResult);
+        });
+    }
+    TextEditorUI(HWND parent,std::function<void(std::shared_ptr<const TextOverlay>)> output,bool legacyControls=true):window(parent),publish(std::move(output)),nativeControls(legacyControls){
+        if(!nativeControls){Sync();Publish();return;}
         Add(L"BUTTON",L"Select",BS_AUTOCHECKBOX|BS_PUSHLIKE,SelectId,20,70);Add(L"BUTTON",L"Text",BS_AUTOCHECKBOX|BS_PUSHLIKE,TextId,95,70);
         Add(L"BUTTON",L"Undo",BS_PUSHBUTTON,UndoId,180,65);Add(L"BUTTON",L"Redo",BS_PUSHBUTTON,RedoId,250,65);Add(L"BUTTON",L"Delete",BS_PUSHBUTTON,DeleteId,325,70);
         auto font=Add(WC_COMBOBOXW,L"",CBS_DROPDOWNLIST|WS_VSCROLL,FontId,410,150);SetWindowPos(font,nullptr,0,0,150,220,SWP_NOMOVE|SWP_NOZORDER);
