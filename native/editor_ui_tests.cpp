@@ -75,6 +75,13 @@ int main(int argc,char**){
         SendMessageW(window,WM_LBUTTONDOWN,MK_LBUTTON,MAKELPARAM(300,420));SendMessageW(window,WM_LBUTTONUP,0,MAKELPARAM(300,420));
         editor->Command(TextEditorUI::DeleteId);Expect(cards.cards.empty(),"card delete failed");
         editor->Command(TextEditorUI::UndoId);Expect(cards.cards.size()==1&&cards.cards[0]==originalCard,"card delete undo lost content");
+        SendMessageW(window,WM_LBUTTONDOWN,MK_LBUTTON,MAKELPARAM(300,420));SendMessageW(window,WM_LBUTTONUP,0,MAKELPARAM(300,420));
+        auto request=editor->GenerationTarget();Expect(!request.creating,"prompt lost selected card");
+        editor->AddSampleCard();auto secondId=editor->CurrentScene().cards.back().id;
+        Expect(editor->AcceptGenerated(request,L"<h1>AI revision</h1>",L"Revised first card"),"late result missed original target");
+        Expect(editor->CurrentScene().cards[0].name==L"Revised first card"&&editor->CurrentScene().cards[1].id==secondId&&editor->CardName()!=L"Revised first card","generation changed current selection or wrong card");
+        editor->NewCardSelection();request=editor->GenerationTarget();Expect(request.creating,"explicit new card retained edit target");
+        Expect(editor->AcceptGenerated(request,L"<h1>Brand new</h1>",L"New AI card")&&editor->CardName()==L"New AI card","new card not created and selected");
         editor=nullptr;controller.reset();DestroyWindow(window);
         std::cout<<"PASS: text tool, live typing, edit commit/cancel, select without output change, drag coalescing, delete/undo\n";
     }catch(const winrt::hresult_error& error){std::wcerr<<error.message().c_str()<<L"\n";return 1;}

@@ -248,7 +248,7 @@ struct App {
         if(FAILED(hr))frames->error=hr;
     }
     void Layout(){
-        RECT r;GetClientRect(window,&r);const double dpi=GetDpiForWindow(window)/96.;const int margin=static_cast<int>(32*dpi),top=static_cast<int>(152*dpi),bottom=static_cast<int>(62*dpi);
+        RECT r;GetClientRect(window,&r);const double dpi=GetDpiForWindow(window)/96.;const int margin=static_cast<int>(32*dpi),top=static_cast<int>(152*dpi),bottom=static_cast<int>(174*dpi);
         if(shell)shell->Layout(r.right,r.bottom,dpi);
         const int availableW=std::max(1L,r.right-2*margin),availableH=std::max(1L,r.bottom-top-bottom);
         const double scale=std::min(double(availableW)/Width,double(availableH)/Height);

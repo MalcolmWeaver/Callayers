@@ -116,15 +116,23 @@ struct CardHost::Impl {
                     Check(web->add_NavigationCompleted(Callback<ICoreWebView2NavigationCompletedEventHandler>([this](auto*,ICoreWebView2NavigationCompletedEventArgs* args)->HRESULT{BOOL ok=FALSE;args->get_IsSuccess(&ok);ready=ok!=FALSE;if(!ok)error=E_FAIL;return S_OK;}).Get(),&token));
                     Check(web->NavigateToString(LR"HTML(<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; frame-src about:; connect-src 'none'; base-uri 'none'; form-action 'none'"><style>html,body{margin:0;width:1920px;height:1080px;overflow:hidden;background:transparent}iframe{position:absolute;border:0;background:transparent}</style><script>
 const cards=new Map();
+function makeFrame(){const f=document.createElement('iframe');f.sandbox='allow-scripts';f.setAttribute('allow',"camera 'none'; microphone 'none'; geolocation 'none'; clipboard-read 'none'; clipboard-write 'none'");return f}
+function position(f,c,z){if(f)Object.assign(f.style,{left:c.x+'px',top:c.y+'px',width:c.w+'px',height:c.h+'px',zIndex:z+''})}
 window.setCards=list=>{
  const keep=new Set(list.map(c=>c.id));
- for(const [id,entry] of cards)if(!keep.has(id)){entry.frame.remove();cards.delete(id)}
- for(const c of list){
-  let entry=cards.get(c.id);
-  if(!entry){const frame=document.createElement('iframe');frame.sandbox='allow-scripts';frame.setAttribute('allow',"camera 'none'; microphone 'none'; geolocation 'none'; clipboard-read 'none'; clipboard-write 'none'");document.body.append(frame);entry={frame,html:null};cards.set(c.id,entry)}
-  const f=entry.frame;
-  if(entry.html!==c.html){f.srcdoc=c.html;entry.html=c.html}
-  Object.assign(f.style,{left:c.x+'px',top:c.y+'px',width:c.w+'px',height:c.h+'px',zIndex:list.indexOf(c)+''});
+ for(const [id,e] of cards)if(!keep.has(id)){e.frame?.remove();e.pending?.remove();cards.delete(id)}
+ for(const [z,c] of list.entries()){
+  let e=cards.get(c.id);
+  if(!e){e={frame:null,html:null,pending:null,desired:null};cards.set(c.id,e)}
+  if(e.html!==c.html&&e.desired!==c.html){
+   e.pending?.remove();const f=makeFrame();e.pending=f;e.desired=c.html;f.style.opacity='0';position(f,c,z);
+   f.onload=()=>requestAnimationFrame(()=>requestAnimationFrame(()=>{
+    if(cards.get(c.id)!==e||e.pending!==f)return;
+    e.frame?.remove();e.frame=f;e.html=c.html;e.pending=null;e.desired=null;f.style.opacity='1';
+   }));
+   f.srcdoc=c.html;document.body.append(f);
+  }else if(e.html===c.html&&e.pending){e.pending.remove();e.pending=null;e.desired=null}
+  position(e.frame,c,z);position(e.pending,c,z);
  }
 };</script><body></body>)HTML"));
 

@@ -29,6 +29,10 @@ int main(){
         auto background=Pattern(0);auto composed=ComposeText(*background,*overlay);
         Require(composed->pixels[0]==background->pixels[0],"transparent area changed the camera background");
         std::cout<<"PASS: "<<host.FrameCount()<<" captured frames, "<<changes<<" animation changes; transparent background, separate styles, move/resize without reload\n";
+        scene.cards[0].html=L"<style>html,body{margin:0;height:100%;background:transparent}div{height:100%;background:white}</style><div></div>";
+        host.SetScene(scene);bool replacement=false;
+        for(int i=0;i<30;++i){Sleep(50);auto current=host.Latest();Require(current&&LumaAt(*current,300,300)>=0,"replacement exposed a blank frame");if(LumaAt(*current,300,300)>220){replacement=true;break;}}
+        Require(replacement,"prepared replacement did not become visible");
         scene.cards.clear();host.SetScene(scene);Sleep(500);overlay=host.Latest();Require(overlay&&overlay->luma.empty(),"removed cards left stale pixels");
     }catch(const std::exception& e){std::cerr<<e.what()<<"\n";result=1;}
     CoUninitialize();return result;

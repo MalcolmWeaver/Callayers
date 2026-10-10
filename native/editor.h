@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <cmath>
 #include <set>
+#include <map>
 #include <winrt/Windows.Data.Json.h>
 #include <winrt/Windows.Foundation.Collections.h>
 
@@ -16,7 +17,7 @@ struct TextElement {
     bool operator==(const TextElement&)const=default;
 };
 struct CardElement {
-    std::wstring id,html;
+    std::wstring id,html,name=L"Card";
     double x=.1,y=.15,width=.42,height=.45;
     bool operator==(const CardElement&)const=default;
 };
@@ -40,6 +41,17 @@ inline std::wstring NewId(){GUID id;Check(CoCreateGuid(&id));wchar_t text[40];St
 class Document {
     std::vector<Scene> past,future;
     Scene saved;
+    uint64_t epoch=1;
+    std::map<std::wstring,uint64_t> contentRevisions;
+    void TrackContent(const Scene& before){
+        std::set<std::wstring> changed;
+        for(const auto& old:before.cards){
+            auto now=std::find_if(scene.cards.begin(),scene.cards.end(),[&](const auto& c){return c.id==old.id;});
+            if(now==scene.cards.end()||now->html!=old.html||now->name!=old.name)changed.insert(old.id);
+        }
+        for(const auto& now:scene.cards)if(std::none_of(before.cards.begin(),before.cards.end(),[&](const auto& c){return c.id==now.id;}))changed.insert(now.id);
+        for(const auto& id:changed)++contentRevisions[id];
+    }
 public:
     Scene scene;
     bool Dirty()const{return scene!=saved;}
@@ -47,13 +59,37 @@ public:
     bool CanRedo()const{return !future.empty();}
     void Commit(const Scene& before){
         if(scene==before)return;
-        past.push_back(before);if(past.size()>100)past.erase(past.begin());future.clear();
+        TrackContent(before);past.push_back(before);if(past.size()>100)past.erase(past.begin());future.clear();
     }
-    void Undo(){if(past.empty())return;future.push_back(scene);scene=past.back();past.pop_back();}
-    void Redo(){if(future.empty())return;past.push_back(scene);scene=future.back();future.pop_back();}
-    void Loaded(Scene next){scene=std::move(next);saved=scene;past.clear();future.clear();}
+    void Undo(){if(past.empty())return;future.push_back(scene);scene=past.back();past.pop_back();TrackContent(future.back());}
+    void Redo(){if(future.empty())return;past.push_back(scene);scene=future.back();future.pop_back();TrackContent(past.back());}
+    void Loaded(Scene next){scene=std::move(next);saved=scene;past.clear();future.clear();++epoch;contentRevisions.clear();}
     void Saved(){saved=scene;}
+    uint64_t Epoch()const{return epoch;}
+    uint64_t ContentRevision(const std::wstring& id)const{auto it=contentRevisions.find(id);return it==contentRevisions.end()?0:it->second;}
 };
+struct CardRequestTarget {
+    uint64_t epoch=0,revision=0;
+    bool creating=true;
+    CardElement card;
+};
+inline CardRequestTarget CaptureCardTarget(const Document& document,const std::wstring& selectedId={}){
+    CardRequestTarget target;target.epoch=document.Epoch();target.card.id=NewId();
+    for(const auto& c:document.scene.cards)if(c.id==selectedId){target.creating=false;target.card=c;target.revision=document.ContentRevision(c.id);break;}
+    return target;
+}
+inline bool CardTargetCurrent(const Document& document,const CardRequestTarget& target){
+    if(document.Epoch()!=target.epoch)return false;
+    if(target.creating)return document.scene.cards.size()<12&&document.scene.cards.size()+document.scene.texts.size()<100&&std::none_of(document.scene.cards.begin(),document.scene.cards.end(),[&](const auto& c){return c.id==target.card.id;});
+    return document.ContentRevision(target.card.id)==target.revision&&std::any_of(document.scene.cards.begin(),document.scene.cards.end(),[&](const auto& c){return c.id==target.card.id&&c.html==target.card.html;});
+}
+inline bool ApplyGeneratedCard(Document& document,const CardRequestTarget& target,const std::wstring& html,const std::wstring& name){
+    if(!CardTargetCurrent(document,target))return false;
+    auto before=document.scene;
+    if(target.creating){auto card=target.card;card.html=html;card.name=name;document.scene.cards.push_back(std::move(card));}
+    else for(auto& card:document.scene.cards)if(card.id==target.card.id){card.html=html;card.name=name;break;}
+    document.Commit(before);return true;
+}
 // Dragging uses a fixed starting element, so every move is absolute rather than cumulative.
 inline TextElement MoveText(const TextElement& start,double dx,double dy){
     auto t=start;t.x=std::clamp(start.x+dx,0.,1.-t.width);t.y=std::clamp(start.y+dy,0.,1.-t.height);return t;
@@ -96,7 +132,7 @@ inline std::string EncodeScene(const Scene& scene){
     }
     for(const auto& c:scene.cards){
         JsonObject o;o.SetNamedValue(L"type",JsonValue::CreateStringValue(L"card"));
-        o.SetNamedValue(L"id",JsonValue::CreateStringValue(c.id));o.SetNamedValue(L"html",JsonValue::CreateStringValue(c.html));
+        o.SetNamedValue(L"id",JsonValue::CreateStringValue(c.id));o.SetNamedValue(L"html",JsonValue::CreateStringValue(c.html));o.SetNamedValue(L"name",JsonValue::CreateStringValue(c.name));
         o.SetNamedValue(L"x",JsonValue::CreateNumberValue(c.x));o.SetNamedValue(L"y",JsonValue::CreateNumberValue(c.y));
         o.SetNamedValue(L"width",JsonValue::CreateNumberValue(c.width));o.SetNamedValue(L"height",JsonValue::CreateNumberValue(c.height));elements.Append(o);
     }
@@ -118,9 +154,9 @@ inline Scene DecodeScene(const std::string& bytes){
     for(const auto& item:items){
         auto o=item.GetObject();TextElement t;
         if(o.GetNamedString(L"type")==L"card"){
-            CardElement c;c.id=o.GetNamedString(L"id");c.html=o.GetNamedString(L"html");
+            CardElement c;c.id=o.GetNamedString(L"id");c.html=o.GetNamedString(L"html");c.name=o.GetNamedString(L"name",L"Card");
             c.x=o.GetNamedNumber(L"x");c.y=o.GetNamedNumber(L"y");c.width=o.GetNamedNumber(L"width");c.height=o.GetNamedNumber(L"height");
-            if(c.id.empty()||!ids.insert(c.id).second||c.html.size()>200000||scene.cards.size()>=12||
+            if(c.id.empty()||!ids.insert(c.id).second||c.html.size()>200000||c.name.empty()||c.name.size()>100||scene.cards.size()>=12||
                 !std::isfinite(c.x)||!std::isfinite(c.y)||!std::isfinite(c.width)||!std::isfinite(c.height)||
                 c.x<0||c.y<0||c.width<.08||c.height<.08||c.x+c.width>1.000001||c.y+c.height>1.000001)
                 throw std::runtime_error("Invalid card geometry or content.");

@@ -14,6 +14,9 @@ target_link_libraries(camera_common INTERFACE mfplat mf mfuuid mfreadwrite ole32
 add_library(CallayersCamera SHARED native/source.cpp native/source.def)
 target_link_libraries(CallayersCamera PRIVATE camera_common)
 add_executable(Callayers WIN32 native/app.cpp native/app.manifest native/app.rc)
+if(CALLAYERS_APP_NAME)
+  set_target_properties(Callayers PROPERTIES OUTPUT_NAME "${CALLAYERS_APP_NAME}")
+endif()
 target_compile_options(Callayers PRIVATE /bigobj)
 target_link_options(Callayers PRIVATE /DELAYLOAD:Microsoft.UI.Windowing.Core.dll)
 if(NOT CALLAYERS_WINAPPSDK)
@@ -52,3 +55,13 @@ add_executable(CardProbe native/card_probe.cpp)
 target_link_libraries(CardProbe PRIVATE card_renderer)
 
 target_link_libraries(Callayers PRIVATE card_renderer)
+
+add_library(ai_client STATIC native/ai_client.cpp native/website.cpp)
+target_link_libraries(ai_client PUBLIC camera_common winhttp shell32 runtimeobject)
+target_link_libraries(Callayers PRIVATE ai_client)
+add_executable(AiTests native/ai_tests.cpp)
+target_link_libraries(AiTests PRIVATE ai_client)
+add_test(NAME ai_generation_contract COMMAND AiTests)
+
+add_executable(AiProbe native/ai_probe.cpp)
+target_link_libraries(AiProbe PRIVATE ai_client)

@@ -185,24 +185,27 @@ Verification:
 
 **Exit:** the signature generate-and-revise demonstration works. Start informal user demos now; do not wait for full MVP completion.
 
-## 5. Add multiple cards and standalone images
+### Implementation status — October 10, 2026
 
-**Build**
+Implemented using the user-selected OpenAI API; an initial real website-summary generation passes, with the broader demo-quality evaluation still pending:
 
-- Card duplication, deletion, and ordering within the card layer.
-- Image paste and drag-drop, selection, movement, resizing, and deletion.
-- Foreground text/image ordering, respecting the layer policy in project.md.
-- Bundle imported assets with saved decks.
+- New-card prompt and selected-card revision, descriptive card names, progress, cancellation, retry, and a configurable model (default `gpt-6-luna`).
+- Native settings screen stores the API key in Windows Credential Manager. Only the prompt and target card content/size are sent; no camera frames or other cards. Responses request `store:false` and strict structured output.
+- Shared guidance requests responsive, mainly transparent, self-contained cards. External resources remain blocked by the existing iframe policy.
+- Existing HTML stays visible during generation and while a replacement iframe loads. Replacement preserves identity/current placement and is one undo action.
+- Requests bind to document epoch, card identity, and content revision. Selection changes do not redirect a response; movement remains allowed; content changes, delete/undo, and reopening reject stale responses.
+- Cancel immediately discards the eventual result locally. An already submitted API request may still complete and incur usage.
 
-**Verify**
+Verification completed:
 
-- Arrange overlapping cards and manipulate one without changing its neighbors.
-- Confirm duplicate cards receive independent identities and can be revised independently.
-- Import an image, save, and reopen after its original file is moved or unavailable.
-- Reopen a prepared scene without internet and confirm its existing assets display.
-- Check local handles and contextual controls stay out of the outgoing video.
+- Full Release build and all six automated suites pass, including request/response validation, revision undo, stale-target protection, movement during generation, and changing selection before a response arrives.
+- Live browser probe passes animation, transparency, independent styles, movement/resizing without restart, and replacement without a blank intervening frame.
+- Running-app review verified the prompt controls and full-window settings dialog. The updated executable is `build/Release/Callayers.exe`.
+- The registered Windows camera delivered 90 live webcam frames in 2.98 seconds with no idle frames.
+- Website summaries: one explicit HTTPS URL in the prompt is retrieved on the worker before generation. HTML scripts/styles are removed; a maximum 24,000 characters is supplied as untrusted source text, with truncation disclosed to the model. Cards retain their offline/network-blocked behavior. Failed retrieval preserves the scene; no model request is made after a failed or canceled fetch.
+- Live check: Streamfog returned 3,340 readable characters; GPT-6 Luna generated and saved a three-point summary with source attribution in 15.18 seconds. The saved card was reopened and visually checked over the webcam. Automated tests cover URL validation, text extraction, source inclusion, and truncation disclosure. The saved model typo `gpt-6` was corrected to `gpt-6-luna`.
+- [Ten repeatable prompts and interaction checks](docs/ai-card-evaluation.md) are prepared. The full quality set, live create/revise interaction, and remote-tile readability still need acceptance checks; a single successful generation does not establish these.
 
-**Exit:** users can compose a useful scene from mixed material.
 
 ## 6. Add pen, eraser, and laser
 

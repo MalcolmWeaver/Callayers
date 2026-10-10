@@ -154,6 +154,16 @@ public:
     std::function<void(const Scene&)> SceneChanged;
     bool CardSelected(){return SelectedCard()!=nullptr;}
     const Scene& CurrentScene()const{return document.scene;}
+    std::wstring CardName(){return SelectedCard()?SelectedCard()->name:L"";}
+    void NewCardSelection(){FinishEdit(true);selected=selectedCard=-1;textTool=false;Sync();}
+    CardRequestTarget GenerationTarget(){FinishEdit(true);return CaptureCardTarget(document,SelectedCard()?SelectedCard()->id:L"");}
+    bool TargetCurrent(const CardRequestTarget& target)const{return CardTargetCurrent(document,target);}
+    bool AcceptGenerated(const CardRequestTarget& target,const std::wstring& html,const std::wstring& name){
+        FinishEdit(true);if(!ApplyGeneratedCard(document,target,html,name))return false;
+        if(target.creating&&!HasSelection()&&!textTool)selectedCard=static_cast<int>(document.scene.cards.size())-1;
+        Publish();Sync();return true;
+    }
+
     void AddSampleCard(){
         FinishEdit(true);if(document.scene.cards.size()>=12||document.scene.cards.size()+document.scene.texts.size()>=100)throw std::runtime_error("This scene has reached its card limit.");
         auto before=document.scene;auto c=SampleCard(!document.scene.cards.empty());

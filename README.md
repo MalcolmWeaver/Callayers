@@ -1,6 +1,6 @@
 # Callayers
 
-Fresh implementation of the camera, text editor, WinUI shell, and live-card milestones in [mvp-dev-plan.md](mvp-dev-plan.md).
+Fresh implementation of the camera, text editor, WinUI shell, live cards, and OpenAI card generation in [mvp-dev-plan.md](mvp-dev-plan.md).
 The previous implementation remains deleted; nothing here restores it.
 
 ## Build
@@ -12,7 +12,7 @@ Requires Windows 11, CMake 3.24+, Visual Studio 2022 C++ build tools, and Window
 ```
 
 Outputs are in `build\Release`: `Callayers.exe`, `CallayersCamera.dll`, and `CameraProbe.exe`.
-The build script runs protocol/color conversion, media-source lifecycle, editor document/rendering, native editor interaction, and shell editor-command tests.
+The build script runs protocol/color conversion, media-source lifecycle, editor document/rendering, native editor interaction, shell editor-command, and AI request-targeting tests.
 The lifecycle test also releases the activation helper before using the source, guarding against premature shutdown during Windows startup.
 
 ## Register and run
@@ -59,13 +59,43 @@ Camera creation persists for the current user. Registration of the source DLL is
 
 Text appears in the video as it is typed, but its native editing box, caret, selection border, resize handles, and toolbar do not. The file format supports one scene and up to 100 total elements, including up to 12 cards. Text-only decks remain version 1; decks containing cards use version 2. Both reopen in this build. Multi-scene management comes later.
 
-## Live test cards (step 3)
+## AI cards (step 4)
 
-- Click **Test card** to add the animated purple card; click again for a second card with its own styling.
+To save the key in a persistent Windows user environment variable and select **GPT-6 Luna**, save/close Callayers and run:
+
+```powershell
+.\scripts\set-openai-key.ps1 -Launch
+```
+
+The command prompts with masked input, saves `OPENAI_API_KEY`, selects `gpt-6-luna`, and reopens Callayers with the webcam/output enabled. The key is not written into the repository or command history. User environment variables are not encrypted like Credential Manager. A key already saved through AI settings takes precedence. Existing terminals may retain their old environment; this command also updates its own process so the app it launches receives the new key immediately.
+
+1. Open **AI settings**, paste your OpenAI API key, and save. The key is stored in Windows Credential Manager for your Windows user; it is never saved in a deck. Alternatively, set `OPENAI_API_KEY` before launching. A saved credential takes precedence over the environment variable.
+2. Describe a card in the bottom prompt and choose **Generate card**. The default model is `gpt-6-luna`; the model is configurable in AI settings.
+3. Select a card, then click the prompt and describe a revision. **Update card** keeps its identity and placement; Undo restores its previous content in one action.
+4. Choose **New card** or deselect on the stage to generate another card.
+
+The app sends the prompt, any retrieved website text, and, for revision, the selected card's HTML/name/size to the OpenAI Responses API with `store:false`. Webcam frames and other cards are not sent. OpenAI API usage has separate billing from ChatGPT. The model setting is stored in `%LOCALAPPDATA%\Callayers\ai.json`.
+
+### Summarize a website
+
+Include one full HTTPS URL in the prompt, for example: **Summarize https://streamfog.com in three concise points on a transparent card.** Callayers retrieves that page before contacting the model, removes scripts/styles, and supplies up to 24,000 characters of text. The model is instructed to summarize only that evidence and include a plain-text source label. This also works when revising a selected card. Bare domains without `https://` do not trigger retrieval.
+
+This is a single-page snapshot, not a website crawl or live embed. Retrieval uses no browser login, cookies, or page JavaScript; JavaScript-only pages, login walls, PDFs, blocked sites, and pages over 1 MiB may need pasted text instead. Fetch failures preserve the existing card and offer retry; they do not trigger an ungrounded generation. Canceling during retrieval prevents the subsequent model call. HTTPS redirects are followed up to four times. Website content is treated as untrusted source material, not instructions.
+
+Retrieval itself makes no OpenAI tool call. Page text increases input-token usage on the selected model; normal card-generation output charges still apply. Cards remain network-blocked and reopen offline.
+
+Generated cards default to transparent backgrounds, readable white text, and periwinkle/mint accents. Their HTML, CSS, and JavaScript are saved inside the deck and reopen offline. External resources and network requests are blocked; generated assets must be inline or embedded.
+
+Progress, cancellation, and retry appear beside the prompt. Cancel discards the result locally; an already submitted API request may still finish and incur usage. Existing content stays visible during generation and while its replacement loads. Deleting/changing the target, undoing its content, or opening another deck prevents a late response from overwriting newer work. Moving/resizing the target remains allowed.
+
+The request uses the official [Responses structured-output format](https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=responses). See the [repeatable evaluation prompts](docs/ai-card-evaluation.md) for visual and live-call acceptance checks.
+
+## Live card rendering
+
+- Use **+ Card** to focus the new-card composer. The `--demo-cards` development option adds two handcrafted animated samples.
 - Select and drag a card to move it. Corner handles resize freely; side handles change width. The HTML responds to the new size, while its running animation continues.
 - **Delete card**, Delete, Undo/Redo, Save, and Open work with cards. Card HTML is stored inside the deck, so these samples work offline.
 - Native text stays above all cards. Selection borders and handles remain local.
-- This milestone uses handcrafted sample content. AI generation and revision are step 4.
 
 Requires the Microsoft Edge WebView2 Evergreen Runtime. A missing runtime or failed renderer is reported in the status bar. Card scripts run in isolated iframes without same-origin permission, native host objects, or device permissions. The page policy blocks external resources and network requests; embedded data/blob images are allowed. Moving/resizing changes iframe geometry without recreating its document.
 
@@ -115,6 +145,8 @@ For the final acceptance check, join a real Zoom call from a second device. Veri
 - `native/app.cpp`: native Win32 preview, webcam selection, asynchronous Media Foundation capture, pattern generation, producer transport, and virtual-camera start.
 - `native/card_host.cpp`: isolated WebView2 host, transparent visual capture, browser lifetime, and card geometry updates.
 - `native/card_probe.cpp`: live GPU/browser verification, run separately from the fast build tests.
+- `native/ai_client.cpp`: asynchronous OpenAI requests, structured response validation, configurable model, and Windows credential storage.
+- `native/ai_probe.cpp`: developer-only real API generation/revision checks; writes separate evaluation decks.
 - `native/editor.h`: text/card model, coalesced document history, and validated versioned JSON save/load with atomic replacement.
 - `native/text_renderer.h`: DirectWrite/Direct2D text rasterization and immutable text overlays blended into NV12 frames.
 - `native/text_editor_ui.h`: native text editing, selection/dragging, handles, style controls, and file actions. Editor-only controls never enter the compositor.
