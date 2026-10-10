@@ -1,0 +1,28 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 18
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "CallayersVCam", "src\vcam\CallayersVCam.vcxproj", "{8E2D5A71-3C4B-4F08-B6E1-9A7C0D2F5E18}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Callayers", "src\app\Callayers.vcxproj", "{4F8A1C2E-6B7D-4E19-9A30-2C5D8F1A6B44}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "CameraCheck", "src\check\CameraCheck.vcxproj", "{1B6E9C34-8A2F-4D70-C5E3-7F1A4B8D6C20}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Release|x64 = Release|x64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{8E2D5A71-3C4B-4F08-B6E1-9A7C0D2F5E18}.Debug|x64.ActiveCfg = Debug|x64
+		{8E2D5A71-3C4B-4F08-B6E1-9A7C0D2F5E18}.Debug|x64.Build.0 = Debug|x64
+		{8E2D5A71-3C4B-4F08-B6E1-9A7C0D2F5E18}.Release|x64.ActiveCfg = Release|x64
+		{8E2D5A71-3C4B-4F08-B6E1-9A7C0D2F5E18}.Release|x64.Build.0 = Release|x64
+		{4F8A1C2E-6B7D-4E19-9A30-2C5D8F1A6B44}.Debug|x64.ActiveCfg = Debug|x64
+		{4F8A1C2E-6B7D-4E19-9A30-2C5D8F1A6B44}.Debug|x64.Build.0 = Debug|x64
+		{4F8A1C2E-6B7D-4E19-9A30-2C5D8F1A6B44}.Release|x64.ActiveCfg = Release|x64
+		{4F8A1C2E-6B7D-4E19-9A30-2C5D8F1A6B44}.Release|x64.Build.0 = Release|x64
+		{1B6E9C34-8A2F-4D70-C5E3-7F1A4B8D6C20}.Debug|x64.ActiveCfg = Debug|x64
+		{1B6E9C34-8A2F-4D70-C5E3-7F1A4B8D6C20}.Debug|x64.Build.0 = Debug|x64
+		{1B6E9C34-8A2F-4D70-C5E3-7F1A4B8D6C20}.Release|x64.ActiveCfg = Release|x64
+		{1B6E9C34-8A2F-4D70-C5E3-7F1A4B8D6C20}.Release|x64.Build.0 = Release|x64
+	EndGlobalSection
+EndGlobal
