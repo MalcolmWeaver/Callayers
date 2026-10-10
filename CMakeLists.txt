@@ -10,7 +10,7 @@ add_compile_definitions(UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN _WIN32_WIN
 add_compile_options(/W4 /permissive- /EHsc /utf-8)
 add_library(camera_common INTERFACE)
 target_include_directories(camera_common INTERFACE native)
-target_link_libraries(camera_common INTERFACE mfplat mf mfuuid mfreadwrite ole32 oleaut32 propsys advapi32 shlwapi mfsensorgroup ksuser)
+target_link_libraries(camera_common INTERFACE mfplat mf mfuuid mfreadwrite ole32 oleaut32 propsys advapi32 shlwapi mfsensorgroup ksuser windowscodecs crypt32 shell32)
 add_library(CallayersCamera SHARED native/source.cpp native/source.def)
 target_link_libraries(CallayersCamera PRIVATE camera_common)
 add_executable(Callayers WIN32 native/app.cpp native/app.manifest native/app.rc)
@@ -40,6 +40,9 @@ add_test(NAME source_lifecycle COMMAND CameraProbe --source-test $<TARGET_FILE:C
 add_test(NAME editor_document COMMAND EditorTests)
 add_test(NAME editor_interactions COMMAND EditorUITests)
 add_test(NAME shell_editor_commands COMMAND EditorUITests --modern)
+add_executable(ImageTests native/image_tests.cpp)
+target_link_libraries(ImageTests PRIVATE camera_common d2d1 dwrite runtimeobject gdi32 user32 comctl32 comdlg32)
+add_test(NAME local_images COMMAND ImageTests)
 
 if(NOT CALLAYERS_WEBVIEW2)
   set(CALLAYERS_WEBVIEW2 "$ENV{USERPROFILE}/.nuget/packages/microsoft.web.webview2/1.0.2651.64")

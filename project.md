@@ -61,7 +61,7 @@ Direct typing into standalone text is an MVP feature. Direct editing of text ins
 
 ### Images and composition
 
-- Standalone images through paste and drag-drop.
+- Standalone local images through a file picker, paste, and drag-drop; preserve transparency and embed assets in saved decks.
 - Selection, movement, resizing, deletion, and basic ordering of cards, text, and images.
 - Store imported assets with the deck.
 - Undo for content and composition changes, with a drag treated as one action.

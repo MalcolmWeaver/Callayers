@@ -207,6 +207,28 @@ Verification completed:
 - [Ten repeatable prompts and interaction checks](docs/ai-card-evaluation.md) are prepared. The full quality set, live create/revise interaction, and remote-tile readability still need acceptance checks; a single successful generation does not establish these.
 
 
+## 5. Add local images — restored after drawing
+
+**Build**
+
+- Import local images through an Image button, clipboard paste, and file drag-and-drop onto the stage.
+- Select, move, resize with proportions preserved, delete, and undo.
+- Preserve image transparency and provide front/back ordering with standalone text.
+- Embed image assets in the deck so saved scenes do not depend on the original files.
+- Keep ink and laser above images, and editor handles out of camera output.
+
+**Verify**
+
+- Import an opaque photo and a transparent PNG; confirm both preview and virtual-camera output.
+- Paste a copied image and drop an image file; confirm placement and selection.
+- Move/resize, erase ink over an image, delete, and undo without losing unrelated content.
+- Save, remove or move the original image file, and reopen the deck; confirm the image remains intact.
+- Try invalid/oversized images and a failed batch import; preserve the current scene.
+
+**Exit:** local photos, logos, and screenshots can be arranged and reused alongside cards and drawing.
+
+**Implemented (2026-10-10):** Image picker, clipboard image/file paste, file drop, proportional resizing, movement, deletion/undo, foreground ordering, and embedded PNG assets. Large inputs are resized to a maximum 2048-pixel side; transparent PNGs retain alpha. All seven automated suites pass, including image rendering, deck reopening without its source file, drag/drop, and failed-batch rollback. The image picker and transparent preview were checked in the running app; all 60 sampled virtual-camera frames contained the expected image colors. Actual clipboard interoperability across source apps remains a hands-on check.
+
 ## 6. Add pen, eraser, and laser
 
 **Build**
@@ -238,7 +260,7 @@ Implemented and locally verified; audience-view testing in a real call remains:
 - Remaining acceptance: comfort/latency on the user's actual pointing device and a real meeting check. No pressure-sensitive tablet testing or remote participant observation is claimed.
 
 ## 7. Add output zoom and Clear overlays
-
+SKIP IN MVP
 **Build**
 
 - Drag-to-zoom with an output rectangle constrained to the video aspect ratio.

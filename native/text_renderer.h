@@ -53,14 +53,22 @@ public:
         t.y=std::min(t.y,1.-t.height);
     }
     std::shared_ptr<const TextOverlay> Render(const Scene& scene,const std::vector<InkMark>& transient={}){
-        auto result=std::make_shared<TextOverlay>();if(scene.texts.empty()&&scene.ink.empty()&&transient.empty())return result;
+        auto result=std::make_shared<TextOverlay>();if(scene.texts.empty()&&scene.images.empty()&&scene.ink.empty()&&transient.empty())return result;
         ComPtr<IWICBitmap> bitmap;Check(wic->CreateBitmap(Width,Height,GUID_WICPixelFormat32bppPBGRA,WICBitmapCacheOnLoad,&bitmap));
         ComPtr<ID2D1RenderTarget> target;
         auto properties=D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_SOFTWARE,D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM,D2D1_ALPHA_MODE_PREMULTIPLIED),96,96);
         Check(d2d->CreateWicBitmapRenderTarget(bitmap.Get(),properties,&target));
         target->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
         target->BeginDraw();target->Clear(D2D1::ColorF(0,0.f));
-        for(const auto& t:scene.texts){
+        struct Layer {int order;const TextElement* text;const ImageElement* image;};std::vector<Layer> layers;
+        for(const auto& image:scene.images)layers.push_back({image.order,nullptr,&image});for(const auto& text:scene.texts)layers.push_back({text.order,&text,nullptr});
+        std::stable_sort(layers.begin(),layers.end(),[](const auto& a,const auto& b){return a.order<b.order;});
+        for(const auto& layer:layers){
+            if(layer.image){auto& image=*layer.image;if(!image.asset)continue;auto& asset=*image.asset;ComPtr<ID2D1Bitmap> bitmapImage;
+                Check(target->CreateBitmap(D2D1::SizeU(asset.width,asset.height),asset.pixels.data(),asset.width*4,D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM,D2D1_ALPHA_MODE_PREMULTIPLIED)),&bitmapImage));
+                target->DrawBitmap(bitmapImage.Get(),D2D1::RectF(static_cast<float>(image.x*Width),static_cast<float>(image.y*Height),static_cast<float>((image.x+image.width)*Width),static_cast<float>((image.y+image.height)*Height)),1,D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);continue;
+            }
+            const auto& t=*layer.text;
             auto format=Format(t);
             ComPtr<ID2D1SolidColorBrush> brush;Check(target->CreateSolidColorBrush(D2D1::ColorF(t.color),&brush));
             auto rect=D2D1::RectF(static_cast<float>(t.x*Width),static_cast<float>(t.y*Height),static_cast<float>((t.x+t.width)*Width),static_cast<float>((t.y+t.height)*Height));

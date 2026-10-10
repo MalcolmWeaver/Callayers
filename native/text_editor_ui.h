@@ -6,6 +6,7 @@
 #include <windowsx.h>
 #include <functional>
 #include <optional>
+#include <shellapi.h>
 
 namespace callayers {
 class TextEditorUI {
@@ -25,7 +26,7 @@ private:
     TextRenderer renderer;
     std::function<void(std::shared_ptr<const TextOverlay>)> publish;
     std::filesystem::path path;
-    int selected=-1,selectedCard=-1,dragHandle=-1;
+    int selected=-1,selectedCard=-1,selectedImage=-1,dragHandle=-1;
     bool textTool=false,dragging=false,syncing=false;
     bool nativeControls=true;
     DrawTool drawTool=DrawTool::None;
@@ -55,11 +56,18 @@ private:
     }
     std::vector<POINT> Handles(const RECT& r)const{return {{r.left,r.top},{r.right,r.top},{r.right,r.bottom},{r.left,r.bottom},{r.left,(r.top+r.bottom)/2},{r.right,(r.top+r.bottom)/2}};}
     CardElement* SelectedCard(){return selectedCard>=0&&static_cast<size_t>(selectedCard)<document.scene.cards.size()?&document.scene.cards[selectedCard]:nullptr;}
-    bool HasSelection(){return Selected()||SelectedCard();}
-    RECT SelectionRect(){return Selected()?Rect(*Selected()):Rect(*SelectedCard());}
+    ImageElement* SelectedImage(){return selectedImage>=0&&static_cast<size_t>(selectedImage)<document.scene.images.size()?&document.scene.images[selectedImage]:nullptr;}
+    bool HasSelection(){return Selected()||SelectedImage()||SelectedCard();}
+    RECT SelectionRect(){return Selected()?Rect(*Selected()):SelectedImage()?Rect(*SelectedImage()):Rect(*SelectedCard());}
     int HitCard(POINT p){for(int i=static_cast<int>(document.scene.cards.size())-1;i>=0;--i){auto r=Rect(document.scene.cards[i]);if(PtInRect(&r,p))return i;}return -1;}
     int HitHandle(POINT p){if(!HasSelection())return -1;auto points=Handles(SelectionRect());for(int i=0;i<6;++i)if(std::abs(p.x-points[i].x)<=7&&std::abs(p.y-points[i].y)<=7)return i;return -1;}
-    int HitText(POINT p){for(int i=static_cast<int>(document.scene.texts.size())-1;i>=0;--i){auto r=Rect(document.scene.texts[i]);if(PtInRect(&r,p))return i;}return -1;}
+    int HitText(POINT p){int hit=-1;for(int i=0;i<static_cast<int>(document.scene.texts.size());++i){auto r=Rect(document.scene.texts[i]);if(PtInRect(&r,p)&&(hit<0||document.scene.texts[i].order>=document.scene.texts[hit].order))hit=i;}return hit;}
+    void HitSelection(POINT p){
+        selected=HitText(p);selectedImage=-1;
+        for(int i=0;i<static_cast<int>(document.scene.images.size());++i){auto& image=document.scene.images[i];auto r=Rect(image);if(PtInRect(&r,p)&&(selectedImage<0||image.order>=document.scene.images[selectedImage].order))selectedImage=i;}
+        if(selected>=0&&selectedImage>=0){if(document.scene.texts[selected].order>=document.scene.images[selectedImage].order)selectedImage=-1;else selected=-1;}
+        selectedCard=selected<0&&selectedImage<0?HitCard(p):-1;
+    }
     std::vector<InkMark> LaserMarks(Clock::time_point now){
         std::vector<InkMark> marks;
         for(size_t i=0;i<laser.size();++i){float alpha=static_cast<float>(std::clamp(1.-std::chrono::duration<double>(now-laser[i].time).count()/.9,0.,1.));if(alpha<=0)continue;
@@ -159,7 +167,7 @@ private:
         if(!edit)return;
         if(commit&&Selected())Selected()->text=ReadText(edit);
         HWND old=edit;edit=nullptr;DestroyWindow(old);ClearEditBackground();editingOverlay.reset();
-        if(commit)document.Commit(beforeEdit);else{document.scene=beforeEdit;selected=selectedCard=-1;}
+        if(commit)document.Commit(beforeEdit);else{document.scene=beforeEdit;selected=selectedCard=selectedImage=-1;}
         Publish();Sync();
     }
     std::filesystem::path FileDialog(bool save){
@@ -179,19 +187,58 @@ private:
         FinishInk();FinishEdit(true);if(!MayDiscard())return;auto candidate=FileDialog(false);if(candidate.empty())return;
         Scene loaded=LoadScene(candidate); // Validate fully before replacing the current scene.
         for(auto& text:loaded.texts)renderer.FitHeight(text);
-        auto overlay=renderer.Render(loaded);laser.clear();document.Loaded(std::move(loaded));path=candidate;selected=selectedCard=-1;publish(overlay);if(SceneChanged)SceneChanged(document.scene);Sync();
+        auto overlay=renderer.Render(loaded);laser.clear();document.Loaded(std::move(loaded));path=candidate;selected=selectedCard=selectedImage=-1;publish(overlay);if(SceneChanged)SceneChanged(document.scene);Sync();
     }
     void Delete(){FinishEdit(true);if(!HasSelection())return;auto before=document.scene;
-        if(Selected())document.scene.texts.erase(document.scene.texts.begin()+selected);else document.scene.cards.erase(document.scene.cards.begin()+selectedCard);
-        selected=selectedCard=-1;document.Commit(before);Publish();Sync();}
+        if(Selected())document.scene.texts.erase(document.scene.texts.begin()+selected);else if(SelectedImage())document.scene.images.erase(document.scene.images.begin()+selectedImage);else document.scene.cards.erase(document.scene.cards.begin()+selectedCard);
+        selected=selectedCard=selectedImage=-1;document.Commit(before);Publish();Sync();}
 
 public:
+    bool ImageSelected(){return SelectedImage()!=nullptr;}
+    void AddImages(std::vector<ImageElement> images,std::optional<POINT> drop={}){
+        if(images.empty())return;size_t chars=0;for(const auto& image:document.scene.images)chars+=image.asset->png.size();for(const auto& image:images){if(!image.asset)throw std::runtime_error("Image data is missing.");chars+=image.asset->png.size();}
+        if(document.scene.images.size()+images.size()>32||ElementCount(document.scene)+images.size()>100||chars>MaxSceneImageChars)throw std::runtime_error("This deck has reached its image limit. Remove an image first.");
+        FinishInk();FinishEdit(true);auto before=document.scene,next=before;int order=NextForegroundOrder(next);
+        for(auto& image:images){image.id=NewId();image.order=order++;double fit=std::min(Width*.42/image.asset->width,Height*.5/image.asset->height);image.width=image.asset->width*fit/Width;image.height=image.asset->height*fit/Height;
+            double offset=.025*(next.images.size()%5);image.x=.1+offset;image.y=.15+offset;if(drop){auto p=StagePoint(*drop);image.x=std::clamp(p.x-image.width/2+offset,0.,1.-image.width);image.y=std::clamp(p.y-image.height/2+offset,0.,1.-image.height);}next.images.push_back(std::move(image));}
+        auto output=renderer.Render(next);document.scene=std::move(next);document.Commit(before);selected=selectedCard=-1;selectedImage=static_cast<int>(document.scene.images.size())-1;textTool=false;drawTool=DrawTool::None;
+        publish(output);if(SceneChanged)SceneChanged(document.scene);Sync();SetFocus(window);
+    }
+    void ImportImages(const std::vector<std::filesystem::path>& paths,std::optional<POINT> drop={}){
+        if(paths.size()>16)throw std::runtime_error("Import up to 16 images at a time.");ImageCodec codec;std::vector<ImageElement> images;
+        for(const auto& file:paths){ImageElement image;image.name=file.filename().wstring();if(image.name.size()>260)image.name.resize(260);try{image.asset=codec.LoadFile(file);}catch(HRESULT){throw std::runtime_error("Could not read an image. Try PNG, JPEG, BMP, or GIF.");}catch(const winrt::hresult_error&){throw std::runtime_error("Could not read an image. Try PNG, JPEG, BMP, or GIF.");}images.push_back(std::move(image));}AddImages(std::move(images),drop);
+    }
+    void ChooseImage(){
+        wchar_t name[32768]{};OPENFILENAMEW info{sizeof(info)};info.hwndOwner=window;info.lpstrFile=name;info.nMaxFile=32768;
+        info.lpstrTitle=L"Add an image";info.lpstrFilter=L"Images\0*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tif;*.tiff;*.webp\0All files\0*.*\0\0";info.Flags=OFN_EXPLORER|OFN_NOCHANGEDIR|OFN_PATHMUSTEXIST|OFN_FILEMUSTEXIST;
+        if(GetOpenFileNameW(&info))ImportImages({std::filesystem::path(name)});
+    }
+    static std::vector<std::filesystem::path> DropPaths(HDROP drop){
+        UINT count=DragQueryFileW(drop,0xffffffff,nullptr,0);if(count>16)throw std::runtime_error("Import up to 16 images at a time.");std::vector<std::filesystem::path> paths;
+        for(UINT i=0;i<count;++i){UINT length=DragQueryFileW(drop,i,nullptr,0);std::wstring path(length+1,L'\0');DragQueryFileW(drop,i,path.data(),length+1);path.resize(length);paths.emplace_back(path);}return paths;
+    }
+    bool PasteImage(){
+        std::vector<BYTE> bytes;std::vector<std::filesystem::path> files;bool dib=false;
+        {if(!OpenClipboard(window))throw std::runtime_error("The clipboard is busy. Try pasting again.");struct Close {~Close(){CloseClipboard();}} close;
+            if(IsClipboardFormatAvailable(CF_HDROP))files=DropPaths(static_cast<HDROP>(GetClipboardData(CF_HDROP)));
+            else{UINT png=RegisterClipboardFormatW(L"PNG");UINT format=IsClipboardFormatAvailable(png)?png:IsClipboardFormatAvailable(CF_DIBV5)?CF_DIBV5:IsClipboardFormatAvailable(CF_DIB)?CF_DIB:0;if(!format)return false;dib=format!=png;
+                HGLOBAL memory=GetClipboardData(format);size_t size=GlobalSize(memory);if(!size||size>MaxImageBytes)throw std::runtime_error("Clipboard image is too large.");auto data=static_cast<const BYTE*>(GlobalLock(memory));if(!data)throw std::runtime_error("Could not read the clipboard image.");
+                try{bytes.assign(data,data+size);}catch(...){GlobalUnlock(memory);throw;}GlobalUnlock(memory);}
+        }
+        if(!files.empty()){ImportImages(files);return true;}
+        ImageCodec codec;ImageElement image;image.name=L"Pasted image";image.asset=dib?codec.FromDib(bytes.data(),bytes.size()):codec.Import(bytes);AddImages({std::move(image)});return true;
+    }
+    void OrderForeground(bool front){
+        FinishInk();FinishEdit(true);if(!Selected()&&!SelectedImage())return;auto before=document.scene;int* selectedOrder=Selected()?&Selected()->order:&SelectedImage()->order;std::vector<int*> orders;
+        for(auto& image:document.scene.images)orders.push_back(&image.order);for(auto& text:document.scene.texts)orders.push_back(&text.order);
+        std::stable_sort(orders.begin(),orders.end(),[](auto a,auto b){return *a<*b;});std::erase(orders,selectedOrder);orders.insert(front?orders.end():orders.begin(),selectedOrder);for(size_t i=0;i<orders.size();++i)*orders[i]=static_cast<int>(i);document.Commit(before);Publish();Sync();
+    }
     DrawTool DrawingTool()const{return drawTool;}
     uint32_t PenColor()const{return penColor;}
     double PenWidth()const{return penWidth;}
     void SetPenColor(uint32_t color){FinishInk();penColor=color&0xffffff;Sync();}
     void SetPenWidth(double width){FinishInk();if(std::isfinite(width))penWidth=std::clamp(width,1.,40.);Sync();}
-    void SetDrawingTool(DrawTool tool){FinishInk();FinishEdit(true);drawTool=tool;textTool=false;selected=selectedCard=-1;Sync();SetFocus(window);}
+    void SetDrawingTool(DrawTool tool){FinishInk();FinishEdit(true);drawTool=tool;textTool=false;selected=selectedCard=selectedImage=-1;Sync();SetFocus(window);}
     void TickInk(Clock::time_point now=Clock::now()){
         bool hadLaser=!laser.empty();std::erase_if(laser,[&](const auto& sample){return now-sample.time>=std::chrono::milliseconds(900);});
         if(inkPending||hadLaser){inkPending=false;Publish(false,now);}
@@ -201,7 +248,7 @@ public:
     bool CardSelected(){return SelectedCard()!=nullptr;}
     const Scene& CurrentScene()const{return document.scene;}
     std::wstring CardName(){return SelectedCard()?SelectedCard()->name:L"";}
-    void NewCardSelection(){FinishInk();FinishEdit(true);selected=selectedCard=-1;textTool=false;drawTool=DrawTool::None;Sync();}
+    void NewCardSelection(){FinishInk();FinishEdit(true);selected=selectedCard=selectedImage=-1;textTool=false;drawTool=DrawTool::None;Sync();}
     CardRequestTarget GenerationTarget(){FinishInk();FinishEdit(true);return CaptureCardTarget(document,SelectedCard()?SelectedCard()->id:L"");}
     bool TargetCurrent(const CardRequestTarget& target)const{return CardTargetCurrent(document,target);}
     bool AcceptGenerated(const CardRequestTarget& target,const std::wstring& html,const std::wstring& name){
@@ -211,10 +258,10 @@ public:
     }
 
     void AddSampleCard(){
-        FinishInk();drawTool=DrawTool::None;FinishEdit(true);if(document.scene.cards.size()>=12||document.scene.cards.size()+document.scene.texts.size()>=100)throw std::runtime_error("This scene has reached its card limit.");
+        FinishInk();drawTool=DrawTool::None;FinishEdit(true);if(document.scene.cards.size()>=12||ElementCount(document.scene)>=100)throw std::runtime_error("This scene has reached its card limit.");
         auto before=document.scene;auto c=SampleCard(!document.scene.cards.empty());
         double offset=.025*(document.scene.cards.size()%4);c.x=std::min(1.-c.width,c.x+offset);c.y=std::min(1.-c.height,c.y+offset);
-        document.scene.cards.push_back(c);selected=-1;selectedCard=static_cast<int>(document.scene.cards.size())-1;textTool=false;
+        document.scene.cards.push_back(c);selected=selectedImage=-1;selectedCard=static_cast<int>(document.scene.cards.size())-1;textTool=false;
         document.Commit(before);Publish();Sync();SetFocus(window);
     }
     std::optional<TextElement> Selection(){if(auto t=Selected())return *t;return {};}
@@ -237,6 +284,7 @@ public:
         });
     }
     TextEditorUI(HWND parent,std::function<void(std::shared_ptr<const TextOverlay>)> output,bool legacyControls=true):window(parent),publish(std::move(output)),nativeControls(legacyControls){
+        DragAcceptFiles(window,TRUE);
         if(!nativeControls){Sync();Publish();return;}
         Add(L"BUTTON",L"Select",BS_AUTOCHECKBOX|BS_PUSHLIKE,SelectId,20,70);Add(L"BUTTON",L"Text",BS_AUTOCHECKBOX|BS_PUSHLIKE,TextId,95,70);
         Add(L"BUTTON",L"Undo",BS_PUSHBUTTON,UndoId,180,65);Add(L"BUTTON",L"Redo",BS_PUSHBUTTON,RedoId,250,65);Add(L"BUTTON",L"Delete",BS_PUSHBUTTON,DeleteId,325,70);
@@ -249,7 +297,7 @@ public:
         Add(L"BUTTON",L"New",BS_PUSHBUTTON,NewIdControl,545,65);Add(L"BUTTON",L"Open",BS_PUSHBUTTON,OpenId,615,65);Add(L"BUTTON",L"Save",BS_PUSHBUTTON,SaveId,685,65);
         Sync();Publish();
     }
-    ~TextEditorUI(){if(editFont)DeleteObject(editFont);ClearEditBackground();}
+    ~TextEditorUI(){DragAcceptFiles(window,FALSE);if(editFont)DeleteObject(editFont);ClearEditBackground();}
     bool IsEditing()const{return edit!=nullptr;}
     std::shared_ptr<Frame> EditingFrame(const Frame& background){return ComposeText(background,*editingOverlay);}
     void RefreshEdit(){if(edit)InvalidateRect(edit,nullptr,FALSE);}
@@ -261,6 +309,7 @@ public:
     }
     bool Message(UINT msg,WPARAM wp,LPARAM lp,LRESULT& result){
         result=0;
+        if(msg==WM_DROPFILES){auto drop=reinterpret_cast<HDROP>(wp);struct FinishDrop {HDROP value;~FinishDrop(){DragFinish(value);}} cleanup{drop};POINT point{};DragQueryPoint(drop,&point);auto files=DropPaths(drop);ImportImages(files,point);return true;}
         if(msg==WM_APP+20){FinishEdit(wp!=0);SetFocus(window);return true;}
         if(msg==WM_APP+21){if(edit&&GetFocus()!=edit)FinishEdit(true);return true;}
         if(msg==WM_CTLCOLOREDIT&&reinterpret_cast<HWND>(lp)==edit&&Selected()){
@@ -278,8 +327,8 @@ public:
             if((id==FontId||id==AlignId)&&notification!=CBN_SELCHANGE)return true;
             if(id==SelectId||id==TextId){FinishEdit(true);drawTool=DrawTool::None;textTool=id==TextId;Sync();SetFocus(window);return true;}
             if(id==SaveId){Save();return true;}if(id==OpenId){Open();return true;}
-            if(id==NewIdControl){FinishEdit(true);if(MayDiscard()){laser.clear();document.Loaded({});path.clear();selected=selectedCard=-1;Publish();Sync();}return true;}
-            if(id==UndoId||id==RedoId){FinishEdit(true);if(id==UndoId)document.Undo();else document.Redo();selected=selectedCard=-1;Publish();Sync();return true;}
+            if(id==NewIdControl){FinishEdit(true);if(MayDiscard()){laser.clear();document.Loaded({});path.clear();selected=selectedCard=selectedImage=-1;Publish();Sync();}return true;}
+            if(id==UndoId||id==RedoId){FinishEdit(true);if(id==UndoId)document.Undo();else document.Redo();selected=selectedCard=selectedImage=-1;Publish();Sync();return true;}
             if(id==DeleteId){Delete();return true;}
             auto requestedFamily=ReadText(Control(FontId));auto requestedSize=ReadText(Control(SizeId));
             bool requestedBold=SendMessageW(Control(BoldId),BM_GETCHECK,0,0)==BST_CHECKED;
@@ -311,17 +360,18 @@ public:
         if(msg==WM_LBUTTONDOWN){
             FinishEdit(true);POINT p{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};if(!PtInRect(&stage,p))return false;SetFocus(window);
             if(textTool){
-                if(document.scene.texts.size()+document.scene.cards.size()>=100)throw std::runtime_error("This scene has reached the 100-element limit.");
-                selectedCard=-1;Scene before=document.scene;TextElement t;t.id=NewId();t.x=std::clamp(double(p.x-stage.left)/(stage.right-stage.left),0.,.5);t.y=std::clamp(double(p.y-stage.top)/(stage.bottom-stage.top),0.,.8);
+                if(ElementCount(document.scene)>=100)throw std::runtime_error("This scene has reached the 100-element limit.");
+                selectedCard=selectedImage=-1;Scene before=document.scene;TextElement t;t.id=NewId();t.order=NextForegroundOrder(document.scene);t.x=std::clamp(double(p.x-stage.left)/(stage.right-stage.left),0.,.5);t.y=std::clamp(double(p.y-stage.top)/(stage.bottom-stage.top),0.,.8);
                 renderer.FitHeight(t);document.scene.texts.push_back(t);selected=static_cast<int>(document.scene.texts.size())-1;textTool=false;Publish();Sync();BeginEdit(before);return true;
             }
-            dragHandle=HitHandle(p);if(dragHandle<0){selected=HitText(p);selectedCard=selected<0?HitCard(p):-1;}Sync();
+            dragHandle=HitHandle(p);if(dragHandle<0)HitSelection(p);Sync();
             if(HasSelection()){beforeDrag=document.scene;dragStart=p;dragging=true;SetCapture(window);}return true;
         }
-        if(msg==WM_LBUTTONDBLCLK){FinishEdit(true);POINT p{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};selected=HitText(p);selectedCard=selected<0?HitCard(p):-1;Sync();if(Selected())BeginEdit(document.scene);return true;}
+        if(msg==WM_LBUTTONDBLCLK){FinishEdit(true);POINT p{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};HitSelection(p);Sync();if(Selected())BeginEdit(document.scene);return true;}
         if(msg==WM_MOUSEMOVE&&dragging&&HasSelection()){
             double dx=double(GET_X_LPARAM(lp)-dragStart.x)/std::max(1L,stage.right-stage.left),dy=double(GET_Y_LPARAM(lp)-dragStart.y)/std::max(1L,stage.bottom-stage.top);
             if(SelectedCard()){auto& original=beforeDrag.cards[selectedCard];*SelectedCard()=dragHandle<0?MoveCard(original,dx,dy):ResizeCard(original,dragHandle,dx,dy);if(SceneChanged)SceneChanged(document.scene);InvalidateRect(window,nullptr,FALSE);return true;}
+            if(SelectedImage()){auto& original=beforeDrag.images[selectedImage];*SelectedImage()=dragHandle<0?MoveImage(original,dx,dy):ResizeImage(original,dragHandle,dx,dy);Publish();return true;}
             auto& original=beforeDrag.texts[selected];*Selected()=dragHandle<0?MoveText(original,dx,dy):ResizeText(original,dragHandle,dx,dy);if(dragHandle>=0)renderer.FitHeight(*Selected());Publish();return true;
         }
         if((msg==WM_LBUTTONUP||msg==WM_CAPTURECHANGED)&&dragging){dragging=false;document.Commit(beforeDrag);ReleaseCapture();Sync();return true;}
@@ -338,9 +388,10 @@ public:
         if(control&&key=='S'){Save((GetKeyState(VK_SHIFT)&0x8000)!=0);return true;}
         if(control&&key=='O'){Open();return true;}
         if(edit)return false;
-        if(GetFocus()==Control(SizeId)||GetFocus()==Control(FontId)||GetFocus()==Control(AlignId))return false;
-        if(control&&(key=='Z'||key=='Y')){FinishInk();if(key=='Y'||(GetKeyState(VK_SHIFT)&0x8000))document.Redo();else document.Undo();selected=selectedCard=-1;Publish();Sync();return true;}
-        if(key==VK_ESCAPE){FinishInk(false);if(!laser.empty()){laser.clear();Publish(false);}if(dragging){dragging=false;document.scene=beforeDrag;ReleaseCapture();Publish();}selected=selectedCard=-1;textTool=false;drawTool=DrawTool::None;Sync();return true;}
+        if(GetFocus()&&(GetFocus()==Control(SizeId)||GetFocus()==Control(FontId)||GetFocus()==Control(AlignId)))return false;
+        if(control&&key=='V')return PasteImage();
+        if(control&&(key=='Z'||key=='Y')){FinishInk();if(key=='Y'||(GetKeyState(VK_SHIFT)&0x8000))document.Redo();else document.Undo();selected=selectedCard=selectedImage=-1;Publish();Sync();return true;}
+        if(key==VK_ESCAPE){FinishInk(false);if(!laser.empty()){laser.clear();Publish(false);}if(dragging){dragging=false;document.scene=beforeDrag;ReleaseCapture();Publish();}selected=selectedCard=selectedImage=-1;textTool=false;drawTool=DrawTool::None;Sync();return true;}
         if(key==VK_DELETE){Delete();return true;}
         if(key==VK_F2&&Selected()){BeginEdit(document.scene);return true;}
         if(!control&&key=='T'){FinishInk();drawTool=DrawTool::None;textTool=true;Sync();return true;}

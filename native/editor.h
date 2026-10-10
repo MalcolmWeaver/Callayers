@@ -1,5 +1,6 @@
 #pragma once
 #include "common.h"
+#include "image_asset.h"
 #include <filesystem>
 #include <cmath>
 #include <set>
@@ -14,6 +15,7 @@ struct TextElement {
     uint32_t color=0xffffff;
     bool bold=false;
     int alignment=0;
+    int order=0;
     bool operator==(const TextElement&)const=default;
 };
 struct CardElement {
@@ -35,6 +37,25 @@ struct InkPoint {
     double x=0,y=0;
     bool operator==(const InkPoint&)const=default;
 };
+struct ImageElement {
+    std::wstring id,name=L"Image";
+    std::shared_ptr<const ImageAsset> asset;
+    double x=.1,y=.15,width=.4,height=.4;
+    int order=0;
+    bool operator==(const ImageElement& other)const{
+        return id==other.id&&name==other.name&&x==other.x&&y==other.y&&width==other.width&&height==other.height&&order==other.order&&
+            (asset==other.asset||(asset&&other.asset&&asset->png==other.asset->png));
+    }
+};
+inline ImageElement MoveImage(const ImageElement& start,double dx,double dy){auto image=start;image.x=std::clamp(start.x+dx,0.,1.-start.width);image.y=std::clamp(start.y+dy,0.,1.-start.height);return image;}
+inline ImageElement ResizeImage(const ImageElement& start,int handle,double dx,double dy){
+    auto image=start;bool left=handle==0||handle==3||handle==4,top=handle==0||handle==1;
+    double sx=(start.width+(left?-dx:dx))/start.width,sy=(start.height+(top?-dy:dy))/start.height;
+    double scale=handle>=4||std::abs(sx-1)>std::abs(sy-1)?sx:sy;
+    double upper=std::min((left?start.x+start.width:1.-start.x)/start.width,(top?start.y+start.height:1.-start.y)/start.height);
+    scale=std::clamp(scale,std::min(.02/std::max(start.width,start.height),upper),upper);
+    image.width=start.width*scale;image.height=start.height*scale;if(left)image.x=start.x+start.width-image.width;if(top)image.y=start.y+start.height-image.height;return image;
+}
 struct InkStroke {
     std::wstring id;
     std::vector<InkPoint> points;
@@ -60,9 +81,12 @@ struct Scene {
     std::wstring title=L"Untitled";
     std::vector<TextElement> texts;
     std::vector<CardElement> cards;
+    std::vector<ImageElement> images;
     std::vector<InkStroke> ink;
     bool operator==(const Scene&)const=default;
 };
+inline size_t ElementCount(const Scene& scene){return scene.texts.size()+scene.cards.size()+scene.images.size();}
+inline int NextForegroundOrder(const Scene& scene){int order=0;for(const auto& t:scene.texts)order=std::max(order,t.order+1);for(const auto& image:scene.images)order=std::max(order,image.order+1);return order;}
 inline std::wstring NewId(){GUID id;Check(CoCreateGuid(&id));wchar_t text[40];StringFromGUID2(id,text,40);return text;}
 class Document {
     std::vector<Scene> past,future;
@@ -106,7 +130,7 @@ inline CardRequestTarget CaptureCardTarget(const Document& document,const std::w
 }
 inline bool CardTargetCurrent(const Document& document,const CardRequestTarget& target){
     if(document.Epoch()!=target.epoch)return false;
-    if(target.creating)return document.scene.cards.size()<12&&document.scene.cards.size()+document.scene.texts.size()<100&&std::none_of(document.scene.cards.begin(),document.scene.cards.end(),[&](const auto& c){return c.id==target.card.id;});
+    if(target.creating)return document.scene.cards.size()<12&&ElementCount(document.scene)<100&&std::none_of(document.scene.cards.begin(),document.scene.cards.end(),[&](const auto& c){return c.id==target.card.id;});
     return document.ContentRevision(target.card.id)==target.revision&&std::any_of(document.scene.cards.begin(),document.scene.cards.end(),[&](const auto& c){return c.id==target.card.id&&c.html==target.card.html;});
 }
 inline bool ApplyGeneratedCard(Document& document,const CardRequestTarget& target,const std::wstring& html,const std::wstring& name){
@@ -143,7 +167,7 @@ inline TextElement ResizeText(const TextElement& start,int handle,double dx,doub
 inline std::string EncodeScene(const Scene& scene){
     using namespace winrt::Windows::Data::Json;
     JsonObject root;root.SetNamedValue(L"format",JsonValue::CreateStringValue(L"callayers"));
-    root.SetNamedValue(L"version",JsonValue::CreateNumberValue(!scene.ink.empty()?3:scene.cards.empty()?1:2));root.SetNamedValue(L"title",JsonValue::CreateStringValue(scene.title));
+    root.SetNamedValue(L"version",JsonValue::CreateNumberValue(!scene.images.empty()?4:!scene.ink.empty()?3:scene.cards.empty()?1:2));root.SetNamedValue(L"title",JsonValue::CreateStringValue(scene.title));
     JsonArray elements;
     for(const auto& t:scene.texts){
         JsonObject o;
@@ -154,6 +178,7 @@ inline std::string EncodeScene(const Scene& scene){
         o.SetNamedValue(L"width",JsonValue::CreateNumberValue(t.width));o.SetNamedValue(L"height",JsonValue::CreateNumberValue(t.height));
         o.SetNamedValue(L"size",JsonValue::CreateNumberValue(t.size));o.SetNamedValue(L"color",JsonValue::CreateNumberValue(t.color));
         o.SetNamedValue(L"bold",JsonValue::CreateBooleanValue(t.bold));o.SetNamedValue(L"alignment",JsonValue::CreateNumberValue(t.alignment));
+        o.SetNamedValue(L"order",JsonValue::CreateNumberValue(t.order));
         elements.Append(o);
     }
     for(const auto& c:scene.cards){
@@ -161,6 +186,11 @@ inline std::string EncodeScene(const Scene& scene){
         o.SetNamedValue(L"id",JsonValue::CreateStringValue(c.id));o.SetNamedValue(L"html",JsonValue::CreateStringValue(c.html));o.SetNamedValue(L"name",JsonValue::CreateStringValue(c.name));
         o.SetNamedValue(L"x",JsonValue::CreateNumberValue(c.x));o.SetNamedValue(L"y",JsonValue::CreateNumberValue(c.y));
         o.SetNamedValue(L"width",JsonValue::CreateNumberValue(c.width));o.SetNamedValue(L"height",JsonValue::CreateNumberValue(c.height));elements.Append(o);
+    }
+    for(const auto& image:scene.images){
+        if(!image.asset)throw std::runtime_error("Image data is missing.");JsonObject o;o.SetNamedValue(L"type",JsonValue::CreateStringValue(L"image"));
+        o.SetNamedValue(L"id",JsonValue::CreateStringValue(image.id));o.SetNamedValue(L"name",JsonValue::CreateStringValue(image.name));o.SetNamedValue(L"png",JsonValue::CreateStringValue(image.asset->png));
+        o.SetNamedValue(L"x",JsonValue::CreateNumberValue(image.x));o.SetNamedValue(L"y",JsonValue::CreateNumberValue(image.y));o.SetNamedValue(L"width",JsonValue::CreateNumberValue(image.width));o.SetNamedValue(L"height",JsonValue::CreateNumberValue(image.height));o.SetNamedValue(L"order",JsonValue::CreateNumberValue(image.order));elements.Append(o);
     }
     for(const auto& stroke:scene.ink){
         JsonObject o;o.SetNamedValue(L"type",JsonValue::CreateStringValue(L"ink"));o.SetNamedValue(L"id",JsonValue::CreateStringValue(stroke.id));
@@ -173,9 +203,9 @@ inline std::string EncodeScene(const Scene& scene){
 }
 inline Scene DecodeScene(const std::string& bytes){
     using namespace winrt::Windows::Data::Json;
-    if(bytes.size()>8*1024*1024)throw std::runtime_error("This deck is too large to open.");
+    if(bytes.size()>MaxDeckBytes)throw std::runtime_error("This deck is too large to open.");
     auto root=JsonObject::Parse(winrt::to_hstring(bytes));
-    if(root.GetNamedString(L"format")!=L"callayers"||(root.GetNamedNumber(L"version")!=1&&root.GetNamedNumber(L"version")!=2&&root.GetNamedNumber(L"version")!=3))
+    if(root.GetNamedString(L"format")!=L"callayers"||(root.GetNamedNumber(L"version")!=1&&root.GetNamedNumber(L"version")!=2&&root.GetNamedNumber(L"version")!=3&&root.GetNamedNumber(L"version")!=4))
         throw std::runtime_error("Unsupported Callayers file version.");
     auto scenes=root.GetNamedArray(L"scenes");
     if(scenes.Size()!=1)throw std::runtime_error("This editor currently supports one scene per file.");
@@ -183,6 +213,8 @@ inline Scene DecodeScene(const std::string& bytes){
     auto items=scenes.GetObjectAt(0).GetNamedArray(L"elements");
     if(items.Size()>100+MaxInkStrokes)throw std::runtime_error("This scene exceeds the element limit.");
     size_t totalPoints=0;
+    size_t imageChars=0;std::unique_ptr<ImageCodec> imageCodec;
+    auto readOrder=[](const JsonObject& o){double order=o.GetNamedNumber(L"order",0);if(!std::isfinite(order)||std::abs(order)>1000000||order!=std::floor(order))throw std::runtime_error("Invalid layer order.");return static_cast<int>(order);};
     std::set<std::wstring> ids;
     for(const auto& item:items){
         auto o=item.GetObject();TextElement t;
@@ -197,7 +229,14 @@ inline Scene DecodeScene(const std::string& bytes){
                 if(!std::isfinite(p.x)||!std::isfinite(p.y)||p.x<0||p.y<0||p.x>1||p.y>1)throw std::runtime_error("Ink is outside the stage.");stroke.points.push_back(p);}
             scene.ink.push_back(std::move(stroke));continue;
         }
-        if(scene.cards.size()+scene.texts.size()>=100)throw std::runtime_error("This scene exceeds the 100-element limit.");
+        if(ElementCount(scene)>=100)throw std::runtime_error("This scene exceeds the 100-element limit.");
+        if(o.GetNamedString(L"type")==L"image"){
+            ImageElement image;image.id=o.GetNamedString(L"id");image.name=o.GetNamedString(L"name");image.order=readOrder(o);
+            image.x=o.GetNamedNumber(L"x");image.y=o.GetNamedNumber(L"y");image.width=o.GetNamedNumber(L"width");image.height=o.GetNamedNumber(L"height");auto png=o.GetNamedString(L"png");imageChars+=png.size();
+            if(image.id.empty()||!ids.insert(image.id).second||image.name.empty()||image.name.size()>260||scene.images.size()>=32||imageChars>MaxSceneImageChars||
+                !std::isfinite(image.x)||!std::isfinite(image.y)||!std::isfinite(image.width)||!std::isfinite(image.height)||image.x<0||image.y<0||image.width<=0||image.height<=0||image.x+image.width>1.000001||image.y+image.height>1.000001)throw std::runtime_error("Invalid image geometry or image limit exceeded.");
+            if(!imageCodec)imageCodec=std::make_unique<ImageCodec>();image.asset=imageCodec->LoadEmbedded(std::wstring(png));scene.images.push_back(std::move(image));continue;
+        }
         if(o.GetNamedString(L"type")==L"card"){
             CardElement c;c.id=o.GetNamedString(L"id");c.html=o.GetNamedString(L"html");c.name=o.GetNamedString(L"name",L"Card");
             c.x=o.GetNamedNumber(L"x");c.y=o.GetNamedNumber(L"y");c.width=o.GetNamedNumber(L"width");c.height=o.GetNamedNumber(L"height");
@@ -210,7 +249,7 @@ inline Scene DecodeScene(const std::string& bytes){
         if(o.GetNamedString(L"type")!=L"text")throw std::runtime_error("This file contains elements not supported by this editor yet.");
         t.id=o.GetNamedString(L"id");t.text=o.GetNamedString(L"text");t.family=o.GetNamedString(L"family");
         t.x=o.GetNamedNumber(L"x");t.y=o.GetNamedNumber(L"y");t.width=o.GetNamedNumber(L"width");t.height=o.GetNamedNumber(L"height");
-        t.size=o.GetNamedNumber(L"size");t.bold=o.GetNamedBoolean(L"bold");
+        t.size=o.GetNamedNumber(L"size");t.bold=o.GetNamedBoolean(L"bold");t.order=readOrder(o);
         double color=o.GetNamedNumber(L"color"),alignment=o.GetNamedNumber(L"alignment");
         if(!std::isfinite(color)||color<0||color>0xffffff||color!=std::floor(color)||
            !std::isfinite(alignment)||alignment<0||alignment>2||alignment!=std::floor(alignment))throw std::runtime_error("Invalid text style.");
@@ -225,6 +264,7 @@ inline Scene DecodeScene(const std::string& bytes){
 }
 inline void SaveScene(const std::filesystem::path& path,const Scene& scene){
     auto bytes=EncodeScene(scene);
+    if(bytes.size()>MaxDeckBytes)throw std::runtime_error("This deck is too large to save. Remove an image or use smaller images.");
     auto temporary=path;temporary+=L"."+NewId()+L".tmp";
     try{
         Handle file(CreateFileW(temporary.c_str(),GENERIC_WRITE,0,nullptr,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr));
@@ -238,7 +278,7 @@ inline Scene LoadScene(const std::filesystem::path& path){
     Handle file(CreateFileW(path.c_str(),GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr));
     if(!file)throw HRESULT_FROM_WIN32(GetLastError());LARGE_INTEGER size;
     if(!GetFileSizeEx(file.value,&size))throw HRESULT_FROM_WIN32(GetLastError());
-    if(size.QuadPart<0||size.QuadPart>8*1024*1024)throw std::runtime_error("This deck is too large to open.");
+    if(size.QuadPart<0||size.QuadPart>MaxDeckBytes)throw std::runtime_error("This deck is too large to open.");
     std::string bytes(static_cast<size_t>(size.QuadPart),'\0');DWORD read=0;
     if(!ReadFile(file.value,bytes.data(),static_cast<DWORD>(bytes.size()),&read,nullptr)||read!=bytes.size())throw HRESULT_FROM_WIN32(ERROR_READ_FAULT);
     return DecodeScene(bytes);

@@ -57,7 +57,16 @@ Camera creation persists for the current user. Registration of the source DLL is
 - **Save / Ctrl+S** saves a `.callayers.json` file. **Ctrl+Shift+S** saves under another name. **Open / Ctrl+O** reopens it.
 - **File → New deck** clears the scene after offering to save changes. Closing the window also protects unsaved work.
 
-Text appears in the video as it is typed, but its native editing box, caret, selection border, resize handles, and toolbar do not. The file format supports one scene and up to 100 text/card elements, including up to 12 cards, plus up to 512 ink strokes (65,536 points total). Text-only decks remain version 1; decks containing cards use version 2; decks with ink use version 3. All three reopen in this build. Multi-scene management comes later.
+Text appears in the video as it is typed, but its native editing box, caret, selection border, resize handles, and toolbar do not. The file format supports one scene and up to 100 text/card/image elements, including up to 12 cards and 32 images, plus up to 512 ink strokes (65,536 points total). Text-only decks remain version 1; decks containing cards use version 2; decks with ink use version 3; embedded-image decks use version 4. All four reopen in this build. Multi-scene management comes later.
+
+## Local images
+
+- Click **Image** to choose a local file, drag image files from Explorer onto the stage, or focus the stage and press **Ctrl+V** to paste a copied image or copied image files. Paste inside text/prompt fields retains normal text behavior.
+- PNG, JPEG, BMP, and GIF are supported through Windows imaging codecs; TIFF/WebP depend on available codecs. Animated files import their first frame. Transparent PNGs retain transparency, and JPEG camera orientation is applied.
+- Click and drag an image to move it. All resize handles preserve its proportions. Use **Delete image** or Delete; import, drag, resize, delete, and layer changes support undo.
+- **To front / To back** arrange images and text within the foreground layer. Cards stay below this layer; drawing and laser remain above it.
+- Images are normalized to embedded PNGs, with their longest dimension limited to 2048 pixels. Saving a deck includes the image data; reopening never needs the original file or a network connection. Local images are not sent to OpenAI.
+- Each source file is limited to 20 MB and 40 million pixels; up to 16 files can be imported together. Embedded image data is capped at 32 MB of encoded text per scene. Invalid batches leave the scene unchanged.
 
 ## Pen, eraser, and laser
 

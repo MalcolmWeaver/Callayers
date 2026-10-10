@@ -145,12 +145,18 @@ public:
     <Button x:Name="Select" Content="↖  Select" ToolTipService.ToolTip="Select and move elements"/>
     <Button x:Name="Text" Content="T  Text" ToolTipService.ToolTip="Place text (T)"/>
     <Button x:Name="Card" Content="+  Card" ToolTipService.ToolTip="Create a new card with AI"/>
+    <Button x:Name="Image" Content="Image" ToolTipService.ToolTip="Import a local image; paste with Ctrl+V on the stage"/>
     <Button x:Name="Draw" Content="Draw" ToolTipService.ToolTip="Pen (P), eraser (E), or laser (L)"><Button.Flyout><MenuFlyout><MenuFlyoutItem x:Name="PenTool" Text="Pen"/><MenuFlyoutItem x:Name="EraserTool" Text="Eraser — whole strokes"/><MenuFlyoutItem x:Name="LaserTool" Text="Laser — fades away"/></MenuFlyout></Button.Flyout></Button>
     <Button x:Name="DeleteCard" Content="Delete card" Visibility="Collapsed"/>
+    <Button x:Name="DeleteImage" Content="Delete image" Visibility="Collapsed"/>
     <Border Width="1" Height="23" Background="#49474F" Margin="8,0"/>
     <Button x:Name="Undo" Content="↶" ToolTipService.ToolTip="Undo (Ctrl+Z)" AutomationProperties.Name="Undo"/>
     <Button x:Name="Redo" Content="↷" ToolTipService.ToolTip="Redo (Ctrl+Y)" AutomationProperties.Name="Redo"/>
     <TextBlock x:Name="ToolHint" Text="Choose Text, then click the stage" Foreground="#AAA8B2" VerticalAlignment="Center" Margin="14,0"/>
+    <StackPanel x:Name="LayerProperties" Orientation="Horizontal" Spacing="7" Visibility="Collapsed">
+     <Button x:Name="BringFront" Content="To front" ToolTipService.ToolTip="Bring in front of text and images"/>
+     <Button x:Name="SendBack" Content="To back" ToolTipService.ToolTip="Send behind text and images; above cards"/>
+    </StackPanel>
     <StackPanel x:Name="InkProperties" Orientation="Horizontal" Spacing="7" Visibility="Collapsed">
      <ComboBox x:Name="InkColor" Width="128" AutomationProperties.Name="Pen color"><x:String>Mint</x:String><x:String>White</x:String><x:String>Periwinkle</x:String><x:String>Coral</x:String><x:String>Yellow</x:String></ComboBox>
      <ComboBox x:Name="InkWidth" Width="104" AutomationProperties.Name="Pen thickness"><x:String>Fine</x:String><x:String>Medium</x:String><x:String>Bold</x:String></ComboBox>
@@ -201,6 +207,8 @@ public:
         sources.SelectionChanged([this,camera](auto&&,auto&&){if(!syncing)try{camera(Find<controls::ComboBox>(L"Camera").SelectedIndex());}catch(...){EditorError(window);}});
         Action(L"Card",[this]{editor.NewCardSelection();Bottom<controls::TextBox>(L"Prompt").Focus(ux::FocusState::Programmatic);});Action(L"DeleteCard",[this]{editor.Command(TextEditorUI::DeleteId);});
         Action(L"Output",output);Action(L"Color",[this]{editor.ChooseTextColor();});
+        Action(L"Image",[this]{editor.ChooseImage();});Action(L"DeleteImage",[this]{editor.Command(TextEditorUI::DeleteId);});
+        Action(L"BringFront",[this]{editor.OrderForeground(true);});Action(L"SendBack",[this]{editor.OrderForeground(false);});
         for(auto pair:{std::pair{L"PenTool",TextEditorUI::DrawTool::Pen},{L"EraserTool",TextEditorUI::DrawTool::Eraser},{L"LaserTool",TextEditorUI::DrawTool::Laser}})
             Find<controls::MenuFlyoutItem>(pair.first).Click([this,tool=pair.second](auto&&,auto&&){try{editor.SetDrawingTool(tool);}catch(...){EditorError(window);}});
         Find<controls::ComboBox>(L"InkColor").SelectionChanged([this](auto&&,auto&&){if(syncing)return;constexpr uint32_t colors[]{0xbaf2cd,0xffffff,0xa39bfa,0xff647c,0xffdc64};auto index=Find<controls::ComboBox>(L"InkColor").SelectedIndex();if(index>=0&&index<5)editor.SetPenColor(colors[index]);});
@@ -243,8 +251,10 @@ public:
         constexpr uint32_t colors[]{0xbaf2cd,0xffffff,0xa39bfa,0xff647c,0xffdc64};for(int i=0;i<5;++i)if(editor.PenColor()==colors[i])Find<controls::ComboBox>(L"InkColor").SelectedIndex(i);
         Find<controls::ComboBox>(L"InkWidth").SelectedIndex(editor.PenWidth()<=3?0:editor.PenWidth()<=6?1:2);
         Find<controls::Button>(L"DeleteCard").Visibility(editor.CardSelected()?ux::Visibility::Visible:ux::Visibility::Collapsed);
+        Find<controls::Button>(L"DeleteImage").Visibility(editor.ImageSelected()?ux::Visibility::Visible:ux::Visibility::Collapsed);
+        Find<controls::StackPanel>(L"LayerProperties").Visibility(selection||editor.ImageSelected()?ux::Visibility::Visible:ux::Visibility::Collapsed);
         Find<controls::StackPanel>(L"TextProperties").Visibility(selection?ux::Visibility::Visible:ux::Visibility::Collapsed);
-        Find<controls::TextBlock>(L"ToolHint").Visibility(selection||pen?ux::Visibility::Collapsed:ux::Visibility::Visible);
+        Find<controls::TextBlock>(L"ToolHint").Visibility(selection||pen||editor.ImageSelected()?ux::Visibility::Collapsed:ux::Visibility::Visible);
         Find<controls::TextBlock>(L"ToolHint").Text(tool==TextEditorUI::DrawTool::Eraser?L"Drag across strokes to erase":tool==TextEditorUI::DrawTool::Laser?L"Drag to point; trails fade":editor.TextTool()?L"Click the stage to place text":editor.CardSelected()?L"Drag to move; handles resize":L"Add text, cards, or drawing");
         Find<controls::Button>(L"Undo").IsEnabled(editor.CanUndo());Find<controls::Button>(L"Redo").IsEnabled(editor.CanRedo());
         for(auto name:{L"Text",L"Select"}){
