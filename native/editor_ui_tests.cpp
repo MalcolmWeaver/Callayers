@@ -65,6 +65,16 @@ int main(int argc,char**){
         editor->ChangeStyle([](auto& t){t.family=L"Georgia";t.size=84;t.bold=true;t.alignment=1;});
         Expect(editor->Selection()->family==L"Georgia"&&editor->Selection()->size==84,"shell style command did not reach selected text");
         editor->Command(TextEditorUI::UndoId);Expect(ComposeText(*background,*output)->pixels==typing,"shell style command did not undo in one step");
+        Scene cards;editor->SceneChanged=[&](const Scene& next){cards=next;};
+        editor->AddSampleCard();Expect(editor->CardSelected()&&cards.cards.size()==1,"card creation did not publish");
+        auto originalCard=cards.cards[0];
+        SendMessageW(window,WM_LBUTTONDOWN,MK_LBUTTON,MAKELPARAM(300,420));
+        for(int x=310;x<=350;x+=10)SendMessageW(window,WM_MOUSEMOVE,MK_LBUTTON,MAKELPARAM(x,445));
+        SendMessageW(window,WM_LBUTTONUP,0,MAKELPARAM(350,445));Expect(cards.cards[0].x>originalCard.x,"card drag did not move");
+        editor->Command(TextEditorUI::UndoId);Expect(cards.cards[0]==originalCard,"card drag was not one undo");
+        SendMessageW(window,WM_LBUTTONDOWN,MK_LBUTTON,MAKELPARAM(300,420));SendMessageW(window,WM_LBUTTONUP,0,MAKELPARAM(300,420));
+        editor->Command(TextEditorUI::DeleteId);Expect(cards.cards.empty(),"card delete failed");
+        editor->Command(TextEditorUI::UndoId);Expect(cards.cards.size()==1&&cards.cards[0]==originalCard,"card delete undo lost content");
         editor=nullptr;controller.reset();DestroyWindow(window);
         std::cout<<"PASS: text tool, live typing, edit commit/cancel, select without output change, drag coalescing, delete/undo\n";
     }catch(const winrt::hresult_error& error){std::wcerr<<error.message().c_str()<<L"\n";return 1;}

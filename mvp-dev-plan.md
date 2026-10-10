@@ -142,6 +142,26 @@ Follow-up improvements removed the opaque typing background and fitted text boxe
 
 **Exit:** live browser content reaches the actual camera output. If this fails, resolve the capture approach before building the AI experience around it. A still-image workaround is not a passing animation test.
 
+### Implementation status — October 10, 2026
+
+Implemented and locally verified; real meeting acceptance remains:
+
+- One native WebView2 composition controller with a transparent host and separate `sandbox="allow-scripts"` iframe per card. No same-origin grant, device permissions, native host objects, or external network resources. Inline scripts/styles and embedded data/blob images are supported.
+- Windows Graphics Capture captures the browser's Windows composition visual directly. A separate STA keeps it independent of the visible editor, with fixed 1920×1080 coordinates so Windows display scaling does not offset the card from its handles.
+- A purple animated timer card and a second green card with independent styling. Add through **Test card**; select, move, resize, delete, undo, save, and reopen. Geometry changes preserve the iframe and running script state. AI remains step 4.
+- Cards compose above the webcam and below native text in both preview and outgoing video. Local text editing retains the live card background. Rounded corners remain transparent; native selection controls do not enter the browser visual.
+- Deck version 2 stores card HTML and geometry; the loader retains version-1 text compatibility. Maximum 12 cards within the existing 100-element scene limit. Each completed card drag is one undo action.
+
+Verification:
+
+- Full Release build and all five regression suites pass. Document and interaction checks now cover mixed card/text save-load, identities, card geometry, one-step drag undo, deletion, and restoration.
+- `CardProbe` passes with 320 captured frames and 110 changing animation samples; it checks transparent background, independent styling, move/resize without iframe restart using a script-state sentinel, and clearing removed cards.
+- Registered Windows camera: 120 frames in 4.01 seconds, 109 card-region changes, and background transparency preserved in every frame.
+- Minimized editor: 180 frames in 5.98 seconds, 138 card-region changes, and transparent background preserved in all 180 frames. The measurement samples the card itself, not the moving diagnostic background.
+- Running-app checks confirm that card geometry and handles agree at the current Windows scaling, and that moving/resizing preserves the advancing timer and responsive layout.
+- Saved and reopened the card deck after a full application restart, then verified live webcam output through the registered camera. WinUI startup and clean shutdown smoke check also passes.
+- Remaining acceptance: view these cards from a second participant in a real meeting. Automated Windows camera reads do not claim a Zoom call or coverage across different GPUs and displays.
+
 ## 4. Add AI generation and revision
 
 **Build**

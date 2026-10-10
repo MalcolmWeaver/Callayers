@@ -15,9 +15,25 @@ struct TextElement {
     int alignment=0;
     bool operator==(const TextElement&)const=default;
 };
+struct CardElement {
+    std::wstring id,html;
+    double x=.1,y=.15,width=.42,height=.45;
+    bool operator==(const CardElement&)const=default;
+};
+inline CardElement MoveCard(const CardElement& start,double dx,double dy){
+    auto c=start;c.x=std::clamp(c.x+dx,0.,1.-c.width);c.y=std::clamp(c.y+dy,0.,1.-c.height);return c;
+}
+inline CardElement ResizeCard(const CardElement& start,int handle,double dx,double dy){
+    auto c=start;bool left=handle==0||handle==3||handle==4,top=handle==0||handle==1;
+    double edge=std::clamp((left?start.x:start.x+start.width)+dx,left?0.:start.x+.08,left?start.x+start.width-.08:1.);
+    c.x=left?edge:start.x;c.width=left?start.x+start.width-edge:edge-start.x;
+    if(handle<4){double y=std::clamp((top?start.y:start.y+start.height)+dy,top?0.:start.y+.08,top?start.y+start.height-.08:1.);c.y=top?y:start.y;c.height=top?start.y+start.height-y:y-start.y;}
+    return c;
+}
 struct Scene {
     std::wstring title=L"Untitled";
     std::vector<TextElement> texts;
+    std::vector<CardElement> cards;
     bool operator==(const Scene&)const=default;
 };
 inline std::wstring NewId(){GUID id;Check(CoCreateGuid(&id));wchar_t text[40];StringFromGUID2(id,text,40);return text;}
@@ -65,7 +81,7 @@ inline TextElement ResizeText(const TextElement& start,int handle,double dx,doub
 inline std::string EncodeScene(const Scene& scene){
     using namespace winrt::Windows::Data::Json;
     JsonObject root;root.SetNamedValue(L"format",JsonValue::CreateStringValue(L"callayers"));
-    root.SetNamedValue(L"version",JsonValue::CreateNumberValue(1));root.SetNamedValue(L"title",JsonValue::CreateStringValue(scene.title));
+    root.SetNamedValue(L"version",JsonValue::CreateNumberValue(scene.cards.empty()?1:2));root.SetNamedValue(L"title",JsonValue::CreateStringValue(scene.title));
     JsonArray elements;
     for(const auto& t:scene.texts){
         JsonObject o;
@@ -78,6 +94,12 @@ inline std::string EncodeScene(const Scene& scene){
         o.SetNamedValue(L"bold",JsonValue::CreateBooleanValue(t.bold));o.SetNamedValue(L"alignment",JsonValue::CreateNumberValue(t.alignment));
         elements.Append(o);
     }
+    for(const auto& c:scene.cards){
+        JsonObject o;o.SetNamedValue(L"type",JsonValue::CreateStringValue(L"card"));
+        o.SetNamedValue(L"id",JsonValue::CreateStringValue(c.id));o.SetNamedValue(L"html",JsonValue::CreateStringValue(c.html));
+        o.SetNamedValue(L"x",JsonValue::CreateNumberValue(c.x));o.SetNamedValue(L"y",JsonValue::CreateNumberValue(c.y));
+        o.SetNamedValue(L"width",JsonValue::CreateNumberValue(c.width));o.SetNamedValue(L"height",JsonValue::CreateNumberValue(c.height));elements.Append(o);
+    }
     JsonObject shot;shot.SetNamedValue(L"elements",elements);JsonArray scenes;scenes.Append(shot);root.SetNamedValue(L"scenes",scenes);
     return winrt::to_string(root.Stringify());
 }
@@ -85,16 +107,25 @@ inline Scene DecodeScene(const std::string& bytes){
     using namespace winrt::Windows::Data::Json;
     if(bytes.size()>8*1024*1024)throw std::runtime_error("This deck is too large to open.");
     auto root=JsonObject::Parse(winrt::to_hstring(bytes));
-    if(root.GetNamedString(L"format")!=L"callayers"||root.GetNamedNumber(L"version")!=1)
+    if(root.GetNamedString(L"format")!=L"callayers"||(root.GetNamedNumber(L"version")!=1&&root.GetNamedNumber(L"version")!=2))
         throw std::runtime_error("Unsupported Callayers file version.");
     auto scenes=root.GetNamedArray(L"scenes");
     if(scenes.Size()!=1)throw std::runtime_error("This editor currently supports one scene per file.");
     Scene scene;scene.title=root.GetNamedString(L"title");
     auto items=scenes.GetObjectAt(0).GetNamedArray(L"elements");
-    if(items.Size()>100)throw std::runtime_error("This scene exceeds the 100-text-element limit.");
+    if(items.Size()>100)throw std::runtime_error("This scene exceeds the 100-element limit.");
     std::set<std::wstring> ids;
     for(const auto& item:items){
         auto o=item.GetObject();TextElement t;
+        if(o.GetNamedString(L"type")==L"card"){
+            CardElement c;c.id=o.GetNamedString(L"id");c.html=o.GetNamedString(L"html");
+            c.x=o.GetNamedNumber(L"x");c.y=o.GetNamedNumber(L"y");c.width=o.GetNamedNumber(L"width");c.height=o.GetNamedNumber(L"height");
+            if(c.id.empty()||!ids.insert(c.id).second||c.html.size()>200000||scene.cards.size()>=12||
+                !std::isfinite(c.x)||!std::isfinite(c.y)||!std::isfinite(c.width)||!std::isfinite(c.height)||
+                c.x<0||c.y<0||c.width<.08||c.height<.08||c.x+c.width>1.000001||c.y+c.height>1.000001)
+                throw std::runtime_error("Invalid card geometry or content.");
+            scene.cards.push_back(std::move(c));continue;
+        }
         if(o.GetNamedString(L"type")!=L"text")throw std::runtime_error("This file contains elements not supported by this editor yet.");
         t.id=o.GetNamedString(L"id");t.text=o.GetNamedString(L"text");t.family=o.GetNamedString(L"family");
         t.x=o.GetNamedNumber(L"x");t.y=o.GetNamedNumber(L"y");t.width=o.GetNamedNumber(L"width");t.height=o.GetNamedNumber(L"height");

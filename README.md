@@ -1,11 +1,11 @@
 # Callayers
 
-Fresh implementation of the camera, text editor, and WinUI shell milestones in [mvp-dev-plan.md](mvp-dev-plan.md).
+Fresh implementation of the camera, text editor, WinUI shell, and live-card milestones in [mvp-dev-plan.md](mvp-dev-plan.md).
 The previous implementation remains deleted; nothing here restores it.
 
 ## Build
 
-Requires Windows 11, CMake 3.24+, Visual Studio 2022 C++ build tools, and Windows SDK 10.0.26100.0 or newer. The build prepares pinned Windows App SDK 1.6.250602001 and WebView2 metadata 1.0.2651.64 from the local NuGet cache or downloads them from NuGet. C++/WinRT projections are generated into `build/generated`; no generated headers are checked in.
+Requires Windows 11, CMake 3.24+, Visual Studio 2022 C++ build tools, and Windows SDK 10.0.26100.0 or newer. The build prepares pinned Windows App SDK 1.6.250602001 and WebView2 SDK 1.0.2651.64 from the local NuGet cache or downloads them from NuGet. C++/WinRT projections are generated into `build/generated`; no generated headers are checked in.
 
 ```powershell
 .\scripts\build.ps1
@@ -57,7 +57,25 @@ Camera creation persists for the current user. Registration of the source DLL is
 - **Save / Ctrl+S** saves a `.callayers.json` file. **Ctrl+Shift+S** saves under another name. **Open / Ctrl+O** reopens it.
 - **File → New deck** clears the scene after offering to save changes. Closing the window also protects unsaved work.
 
-Text appears in the video as it is typed, but its native editing box, caret, selection border, resize handles, and toolbar do not. The initial file format supports one scene and up to 100 text elements; multi-scene management comes in a later milestone. Generated-card text editing remains separate future work.
+Text appears in the video as it is typed, but its native editing box, caret, selection border, resize handles, and toolbar do not. The file format supports one scene and up to 100 total elements, including up to 12 cards. Text-only decks remain version 1; decks containing cards use version 2. Both reopen in this build. Multi-scene management comes later.
+
+## Live test cards (step 3)
+
+- Click **Test card** to add the animated purple card; click again for a second card with its own styling.
+- Select and drag a card to move it. Corner handles resize freely; side handles change width. The HTML responds to the new size, while its running animation continues.
+- **Delete card**, Delete, Undo/Redo, Save, and Open work with cards. Card HTML is stored inside the deck, so these samples work offline.
+- Native text stays above all cards. Selection borders and handles remain local.
+- This milestone uses handcrafted sample content. AI generation and revision are step 4.
+
+Requires the Microsoft Edge WebView2 Evergreen Runtime. A missing runtime or failed renderer is reported in the status bar. Card scripts run in isolated iframes without same-origin permission, native host objects, or device permissions. The page policy blocks external resources and network requests; embedded data/blob images are allowed. Moving/resizing changes iframe geometry without recreating its document.
+
+For a quick sample scene:
+
+```powershell
+.\build\Release\Callayers.exe --demo-cards --publish
+```
+
+The browser is rendered on a separate thread into a transparent Windows composition visual. Windows Graphics Capture reads that visual directly, without a visible browser window or capture border. Its output is composed below native text and keeps running independently of the editor window's visibility. Final NV12 blending remains on the CPU.
 
 ## Verify
 
@@ -74,6 +92,14 @@ Text appears in the video as it is typed, but its native editing box, caret, sel
 # Automated pattern, webcam, and same-reader restart checks.
 .\scripts\verify-camera.ps1
 
+# Live browser capture: transparency, script animation, style isolation,
+# and moving/resizing without restarting the card.
+.\build\Release\CardProbe.exe
+
+# With the default demo cards and Test pattern selected, before moving them:
+.\build\Release\CameraProbe.exe --camera 120 --expect-cards
+# Repeat while the editor is covered and minimized.
+
 # WinUI runtime/control startup and clean shutdown (normal desktop user).
 .\scripts\verify-shell.ps1
 ```
@@ -87,7 +113,9 @@ For the final acceptance check, join a real Zoom call from a second device. Veri
 ## Architecture of this first slice
 
 - `native/app.cpp`: native Win32 preview, webcam selection, asynchronous Media Foundation capture, pattern generation, producer transport, and virtual-camera start.
-- `native/editor.h`: text model, coalesced document history, and validated versioned JSON save/load with atomic replacement.
+- `native/card_host.cpp`: isolated WebView2 host, transparent visual capture, browser lifetime, and card geometry updates.
+- `native/card_probe.cpp`: live GPU/browser verification, run separately from the fast build tests.
+- `native/editor.h`: text/card model, coalesced document history, and validated versioned JSON save/load with atomic replacement.
 - `native/text_renderer.h`: DirectWrite/Direct2D text rasterization and immutable text overlays blended into NV12 frames.
 - `native/text_editor_ui.h`: native text editing, selection/dragging, handles, style controls, and file actions. Editor-only controls never enter the compositor.
 - `native/winui_shell.h`: C++/WinRT WinUI 3 chrome hosted in XAML islands, command bindings, contextual controls, keyboard focus, and status. The native stage remains a sibling surface.

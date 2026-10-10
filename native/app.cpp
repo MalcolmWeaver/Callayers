@@ -1,4 +1,5 @@
 #include "common.h"
+#include "card_host.h"
 #include "text_editor_ui.h"
 #include "winui_shell.h"
 #include <commctrl.h>
@@ -18,6 +19,7 @@ struct Frames {
     std::atomic<std::shared_ptr<Frame>> latest{Pattern(0,true)};
     std::atomic<std::shared_ptr<Frame>> composed{Pattern(0,true)};
     std::atomic<std::shared_ptr<const TextOverlay>> overlay;
+    std::shared_ptr<CardHost> cards;
     std::atomic<int> mode{1};
     std::atomic<HRESULT> error{S_OK};
     std::atomic<uint64_t> sequence{0};
@@ -53,6 +55,7 @@ public:
                 if(frames->mode==1)frames->latest=Pattern(++frames->sequence);
                 auto background=frames->latest.load();
                 if(GetTickCount64()-background->header.capturedMs>750)background=frames->idle;
+                if(frames->cards)if(auto card=frames->cards->Latest())background=ComposeText(*background,*card);
                 auto overlay=frames->overlay.load();
                 auto output=overlay?ComposeText(*background,*overlay):std::make_shared<Frame>(*background);
                 output->header.capturedMs=GetTickCount64();
@@ -258,6 +261,7 @@ struct App {
         if(shellOnly){
             if(frames->mode==1)frames->latest=Pattern(++frames->sequence);
             auto background=frames->latest.load();if(GetTickCount64()-background->header.capturedMs>750)background=frames->idle;
+            if(frames->cards)if(auto card=frames->cards->Latest())background=ComposeText(*background,*card);
             auto overlay=frames->overlay.load();frames->composed=overlay?ComposeText(*background,*overlay):std::make_shared<Frame>(*background);
         }
         HRESULT result=activationResult.exchange(S_FALSE);
@@ -273,11 +277,13 @@ struct App {
         HRESULT error=frames->error.load();
         if(FAILED(error))message=L"Webcam unavailable: "+ErrorText(error)+L" Choose Test pattern or retry the webcam.";
         else if(frames->mode==2&&frame->header.mode==0)message=L"Waiting for webcam frames — idle image is being sent.";
+        if(frames->cards&&FAILED(frames->cards->Error()))message=L"Card rendering failed: "+ErrorText(frames->cards->Error())+L". Save your deck and restart Callayers.";
         if(shell)shell->Status(message,activating,!activating&&virtualCamera!=nullptr);
         if(!IsIconic(window)){
             if(editor&&editor->IsEditing()){
                 auto background=frames->latest.load();
                 if(GetTickCount64()-background->header.capturedMs>750)background=frames->idle;
+                if(frames->cards)if(auto card=frames->cards->Latest())background=ComposeText(*background,*card);
                 frame=editor->EditingFrame(*background);
             }
             ToBgra(*frame,preview);
@@ -294,6 +300,7 @@ LRESULT CALLBACK WindowProc(HWND window,UINT msg,WPARAM wp,LPARAM lp){
     switch(msg){
     case WM_CREATE:{
         app->editor=std::make_unique<TextEditorUI>(window,[app](auto overlay){app->frames->overlay=std::move(overlay);},false);
+        app->editor->SceneChanged=[app](const Scene& scene){app->frames->cards->SetScene(scene);};
         app->shell=std::make_unique<WinUIShell>(window,*app->editor,app->devices,[app](int index){app->cameraIndex=index;app->Select();},[app]{app->StartOutput();});
         SetTimer(window,1,33,nullptr);return 0;}
     case WM_GETMINMAXINFO:{auto info=reinterpret_cast<MINMAXINFO*>(lp);double dpi=GetDpiForWindow(window)/96.;info->ptMinTrackSize={static_cast<LONG>(1000*dpi),static_cast<LONG>(600*dpi)};return 0;}
@@ -343,12 +350,13 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR command,int show){
             xamlApplication=winrt::make<IslandApplication>();xamlManager=hosting::WindowsXamlManager::InitializeForCurrentThread();
             xamlApplication.Resources().MergedDictionaries().Append(controls::XamlControlsResources());
         }
-        App app;app.shellOnly=wcsstr(command,L"--shell-only")!=nullptr;if(!app.shellOnly)app.publisher=std::make_unique<Publisher>(app.frames);app.devices=Cameras();
+        App app;app.frames->cards=std::make_shared<CardHost>();app.shellOnly=wcsstr(command,L"--shell-only")!=nullptr;if(!app.shellOnly)app.publisher=std::make_unique<Publisher>(app.frames);app.devices=Cameras();
         if(wcsstr(command,L"--demo-text")){
             Scene scene;TextElement text;text.id=NewId();text.text=L"Callayers text test";text.x=.05;text.y=.12;text.size=72;scene.texts.push_back(text);
             TextRenderer renderer;app.frames->overlay=renderer.Render(scene);
         }
         if(wcsstr(command,L"--headless")){
+            if(wcsstr(command,L"--demo-cards")){Scene scene;scene.cards={SampleCard(),SampleCard(true)};app.frames->cards->SetScene(scene);}
             if(wcsstr(command,L"--webcam")){
                 if(app.devices.empty())throw HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
                 app.frames->mode=2;app.capture=Make<Capture>();Check(app.capture->Open(app.devices.front(),app.frames));
@@ -366,6 +374,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR command,int show){
             if(wcsstr(command,L"--webcam")&&!app.devices.empty()){
                 app.cameraIndex=1;app.shell->CameraIndex(1);app.Select();
             }
+            if(wcsstr(command,L"--demo-cards")){app.editor->AddSampleCard();app.editor->AddSampleCard();}
             if(wcsstr(command,L"--publish"))app.StartOutput();
             MSG message{};while(GetMessageW(&message,nullptr,0,0)>0){
                 try{if(app.shell&&app.shell->Key(message))continue;}catch(...){EditorError(window);continue;}

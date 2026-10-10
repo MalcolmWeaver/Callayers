@@ -1,4 +1,5 @@
 #include "text_renderer.h"
+#include "sample_cards.h"
 #include <iostream>
 using namespace callayers;
 void Expect(bool condition,const char* message){if(!condition)throw std::runtime_error(message);}
@@ -20,6 +21,11 @@ int main(){
         auto root=winrt::Windows::Data::Json::JsonObject::Parse(winrt::to_hstring(invalid));root.SetNamedValue(L"version",winrt::Windows::Data::Json::JsonValue::CreateNumberValue(99));
         bool rejected=false;try{DecodeScene(winrt::to_string(root.Stringify()));}catch(...){rejected=true;}Expect(rejected,"future file version accepted");
         auto duplicate=scene;duplicate.texts.push_back(text);rejected=false;try{DecodeScene(EncodeScene(duplicate));}catch(...){rejected=true;}Expect(rejected,"duplicate identities accepted");
+        auto mixed=scene;mixed.cards={SampleCard(),SampleCard(true)};
+        Expect(DecodeScene(EncodeScene(mixed))==mixed,"card deck round trip lost HTML or geometry");
+        auto moved=MoveCard(mixed.cards[0],.9,.9);Expect(moved.x+moved.width<=1&&moved.y+moved.height<=1,"card escaped stage");
+        auto resized=ResizeCard(mixed.cards[0],2,.12,-.05);Expect(resized.html==mixed.cards[0].html&&resized.width>mixed.cards[0].width&&resized.height<mixed.cards[0].height,"card resize lost content or independent dimensions");
+        auto duplicated=mixed;duplicated.cards[0].id=text.id;rejected=false;try{DecodeScene(EncodeScene(duplicated));}catch(...){rejected=true;}Expect(rejected,"cross-layer duplicate identity accepted");
         TextRenderer renderer;
         auto fitted=text;fitted.text=L"One line";renderer.FitHeight(fitted);double oneLine=fitted.height;
         fitted.text=L"One line\nSecond line\nThird line";renderer.FitHeight(fitted);Expect(fitted.height>oneLine*2,"multiline text did not grow its box");

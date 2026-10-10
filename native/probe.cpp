@@ -107,7 +107,7 @@ void ProbeDevice(const Device& device,unsigned count,const std::wstring& expecta
         Check(attributes->SetUnknown(MF_SOURCE_READER_ASYNC_CALLBACK,callback.Get()));
         ComPtr<IMFSourceReader> reader;Check(MFCreateSourceReaderFromMediaSource(source.Get(),attributes.Get(),&reader));
         auto type=VideoType();Check(reader->SetCurrentMediaType(VideoStream,nullptr,type.Get()));
-        uint64_t first=0,last=0;unsigned changes=0,idleCount=0,textFrames=0;bool liveBeforeIdle=false,liveAfterIdle=false;
+        uint64_t first=0,last=0;unsigned changes=0,idleCount=0,textFrames=0,cardChanges=0,transparentFrames=0;uint64_t lastCard=0;bool liveBeforeIdle=false,liveAfterIdle=false;
         auto idle=Pattern(0,true);const auto idleHash=Hash(idle->pixels.data(),FrameBytes);
         LONGLONG prior=-1;auto began=Clock::now();
         for(unsigned i=0;i<count;){
@@ -122,6 +122,15 @@ void ProbeDevice(const Device& device,unsigned count,const std::wstring& expecta
                 unsigned bright=0;for(UINT y=120;y<270;++y)for(UINT x=80;x<1100;++x)if(data[y*Width+x]>220)++bright;
                 if(bright>1000)++textFrames;
             }
+            if(expectation==L"--expect-cards"){
+                // Sample the animated bar inside the default large card, excluding
+                // the independently moving background diagnostic pattern.
+                uint64_t cardHash=0;for(UINT y=585;y<615;++y)for(UINT x=240;x<920;++x)cardHash=cardHash*31+data[y*Width+x];
+                if(lastCard&&cardHash!=lastCard)++cardChanges;lastCard=cardHash;
+                auto pattern=Pattern(0);bool transparent=true;
+                for(UINT x=0;x<Width;x+=24)if(data[40*Width+x]!=pattern->pixels[40*Width+x])transparent=false;
+                if(transparent)++transparentFrames;
+            }
             buffer->Unlock();
             if(hash==idleHash)++idleCount;
             else if(idleCount==0)liveBeforeIdle=true;
@@ -134,6 +143,10 @@ void ProbeDevice(const Device& device,unsigned count,const std::wstring& expecta
         if(expectation==L"--expect-idle")Require(idleCount==count,"expected only idle frames");
         if(expectation==L"--expect-recovery")Require(liveBeforeIdle&&idleCount>=8&&liveAfterIdle,"expected live -> idle -> live in one reader session");
         if(expectation==L"--expect-text")Require(textFrames==count,"generated text pixels missing from outgoing camera frames");
+        if(expectation==L"--expect-cards"){
+            std::cout<<"Card-region changes: "<<cardChanges<<"; transparent background frames: "<<transparentFrames<<"\n";
+            Require(cardChanges>count/3&&transparentFrames==count,"live card animation or transparent background missing");
+        }
         std::cout<<"PASS: registered camera samples and expectations\n";
         reader->Flush(AllStreams);source->Shutdown();
     }catch(...){source->Shutdown();throw;}

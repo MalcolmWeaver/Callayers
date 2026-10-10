@@ -80,8 +80,10 @@ public:
  <Border Grid.Row="1" BorderBrush="#39383F" BorderThickness="0,1,0,1" Padding="24,0">
   <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" HorizontalScrollMode="Enabled">
    <StackPanel Orientation="Horizontal" Spacing="7" VerticalAlignment="Center">
-    <Button x:Name="Select" Content="↖  Select" ToolTipService.ToolTip="Select and move text"/>
+    <Button x:Name="Select" Content="↖  Select" ToolTipService.ToolTip="Select and move elements"/>
     <Button x:Name="Text" Content="T  Text" ToolTipService.ToolTip="Place text (T)"/>
+    <Button x:Name="Card" Content="+  Test card" ToolTipService.ToolTip="Add a live HTML test card"/>
+    <Button x:Name="DeleteCard" Content="Delete card" Visibility="Collapsed"/>
     <Border Width="1" Height="23" Background="#49474F" Margin="8,0"/>
     <Button x:Name="Undo" Content="↶" ToolTipService.ToolTip="Undo (Ctrl+Z)" AutomationProperties.Name="Undo"/>
     <Button x:Name="Redo" Content="↷" ToolTipService.ToolTip="Redo (Ctrl+Y)" AutomationProperties.Name="Redo"/>
@@ -116,6 +118,7 @@ public:
         auto sources=Find<controls::ComboBox>(L"Camera");sources.Items().Append(winrt::box_value(L"Test pattern"));
         for(auto& device:devices)sources.Items().Append(winrt::box_value(device.name));sources.SelectedIndex(0);
         sources.SelectionChanged([this,camera](auto&&,auto&&){if(!syncing)try{camera(Find<controls::ComboBox>(L"Camera").SelectedIndex());}catch(...){EditorError(window);}});
+        Action(L"Card",[this]{editor.AddSampleCard();});Action(L"DeleteCard",[this]{editor.Command(TextEditorUI::DeleteId);});
         Action(L"Output",output);Action(L"Color",[this]{editor.ChooseTextColor();});
         Find<controls::ComboBox>(L"Font").SelectionChanged([this](auto&&,auto&&){if(syncing)return;try{auto value=winrt::unbox_value<winrt::hstring>(Find<controls::ComboBox>(L"Font").SelectedItem());editor.ChangeStyle([&](auto& t){t.family=value;});}catch(...){EditorError(window);}});
         Find<controls::ComboBox>(L"Alignment").SelectionChanged([this](auto&&,auto&&){if(syncing)return;try{auto index=Find<controls::ComboBox>(L"Alignment").SelectedIndex();editor.ChangeStyle([index](auto& t){t.alignment=index;});}catch(...){EditorError(window);}});
@@ -140,9 +143,10 @@ public:
     }
     void Refresh(){
         syncing=true;auto selection=editor.Selection();
+        Find<controls::Button>(L"DeleteCard").Visibility(editor.CardSelected()?ux::Visibility::Visible:ux::Visibility::Collapsed);
         Find<controls::StackPanel>(L"TextProperties").Visibility(selection?ux::Visibility::Visible:ux::Visibility::Collapsed);
         Find<controls::TextBlock>(L"ToolHint").Visibility(selection?ux::Visibility::Collapsed:ux::Visibility::Visible);
-        Find<controls::TextBlock>(L"ToolHint").Text(editor.TextTool()?L"Click the stage to place text":L"Choose Text, then click the stage");
+        Find<controls::TextBlock>(L"ToolHint").Text(editor.TextTool()?L"Click the stage to place text":editor.CardSelected()?L"Drag to move; handles resize":L"Add text or a live test card");
         Find<controls::Button>(L"Undo").IsEnabled(editor.CanUndo());Find<controls::Button>(L"Redo").IsEnabled(editor.CanRedo());
         for(auto name:{L"Text",L"Select"}){
             bool active=editor.TextTool()==(std::wstring_view(name)==L"Text");

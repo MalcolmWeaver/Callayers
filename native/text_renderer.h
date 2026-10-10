@@ -11,6 +11,21 @@ struct TextOverlay {
     std::vector<LumaPixel> luma;
     std::vector<ChromaPixel> chroma;
 };
+inline std::shared_ptr<const TextOverlay> OverlayFromBgra(const BYTE* pixels,UINT stride){
+    auto result=std::make_shared<TextOverlay>();
+        for(UINT y=0;y<Height;y+=2)for(UINT x=0;x<Width;x+=2){
+            int alpha=0,uSum=0,vSum=0;
+            for(UINT dy=0;dy<2;++dy)for(UINT dx=0;dx<2;++dx){
+                UINT offset=(y+dy)*Width+x+dx;const BYTE* p=pixels+(y+dy)*stride+(x+dx)*4;int a=p[3];if(!a)continue;
+                int r=std::min(255,p[2]*255/a),g=std::min(255,p[1]*255/a),b=std::min(255,p[0]*255/a);
+                BYTE luma=Clamp(((47*r+157*g+16*b+128)>>8)+16);
+                int u=Clamp(((-26*r-87*g+112*b+128)>>8)+128),v=Clamp(((112*r-102*g-10*b+128)>>8)+128);
+                result->luma.push_back({offset,static_cast<BYTE>(a),luma});alpha+=a;uSum+=u*a;vSum+=v*a;
+            }
+            if(alpha)result->chroma.push_back({Width*Height+(y/2)*Width+x,static_cast<BYTE>((alpha+2)/4),static_cast<BYTE>(uSum/alpha),static_cast<BYTE>(vSum/alpha)});
+        }
+    return result;
+}
 class TextRenderer {
     ComPtr<ID2D1Factory> d2d;
     ComPtr<IDWriteFactory> write;
@@ -52,18 +67,7 @@ public:
         }
         Check(target->EndDraw());
         std::vector<BYTE> pixels(Width*Height*4);Check(bitmap->CopyPixels(nullptr,Width*4,static_cast<UINT>(pixels.size()),pixels.data()));
-        for(UINT y=0;y<Height;y+=2)for(UINT x=0;x<Width;x+=2){
-            int alpha=0,uSum=0,vSum=0;
-            for(UINT dy=0;dy<2;++dy)for(UINT dx=0;dx<2;++dx){
-                UINT offset=(y+dy)*Width+x+dx;const BYTE* p=pixels.data()+offset*4;int a=p[3];if(!a)continue;
-                int r=std::min(255,p[2]*255/a),g=std::min(255,p[1]*255/a),b=std::min(255,p[0]*255/a);
-                BYTE luma=Clamp(((47*r+157*g+16*b+128)>>8)+16);
-                int u=Clamp(((-26*r-87*g+112*b+128)>>8)+128),v=Clamp(((112*r-102*g-10*b+128)>>8)+128);
-                result->luma.push_back({offset,static_cast<BYTE>(a),luma});alpha+=a;uSum+=u*a;vSum+=v*a;
-            }
-            if(alpha)result->chroma.push_back({Width*Height+(y/2)*Width+x,static_cast<BYTE>((alpha+2)/4),static_cast<BYTE>(uSum/alpha),static_cast<BYTE>(vSum/alpha)});
-        }
-        return result;
+        return OverlayFromBgra(pixels.data(),Width*4);
     }
 };
 inline std::shared_ptr<Frame> ComposeText(const Frame& background,const TextOverlay& overlay){
