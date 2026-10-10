@@ -1,6 +1,3 @@
-bin/
-obj/
-.vs/
-packages/
-*.user
-*.suo
+/build/
+/logs/
+/.vs/

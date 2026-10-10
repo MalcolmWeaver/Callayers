@@ -1,0 +1,4 @@
+LIBRARY CallayersCamera
+EXPORTS
+    DllGetClassObject PRIVATE
+    DllCanUnloadNow PRIVATE
