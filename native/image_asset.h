@@ -26,7 +26,7 @@ class ImageCodec {
     }
 public:
     ImageCodec(){Check(CoCreateInstance(CLSID_WICImagingFactory,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(&wic)));}
-    std::shared_ptr<const ImageAsset> Import(const std::vector<BYTE>& bytes){
+    std::shared_ptr<const ImageAsset> Import(const std::vector<BYTE>& bytes,UINT maxDimension=2048){
         auto decoder=Decoder(bytes);ComPtr<IWICBitmapFrameDecode> frame;Check(decoder->GetFrame(0,&frame));UINT w,h;Dimensions(frame.Get(),w,h);
         ComPtr<IWICBitmapSource> source;Check(frame.As(&source));
         ComPtr<IWICMetadataQueryReader> metadata;PROPVARIANT orientation{};
@@ -38,7 +38,8 @@ public:
                 ComPtr<IWICBitmapFlipRotator> rotate;Check(wic->CreateBitmapFlipRotator(&rotate));Check(rotate->Initialize(source.Get(),transforms[orientation.uiVal-1]));Check(rotate.As(&source));
             }
         }PropVariantClear(&orientation);Dimensions(source.Get(),w,h);
-        if(std::max(w,h)>2048){double scale=2048./std::max(w,h);ComPtr<IWICBitmapScaler> scaler;Check(wic->CreateBitmapScaler(&scaler));Check(scaler->Initialize(source.Get(),std::max(1u,static_cast<UINT>(w*scale)),std::max(1u,static_cast<UINT>(h*scale)),WICBitmapInterpolationModeFant));Check(scaler.As(&source));}
+        maxDimension=std::clamp(maxDimension,1u,2048u);
+        if(std::max(w,h)>maxDimension){double scale=double(maxDimension)/std::max(w,h);ComPtr<IWICBitmapScaler> scaler;Check(wic->CreateBitmapScaler(&scaler));Check(scaler->Initialize(source.Get(),std::max(1u,static_cast<UINT>(w*scale)),std::max(1u,static_cast<UINT>(h*scale)),WICBitmapInterpolationModeFant));Check(scaler.As(&source));}
         auto result=std::make_shared<ImageAsset>();Pixels(source.Get(),*result);
         ComPtr<IStream> stream;Check(CreateStreamOnHGlobal(nullptr,TRUE,&stream));ComPtr<IWICBitmapEncoder> encoder;Check(wic->CreateEncoder(GUID_ContainerFormatPng,nullptr,&encoder));Check(encoder->Initialize(stream.Get(),WICBitmapEncoderNoCache));
         ComPtr<IWICBitmapFrameEncode> output;Check(encoder->CreateNewFrame(&output,nullptr));Check(output->Initialize(nullptr));Check(output->SetSize(result->width,result->height));auto format=GUID_WICPixelFormat32bppBGRA;Check(output->SetPixelFormat(&format));Check(output->WriteSource(source.Get(),nullptr));Check(output->Commit());Check(encoder->Commit());

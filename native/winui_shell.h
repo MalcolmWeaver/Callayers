@@ -68,10 +68,13 @@ class WinUIShell {
     void PollGeneration(){
         if(!generating)return;auto result=job.TakeResult();if(!result)return;
         generating=false;
+        try{
         if(result->card){
-            if(lastTarget&&editor.AcceptGenerated(*lastTarget,result->card->html,result->card->name)){AiMessage(L"Card ready. You can move it, resize it, or undo the change.");if(Bottom<controls::TextBox>(L"Prompt").Text()==lastPrompt)Bottom<controls::TextBox>(L"Prompt").Text(L"");}
+            if(lastTarget&&editor.AcceptGenerated(*lastTarget,result->card->html,result->card->name,result->card->assets,result->card->usage)){AiMessage(L"Card ready. "+UsageSummary(result->usage)+(result->notice.empty()?L"":L" · "+result->notice));if(Bottom<controls::TextBox>(L"Prompt").Text()==lastPrompt)Bottom<controls::TextBox>(L"Prompt").Text(L"");}
             else AiMessage(L"The original card or scene changed. The late result was not applied.");
-        }else{AiMessage(result->error);Bottom<controls::Button>(L"RetryGeneration").Visibility(ux::Visibility::Visible);}
+        }else{AiMessage(result->error+L" "+UsageSummary(result->usage));Bottom<controls::Button>(L"RetryGeneration").Visibility(ux::Visibility::Visible);}
+        }catch(const std::exception& e){AiMessage(std::wstring(winrt::to_hstring(e.what())));Bottom<controls::Button>(L"RetryGeneration").Visibility(ux::Visibility::Visible);}
+        catch(...){AiMessage(L"Could not apply this card. Retry with fewer images.");Bottom<controls::Button>(L"RetryGeneration").Visibility(ux::Visibility::Visible);}
         RefreshComposer();
     }
     void ShowAiSettings(){
@@ -83,7 +86,7 @@ class WinUIShell {
         controls::ContentDialog dialog;settingsDialog=dialog;dialog.XamlRoot(root.XamlRoot());dialog.RequestedTheme(ux::ElementTheme::Dark);
         dialog.Title(winrt::box_value(L"OpenAI settings"));dialog.PrimaryButtonText(L"Save");dialog.CloseButtonText(L"Cancel");
         controls::StackPanel panel;panel.Spacing(12);panel.MinWidth(400);
-        controls::TextBlock description;description.Text(L"Your prompt, any website text retrieved from a URL in it, and the card being revised are sent to OpenAI. Webcam frames and other cards are not sent.");description.TextWrapping(ux::TextWrapping::Wrap);panel.Children().Append(description);
+        controls::TextBlock description;description.Text(L"Your prompt, website text, a compact style sample, image descriptions, and the card being revised are sent to OpenAI. Website retrieval fetches logos only; image files stay local; webcam frames and other cards are not sent.");description.TextWrapping(ux::TextWrapping::Wrap);panel.Children().Append(description);
         controls::TextBox model;model.Header(winrt::box_value(L"Model"));model.Text(settings.model);model.MaxLength(100);panel.Children().Append(model);
         controls::PasswordBox key;key.Header(winrt::box_value(L"OpenAI API key"));key.PlaceholderText(HasAiKey()?L"Key available — leave blank to keep it":L"Paste your API key");key.MaxLength(2000);panel.Children().Append(key);
         controls::TextBlock note;note.Text(L"Keys are saved in Windows Credential Manager, never in your deck. API billing is separate from ChatGPT.");note.TextWrapping(ux::TextWrapping::Wrap);panel.Children().Append(note);
@@ -183,7 +186,7 @@ public:
   <Button x:Name="AiSettings" Grid.Column="2" Content="AI settings" Padding="10,2"/>
  </Grid>
  <Grid Grid.Row="1" ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-  <TextBox x:Name="Prompt" PlaceholderText="Describe a card, or summarize an https:// page…" MaxLength="4000" AutomationProperties.Name="Card prompt"/>
+  <TextBox x:Name="Prompt" PlaceholderText="Describe a card, or use a website’s text, logo, colors, and typography…" MaxLength="4000" AutomationProperties.Name="Card prompt"/>
   <Button x:Name="Generate" Grid.Column="1" Content="Generate card" MinWidth="120" Background="#A39BFA" Foreground="#201D33"/>
   <Button x:Name="CancelGeneration" Grid.Column="2" Content="Cancel" Visibility="Collapsed"/>
  </Grid>

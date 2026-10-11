@@ -48,7 +48,7 @@ struct CardHost::Impl {
         using namespace winrt::Windows::Data::Json;
         JsonArray data;
         for(const auto& c:cards){JsonObject o;
-            o.SetNamedValue(L"id",JsonValue::CreateStringValue(c.id));o.SetNamedValue(L"html",JsonValue::CreateStringValue(c.html));
+            o.SetNamedValue(L"id",JsonValue::CreateStringValue(c.id));o.SetNamedValue(L"html",JsonValue::CreateStringValue(ResolveCardAssets(c.html,c.assets)));
             o.SetNamedValue(L"x",JsonValue::CreateNumberValue(c.x*Width));o.SetNamedValue(L"y",JsonValue::CreateNumberValue(c.y*Height));
             o.SetNamedValue(L"w",JsonValue::CreateNumberValue(c.width*Width));o.SetNamedValue(L"h",JsonValue::CreateNumberValue(c.height*Height));data.Append(o);}
         std::wstring script=L"window.setCards("+std::wstring(data.Stringify())+L")";

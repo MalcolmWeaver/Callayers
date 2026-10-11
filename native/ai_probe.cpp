@@ -3,11 +3,27 @@
 #include <thread>
 using namespace callayers;
 int wmain(int argc,wchar_t** argv){
-    winrt::init_apartment(winrt::apartment_type::multi_threaded);
+    const bool fetchWorker=argc==3&&std::wstring_view(argv[1])==L"--fetch-worker";
+    winrt::init_apartment(fetchWorker?winrt::apartment_type::single_threaded:winrt::apartment_type::multi_threaded);
     try{
+        if(fetchWorker){
+            for(int i=0;i<3;++i){
+                std::exception_ptr failure;
+                std::thread worker([&]{
+                    CoInitializeEx(nullptr,COINIT_MULTITHREADED);
+                    try{std::atomic<bool> canceled=false;auto source=FetchWebsite(argv[2],canceled);std::wcout<<L"Fetched "<<source.url<<L": "<<source.text.size()<<L" characters\n"<<std::flush;}
+                    catch(...){failure=std::current_exception();}
+                    CoUninitialize();
+                });
+                worker.join();if(failure)std::rethrow_exception(failure);
+            }
+            std::cout<<"PASS: repeated website fetch and worker shutdown\n";return 0;
+        }
         if(argc==3&&std::wstring_view(argv[1])==L"--fetch"){
             std::atomic<bool> canceled=false;auto source=FetchWebsite(argv[2],canceled);
-            std::wcout<<L"Fetched "<<source.url<<L": "<<source.text.size()<<L" characters; truncated="<<source.truncated<<L"\n"<<source.text.substr(0,1000)<<L"\n";return 0;
+            std::wcout<<L"Fetched "<<source.url<<L": "<<source.text.size()<<L" characters; truncated="<<source.truncated<<L"\n"<<source.text.substr(0,1000)<<L"\nStyles: "<<source.styleSummary<<L"\n";
+            for(const auto& a:source.assets)std::wcout<<a.id<<L": "<<a.description<<L" ("<<a.width<<L"x"<<a.height<<L", "<<a.dataUri->size()<<L" local characters)\n";
+            std::wcout<<source.notice<<L"\n";return 0;
         }
         if(argc==2&&std::wstring_view(argv[1])==L"--key-status"){std::cout<<(HasAiKey()?"API key available\n":"API key not configured\n");return HasAiKey()?0:2;}
         if(argc<3){std::cout<<"AiProbe <prompt> <output.callayers.json> [existing.callayers.json]\n";return 2;}
@@ -17,9 +33,10 @@ int wmain(int argc,wchar_t** argv){
         for(int i=0;i<1200;++i){
             if(auto result=job.TakeResult()){
                 if(!result->card){std::wcerr<<result->error<<L"\n";return 1;}
-                if(!ApplyGeneratedCard(document,target,result->card->html,result->card->name))throw std::runtime_error("Target changed");
+                if(!ApplyGeneratedCard(document,target,result->card->html,result->card->name,result->card->assets,result->card->usage))throw std::runtime_error("Target changed");
                 SaveScene(argv[2],document.scene);
-                std::cout<<"PASS: generated and saved card in "<<std::chrono::duration<double>(Clock::now()-started).count()<<"s\n";return 0;
+                std::cout<<"PASS: generated and saved card in "<<std::chrono::duration<double>(Clock::now()-started).count()<<"s\n";
+                std::wcout<<UsageSummary(result->usage)<<L"\n"<<result->notice<<L"\n";return 0;
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }

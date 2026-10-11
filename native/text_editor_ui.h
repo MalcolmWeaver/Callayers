@@ -196,7 +196,7 @@ private:
 public:
     bool ImageSelected(){return SelectedImage()!=nullptr;}
     void AddImages(std::vector<ImageElement> images,std::optional<POINT> drop={}){
-        if(images.empty())return;size_t chars=0;for(const auto& image:document.scene.images)chars+=image.asset->png.size();for(const auto& image:images){if(!image.asset)throw std::runtime_error("Image data is missing.");chars+=image.asset->png.size();}
+        if(images.empty())return;size_t chars=0;for(const auto& card:document.scene.cards)for(const auto& asset:card.assets)chars+=asset.dataUri->size();for(const auto& image:document.scene.images)chars+=image.asset->png.size();for(const auto& image:images){if(!image.asset)throw std::runtime_error("Image data is missing.");chars+=image.asset->png.size();}
         if(document.scene.images.size()+images.size()>32||ElementCount(document.scene)+images.size()>100||chars>MaxSceneImageChars)throw std::runtime_error("This deck has reached its image limit. Remove an image first.");
         FinishInk();FinishEdit(true);auto before=document.scene,next=before;int order=NextForegroundOrder(next);
         for(auto& image:images){image.id=NewId();image.order=order++;double fit=std::min(Width*.42/image.asset->width,Height*.5/image.asset->height);image.width=image.asset->width*fit/Width;image.height=image.asset->height*fit/Height;
@@ -251,8 +251,9 @@ public:
     void NewCardSelection(){FinishInk();FinishEdit(true);selected=selectedCard=selectedImage=-1;textTool=false;drawTool=DrawTool::None;Sync();}
     CardRequestTarget GenerationTarget(){FinishInk();FinishEdit(true);return CaptureCardTarget(document,SelectedCard()?SelectedCard()->id:L"");}
     bool TargetCurrent(const CardRequestTarget& target)const{return CardTargetCurrent(document,target);}
-    bool AcceptGenerated(const CardRequestTarget& target,const std::wstring& html,const std::wstring& name){
-        FinishInk();FinishEdit(true);if(!ApplyGeneratedCard(document,target,html,name))return false;
+    std::optional<CardUsage> SelectedCardUsage(){if(auto card=SelectedCard())return card->usage;return {};}
+    bool AcceptGenerated(const CardRequestTarget& target,const std::wstring& html,const std::wstring& name,const std::vector<CardAsset>& assets={},const std::optional<CardUsage>& usage={}){
+        FinishInk();FinishEdit(true);if(!ApplyGeneratedCard(document,target,html,name,assets,usage))return false;
         if(target.creating&&!HasSelection()&&!textTool&&drawTool==DrawTool::None)selectedCard=static_cast<int>(document.scene.cards.size())-1;
         Publish();Sync();return true;
     }

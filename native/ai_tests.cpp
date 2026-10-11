@@ -1,10 +1,25 @@
 #include "ai_client.h"
 #include <iostream>
+#include <thread>
 using namespace callayers;
 void Expect(bool value,const char* why){if(!value)throw std::runtime_error(why);}
-int main(){
-    winrt::init_apartment(winrt::apartment_type::multi_threaded);
+int main(int argc,char** argv){
+    const bool workerTest=argc==2&&std::string_view(argv[1])=="--website-worker-test";
+    winrt::init_apartment(workerTest?winrt::apartment_type::single_threaded:winrt::apartment_type::multi_threaded);
     try{
+        if(workerTest){
+            for(int i=0;i<3;++i){
+                std::exception_ptr failure;
+                std::thread worker([&]{
+                    CoInitializeEx(nullptr,COINIT_MULTITHREADED);
+                    try{Expect(WebsiteText(L"<html><body><p>Website facts &amp; exact wording.</p></body></html>")==L"Website facts & exact wording.","worker extraction failed");}
+                    catch(...){failure=std::current_exception();}
+                    CoUninitialize();
+                });
+                worker.join();if(failure)std::rethrow_exception(failure);
+            }
+            std::cout<<"PASS: website extraction across repeated worker shutdowns\n";return 0;
+        }
         Document document;CardElement card;card.id=NewId();card.html=L"<h1>Original</h1>";document.scene.cards.push_back(card);document.Saved();
         auto target=CaptureCardTarget(document,card.id);auto before=document.scene;document.scene.cards[0].x=.2;document.Commit(before);
         Expect(ApplyGeneratedCard(document,target,L"<h1>Revised</h1>",L"Revision"),"movement invalidated request");
@@ -21,11 +36,21 @@ int main(){
         auto response=R"({"status":"completed","output":[{"type":"reasoning"},{"type":"message","content":[{"type":"output_text","text":"{\"name\":\"Test\",\"html\":\"<html><body>Hello</body></html>\"}"}]}]})";
         auto parsed=ParseCardResponse(response);Expect(parsed.name==L"Test","structured response did not parse");
         Expect(WebsiteUrl(L"Summarize https://streamfog.com.")==L"https://streamfog.com","URL punctuation parsing");
+        Expect(WebsiteUrl(L"give me three lines from puppetbooth.com")==L"https://puppetbooth.com","bare domain skipped retrieval");
+        Expect(WebsiteUrl(L"Quote (www.puppetbooth.com/about?ref=card).")==L"https://www.puppetbooth.com/about?ref=card","bare domain path parsing");
+        Expect(WebsiteUrl(L"Read [this](https://example.com/about).")==L"https://example.com/about","Markdown URL parsing");
+        Expect(WebsiteUrl(L"three lines from [https://puppetbooth.com/](https://puppetbooth.com/)")==L"https://puppetbooth.com/","Markdown URL label duplicated into the address");
+        Expect(WebsiteUrl(L"Use logo.svg, card.html, version 1.2 and hello@example.com").empty(),"filename or email triggered retrieval");
+        Expect(WebsiteUrl(L"puppetbooth.com https://puppetbooth.com")==L"https://puppetbooth.com","equivalent addresses rejected");
         Expect(WebsiteUrl(L"Make a card with no website").empty(),"unrequested retrieval");
-        for(auto invalid:{L"http://example.com",L"https://localhost",L"https://127.0.0.1",L"https://user:pass@example.com",L"https://example.com https://example.org"}){
+        for(auto invalid:{L"http://example.com",L"https://localhost",L"https://127.0.0.1",L"https://user:pass@example.com",L"https://example.com https://example.org",L"example.com example.org",L"example.com:8443"}){
             bool rejected=false;try{WebsiteUrl(invalid);}catch(...){rejected=true;}Expect(rejected,"unsafe or multiple URLs accepted");}
         auto extracted=WebsiteText(L"<html><head><style>badstyle</style><script>badscript</script></head><body><h1>Hello &amp; world</h1><p>Readable text.</p><!--badcomment--><script src='test'>badscript2</script></body></html>");
         Expect(extracted.find(L"Hello & world")!=std::wstring::npos&&extracted.find(L"Readable text.")!=std::wstring::npos&&extracted.find(L"bad")==std::wstring::npos,"website extraction includes executable content or loses text");
+        Expect(WebsiteText(L"<head><title>Metadata</title></head><h1>Puppet<strong>booth</strong></h1><p title='1 > 0'>A &quot;camera&quot; &#8212; &#x1F600; &unknown;</p>")==L"Puppetbooth A \"camera\" \u2014 \U0001F600 &unknown;","text boundaries, quoted attributes, or entities changed source wording");
+        Expect(WebsiteText(L"<p>Before</p><SCRIPT>hidden</scripture>still hidden</SCRIPT><p>After</p>")==L"Before After","raw element close boundary leaked script text");
+        Expect(WebsiteText(L"<p>Visible</p><script>unterminated")==L"Visible","unterminated script leaked content");
+        Expect(WebsiteText(L"<p>2 &lt; 3 &amp; 4 &gt; 1</p>")==L"2 < 3 & 4 > 1","decoded angle brackets treated as markup");
         WebsiteSource source{L"https://example.com",L"Actual retrieved facts",true};
         auto grounded=winrt::Windows::Data::Json::JsonObject::Parse(winrt::to_hstring(BuildCardRequest({},target,L"Summarize the website",source)));
         auto groundedInput=winrt::Windows::Data::Json::JsonObject::Parse(grounded.GetNamedString(L"input"));

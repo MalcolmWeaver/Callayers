@@ -18,3 +18,14 @@ Then revise the selected agenda: “Keep the placement and transparent style, re
 While generation is pending, test selecting another card, moving/resizing the target, deleting it, undoing that deletion, and opening another deck. Movement should be preserved; deleted/restored or reopened targets must reject the old result. Cancel must leave the current card alone. Failed/incomplete/refused responses must not remove it.
 
 Live generation uses OpenAI API billing. `AiProbe --key-status` prints availability only; never print or paste the key into logs or a deck. Configure it in the application's AI settings.
+
+## Website media acceptance
+
+1. Run `AiProbe --fetch https://puppetbooth.com/` to inspect source text, the compact CSS sample, and downloaded asset metadata without an AI call.
+2. Generate: “Make a card with three short lines from puppetbooth.com, its logo, and its colors and typography. Keep the background transparent.” Verify each quote against the page, that the actual downloaded logo is used, and that the style resembles the available CSS sample. This reader does not take screenshots or execute the page's JavaScript.
+3. Revise the resulting card without a URL: “Keep the logo and wording, make the title smaller.” Verify image identity and bytes survive, and the serialized model request contains asset IDs but no embedded image data.
+4. Save/reopen the version-5 deck, then move/resize and undo/redo the revision. Images and the last generation's usage must survive and render offline.
+5. Test a missing image, a stylesheet error, an unsupported SVG, and cancellation. Optional failures should show a partial-results notice; cancellation must not apply a new card.
+6. Record actual input, cached/cache-write, output, reasoning, and estimated cost from the returned API usage; do not infer actual spend from HTML size. Unknown models must show token counts without a fabricated price.
+
+`WebsiteMediaTests` covers extraction, bounded metadata, URL validation, asset resolution, offline persistence, compact revisions, and usage accounting. `CardProbe` also verifies an embedded SVG card renders after a save/reopen round-trip under the normal network-blocked card policy.

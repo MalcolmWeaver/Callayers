@@ -1,6 +1,7 @@
 #pragma once
 #include "common.h"
 #include "image_asset.h"
+#include "card_assets.h"
 #include <filesystem>
 #include <cmath>
 #include <set>
@@ -21,6 +22,8 @@ struct TextElement {
 struct CardElement {
     std::wstring id,html,name=L"Card";
     double x=.1,y=.15,width=.42,height=.45;
+    std::vector<CardAsset> assets;
+    std::optional<CardUsage> usage;
     bool operator==(const CardElement&)const=default;
 };
 inline CardElement MoveCard(const CardElement& start,double dx,double dy){
@@ -97,7 +100,7 @@ class Document {
         std::set<std::wstring> changed;
         for(const auto& old:before.cards){
             auto now=std::find_if(scene.cards.begin(),scene.cards.end(),[&](const auto& c){return c.id==old.id;});
-            if(now==scene.cards.end()||now->html!=old.html||now->name!=old.name)changed.insert(old.id);
+            if(now==scene.cards.end()||now->html!=old.html||now->name!=old.name||now->assets!=old.assets)changed.insert(old.id);
         }
         for(const auto& now:scene.cards)if(std::none_of(before.cards.begin(),before.cards.end(),[&](const auto& c){return c.id==now.id;}))changed.insert(now.id);
         for(const auto& id:changed)++contentRevisions[id];
@@ -133,11 +136,16 @@ inline bool CardTargetCurrent(const Document& document,const CardRequestTarget& 
     if(target.creating)return document.scene.cards.size()<12&&ElementCount(document.scene)<100&&std::none_of(document.scene.cards.begin(),document.scene.cards.end(),[&](const auto& c){return c.id==target.card.id;});
     return document.ContentRevision(target.card.id)==target.revision&&std::any_of(document.scene.cards.begin(),document.scene.cards.end(),[&](const auto& c){return c.id==target.card.id&&c.html==target.card.html;});
 }
-inline bool ApplyGeneratedCard(Document& document,const CardRequestTarget& target,const std::wstring& html,const std::wstring& name){
+inline bool ApplyGeneratedCard(Document& document,const CardRequestTarget& target,const std::wstring& html,const std::wstring& name,const std::vector<CardAsset>& assets={},const std::optional<CardUsage>& usage={}){
     if(!CardTargetCurrent(document,target))return false;
+    auto selectedAssets=SelectCardAssets(html,assets);
+    size_t mediaChars=0;for(const auto& image:document.scene.images)if(image.asset)mediaChars+=image.asset->png.size();
+    for(const auto& card:document.scene.cards)if(card.id!=target.card.id)for(const auto& asset:card.assets)mediaChars+=asset.dataUri->size();
+    for(const auto& asset:selectedAssets)mediaChars+=asset.dataUri->size();
+    if(mediaChars>MaxSceneImageChars)throw std::runtime_error("This deck has reached its embedded image limit.");
     auto before=document.scene;
-    if(target.creating){auto card=target.card;card.html=html;card.name=name;document.scene.cards.push_back(std::move(card));}
-    else for(auto& card:document.scene.cards)if(card.id==target.card.id){card.html=html;card.name=name;break;}
+    if(target.creating){auto card=target.card;card.html=html;card.name=name;card.assets=std::move(selectedAssets);card.usage=usage;document.scene.cards.push_back(std::move(card));}
+    else for(auto& card:document.scene.cards)if(card.id==target.card.id){card.html=html;card.name=name;card.assets=std::move(selectedAssets);card.usage=usage;break;}
     document.Commit(before);return true;
 }
 // Dragging uses a fixed starting element, so every move is absolute rather than cumulative.
@@ -167,7 +175,8 @@ inline TextElement ResizeText(const TextElement& start,int handle,double dx,doub
 inline std::string EncodeScene(const Scene& scene){
     using namespace winrt::Windows::Data::Json;
     JsonObject root;root.SetNamedValue(L"format",JsonValue::CreateStringValue(L"callayers"));
-    root.SetNamedValue(L"version",JsonValue::CreateNumberValue(!scene.images.empty()?4:!scene.ink.empty()?3:scene.cards.empty()?1:2));root.SetNamedValue(L"title",JsonValue::CreateStringValue(scene.title));
+    bool mediaCards=std::any_of(scene.cards.begin(),scene.cards.end(),[](const auto& c){return !c.assets.empty()||c.usage.has_value();});
+    root.SetNamedValue(L"version",JsonValue::CreateNumberValue(mediaCards?5:!scene.images.empty()?4:!scene.ink.empty()?3:scene.cards.empty()?1:2));root.SetNamedValue(L"title",JsonValue::CreateStringValue(scene.title));
     JsonArray elements;
     for(const auto& t:scene.texts){
         JsonObject o;
@@ -185,7 +194,20 @@ inline std::string EncodeScene(const Scene& scene){
         JsonObject o;o.SetNamedValue(L"type",JsonValue::CreateStringValue(L"card"));
         o.SetNamedValue(L"id",JsonValue::CreateStringValue(c.id));o.SetNamedValue(L"html",JsonValue::CreateStringValue(c.html));o.SetNamedValue(L"name",JsonValue::CreateStringValue(c.name));
         o.SetNamedValue(L"x",JsonValue::CreateNumberValue(c.x));o.SetNamedValue(L"y",JsonValue::CreateNumberValue(c.y));
-        o.SetNamedValue(L"width",JsonValue::CreateNumberValue(c.width));o.SetNamedValue(L"height",JsonValue::CreateNumberValue(c.height));elements.Append(o);
+        o.SetNamedValue(L"width",JsonValue::CreateNumberValue(c.width));o.SetNamedValue(L"height",JsonValue::CreateNumberValue(c.height));
+        ValidateCardAssets(c.assets);
+        if(!c.assets.empty()){
+            JsonArray assets;for(const auto& a:c.assets){JsonObject value;
+                value.SetNamedValue(L"id",JsonValue::CreateStringValue(a.id));value.SetNamedValue(L"description",JsonValue::CreateStringValue(a.description));value.SetNamedValue(L"source",JsonValue::CreateStringValue(a.sourceUrl));
+                value.SetNamedValue(L"width",JsonValue::CreateNumberValue(a.width));value.SetNamedValue(L"height",JsonValue::CreateNumberValue(a.height));value.SetNamedValue(L"data",JsonValue::CreateStringValue(*a.dataUri));assets.Append(value);
+            }o.SetNamedValue(L"assets",assets);
+        }
+        if(c.usage){const auto& u=*c.usage;JsonObject value;
+            value.SetNamedValue(L"model",JsonValue::CreateStringValue(u.model));
+            value.SetNamedValue(L"input",JsonValue::CreateNumberValue(static_cast<double>(u.input)));value.SetNamedValue(L"output",JsonValue::CreateNumberValue(static_cast<double>(u.output)));
+            value.SetNamedValue(L"cached",JsonValue::CreateNumberValue(static_cast<double>(u.cached)));value.SetNamedValue(L"cache_write",JsonValue::CreateNumberValue(static_cast<double>(u.cacheWrite)));value.SetNamedValue(L"reasoning",JsonValue::CreateNumberValue(static_cast<double>(u.reasoning)));
+            if(u.estimatedUsd)value.SetNamedValue(L"estimated_usd",JsonValue::CreateNumberValue(*u.estimatedUsd));o.SetNamedValue(L"usage",value);
+        }elements.Append(o);
     }
     for(const auto& image:scene.images){
         if(!image.asset)throw std::runtime_error("Image data is missing.");JsonObject o;o.SetNamedValue(L"type",JsonValue::CreateStringValue(L"image"));
@@ -205,7 +227,7 @@ inline Scene DecodeScene(const std::string& bytes){
     using namespace winrt::Windows::Data::Json;
     if(bytes.size()>MaxDeckBytes)throw std::runtime_error("This deck is too large to open.");
     auto root=JsonObject::Parse(winrt::to_hstring(bytes));
-    if(root.GetNamedString(L"format")!=L"callayers"||(root.GetNamedNumber(L"version")!=1&&root.GetNamedNumber(L"version")!=2&&root.GetNamedNumber(L"version")!=3&&root.GetNamedNumber(L"version")!=4))
+    if(root.GetNamedString(L"format")!=L"callayers"||(root.GetNamedNumber(L"version")!=1&&root.GetNamedNumber(L"version")!=2&&root.GetNamedNumber(L"version")!=3&&root.GetNamedNumber(L"version")!=4&&root.GetNamedNumber(L"version")!=5))
         throw std::runtime_error("Unsupported Callayers file version.");
     auto scenes=root.GetNamedArray(L"scenes");
     if(scenes.Size()!=1)throw std::runtime_error("This editor currently supports one scene per file.");
@@ -239,6 +261,22 @@ inline Scene DecodeScene(const std::string& bytes){
         }
         if(o.GetNamedString(L"type")==L"card"){
             CardElement c;c.id=o.GetNamedString(L"id");c.html=o.GetNamedString(L"html");c.name=o.GetNamedString(L"name",L"Card");
+            if(o.HasKey(L"assets")){
+                for(const auto& assetValue:o.GetNamedArray(L"assets")){auto value=assetValue.GetObject();CardAsset a;
+                    a.id=value.GetNamedString(L"id");a.description=value.GetNamedString(L"description");a.sourceUrl=value.GetNamedString(L"source");
+                    double w=value.GetNamedNumber(L"width"),h=value.GetNamedNumber(L"height");if(!std::isfinite(w)||!std::isfinite(h)||w<0||h<0||w>4096||h>4096||w!=std::floor(w)||h!=std::floor(h))throw std::runtime_error("Invalid card image dimensions.");
+                    a.width=static_cast<UINT>(w);a.height=static_cast<UINT>(h);a.dataUri=std::make_shared<const std::wstring>(value.GetNamedString(L"data"));imageChars+=a.dataUri->size();
+                    if(imageChars>MaxSceneImageChars||c.assets.size()>=MaxCardAssets)throw std::runtime_error("Too many embedded card images.");c.assets.push_back(std::move(a));
+                }ValidateCardAssets(c.assets);
+            }
+            SelectCardAssets(c.html,c.assets);
+            if(o.HasKey(L"usage")){
+                auto value=o.GetNamedObject(L"usage");CardUsage u;u.model=value.GetNamedString(L"model");if(u.model.size()>100)throw std::runtime_error("Invalid usage model.");
+                auto count=[&](const wchar_t* key){double n=value.GetNamedNumber(key,0);if(!std::isfinite(n)||n<0||n>1000000000||n!=std::floor(n))throw std::runtime_error("Invalid token usage.");return static_cast<uint64_t>(n);};
+                u.input=count(L"input");u.output=count(L"output");u.cached=count(L"cached");u.cacheWrite=count(L"cache_write");u.reasoning=count(L"reasoning");
+                if(u.cached+u.cacheWrite>u.input||u.reasoning>u.output)throw std::runtime_error("Invalid token usage totals.");
+                if(value.HasKey(L"estimated_usd")){double cost=value.GetNamedNumber(L"estimated_usd");if(!std::isfinite(cost)||cost<0||cost>1000000)throw std::runtime_error("Invalid cost estimate.");u.estimatedUsd=cost;}c.usage=u;
+            }
             c.x=o.GetNamedNumber(L"x");c.y=o.GetNamedNumber(L"y");c.width=o.GetNamedNumber(L"width");c.height=o.GetNamedNumber(L"height");
             if(c.id.empty()||!ids.insert(c.id).second||c.html.size()>200000||c.name.empty()||c.name.size()>100||scene.cards.size()>=12||
                 !std::isfinite(c.x)||!std::isfinite(c.y)||!std::isfinite(c.width)||!std::isfinite(c.height)||

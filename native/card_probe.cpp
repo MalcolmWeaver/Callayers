@@ -34,6 +34,15 @@ int main(){
         for(int i=0;i<30;++i){Sleep(50);auto current=host.Latest();Require(current&&LumaAt(*current,300,300)>=0,"replacement exposed a blank frame");if(LumaAt(*current,300,300)>220){replacement=true;break;}}
         Require(replacement,"prepared replacement did not become visible");
         scene.cards.clear();host.SetScene(scene);Sleep(500);overlay=host.Latest();Require(overlay&&overlay->luma.empty(),"removed cards left stale pixels");
+        CardElement media;media.id=NewId();media.html=L"<style>body{margin:0}</style><img src='callayers-asset:logo' width='200' height='200'>";
+        const std::string svg="<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><rect width='200' height='200' fill='white'/></svg>";
+        DWORD chars=0;Check(CryptBinaryToStringW(reinterpret_cast<const BYTE*>(svg.data()),static_cast<DWORD>(svg.size()),CRYPT_STRING_BASE64|CRYPT_STRING_NOCRLF,nullptr,&chars)?S_OK:E_FAIL);
+        std::wstring base64(chars,L'\0');Check(CryptBinaryToStringW(reinterpret_cast<const BYTE*>(svg.data()),static_cast<DWORD>(svg.size()),CRYPT_STRING_BASE64|CRYPT_STRING_NOCRLF,base64.data(),&chars)?S_OK:E_FAIL);
+        base64.resize(chars);while(!base64.empty()&&base64.back()==0)base64.pop_back();CardAsset asset;asset.id=L"logo";asset.description=L"Offline SVG test";asset.width=asset.height=200;asset.dataUri=std::make_shared<const std::wstring>(L"data:image/svg+xml;base64,"+base64);media.assets={asset};scene.cards={media};
+        scene=DecodeScene(EncodeScene(scene));host.SetScene(scene);bool imageVisible=false;
+        for(int i=0;i<40;++i){Sleep(50);auto current=host.Latest();if(current&&LumaAt(*current,250,220)>220){imageVisible=true;break;}}
+        Require(imageVisible,"saved card image did not render offline under the card policy");
+        std::cout<<"PASS: embedded SVG asset survives save/reopen and renders through the offline card host\n";
     }catch(const std::exception& e){std::cerr<<e.what()<<"\n";result=1;}
     CoUninitialize();return result;
 }
