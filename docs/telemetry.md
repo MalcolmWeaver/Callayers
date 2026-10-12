@@ -69,7 +69,7 @@ Heartbeat card counts mean cards selected into the scene. Annotation counts are 
 
 ### Annotation action semantics
 
-Text editing emits when the edit is committed; pen/shape/eraser gestures and drags emit when finished. Text, style, position, size, and ordering changes count as edits. A canceled or unchanged action emits nothing. Laser movements, card contents, images, and loading/replacing a document do not emit annotation actions.
+Text editing emits once when the text editing session is committed (focus leaves the editor, a tool changes, or Ctrl+Enter). An explicit session guard suppresses intermediate text events even if another document commit occurs while typing. Canceled and unchanged sessions emit nothing; newly created whitespace-only text boxes are discarded without an event. Separate formatting and position/size actions after leaving text editing remain separate edits. Pen/shape/eraser gestures and drags emit when finished. Laser movements, card contents, images, and loading/replacing a document do not emit annotation actions.
 
 `count` is the number of affected annotations in that action/type group. Erasing five strokes in one gesture emits one `deleted / drawing` event with `count=5`. Clearing text and drawings emits up to two `cleared` events, one per nonempty type. An empty clear emits nothing. Committing an unfinished edit before clearing can legitimately emit an edit/create followed by a clear.
 

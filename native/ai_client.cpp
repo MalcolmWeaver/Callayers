@@ -169,7 +169,7 @@ AiJob::~AiJob(){Cancel();}
 void AiJob::Cancel(){if(state)state->canceled=true;state.reset();}
 void AiJob::Start(const AiSettings& settings,const CardRequestTarget& target,const std::wstring& prompt,const std::string& requestId){
     BuildCardRequest(settings,target,prompt);auto url=WebsiteUrl(prompt);auto key=CloudEnabled()?std::wstring{}:ReadKey();
-    if(CloudEnabled()){if(!CloudGetAccount().signedIn)throw std::runtime_error("Sign in with Google from File > Account to generate cards.");}
+    if(CloudEnabled()){if(!CloudGetAccount().signedIn)throw std::runtime_error("Sign in with Google to generate cards.");}
     else if(key.empty())throw std::runtime_error("The online service is not configured. Developer builds can use an API key in Settings.");
     Cancel();state=std::make_shared<State>();
     // The worker owns every object it uses. Cancel/close immediately discard the

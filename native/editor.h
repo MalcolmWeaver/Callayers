@@ -109,6 +109,7 @@ struct AnnotationChange {
 };
 class Document {
     std::vector<Scene> past,future;
+    std::optional<std::vector<TextElement>> textAnnotationSession;
     Scene saved;
     uint64_t epoch=1;
     std::map<std::wstring,uint64_t> contentRevisions;
@@ -126,7 +127,8 @@ class Document {
                 if(edited)AnnotationsChanged({L"edited",type,source,edited});
                 if(deleted)AnnotationsChanged({cleared?L"cleared":L"deleted",type,source,deleted});
             };
-            track(before.texts,scene.texts,L"text");track(before.ink,scene.ink,L"drawing");
+            if(!textAnnotationSession)track(before.texts,scene.texts,L"text");
+            track(before.ink,scene.ink,L"drawing");
         }catch(...){} // Analytics failure must never interrupt an edit or undo.
     }
     void TrackContent(const Scene& before){
@@ -141,6 +143,16 @@ class Document {
 public:
     std::function<void(const AnnotationChange&)> AnnotationsChanged;
     Scene scene;
+    void BeginTextAnnotationSession(const Scene& before){
+        if(!textAnnotationSession)textAnnotationSession=before.texts;
+    }
+    void EndTextAnnotationSession(bool committed){
+        if(!textAnnotationSession)return;
+        Scene before;before.texts=std::move(*textAnnotationSession);textAnnotationSession.reset();
+        // Drawings have their own gesture events and must not be counted twice.
+        before.ink=scene.ink;
+        if(committed)TrackAnnotations(before,L"direct");
+    }
     bool Dirty()const{auto current=scene,baseline=saved;current.texts.clear();current.ink.clear();baseline.texts.clear();baseline.ink.clear();return current!=baseline;}
     void ClearAnnotations(){
         auto before=scene;

@@ -18,7 +18,14 @@ int main(int argc,char**){
         Expect(window!=nullptr,"test window failed");
         std::shared_ptr<const TextOverlay> output;size_t published=0;
         auto controller=std::make_unique<TextEditorUI>(window,[&](auto layer){output=layer;++published;},argc==1);editor=controller.get();
+        std::vector<AnnotationChange> annotationEvents;
+        editor->SetAnnotationObserver([&](const AnnotationChange& change){annotationEvents.push_back(change);});
         editor->SetStage({20,165,980,705});
+        SendMessageW(window,WM_COMMAND,TextEditorUI::TextId,0);
+        SendMessageW(window,WM_LBUTTONDOWN,MK_LBUTTON,MAKELPARAM(120,245));
+        SetWindowTextW(GetDlgItem(window,TextEditorUI::EditId),L"  \r\n");
+        SendMessageW(window,WM_APP+20,1,0);
+        Expect(editor->CurrentScene().texts.empty()&&annotationEvents.empty(),"abandoned empty text counted as an annotation");
         SendMessageW(window,WM_COMMAND,TextEditorUI::TextId,0);
         SendMessageW(window,WM_LBUTTONDOWN,MK_LBUTTON,MAKELPARAM(120,245));
         HWND field=GetDlgItem(window,TextEditorUI::EditId);Expect(field!=nullptr,"text tool did not open editor");
@@ -43,7 +50,9 @@ int main(int argc,char**){
             Expect(GetPixel(surface,bounds.right-15,5)==color,"typing background did not preserve the camera frame");
         }
         SelectObject(surface,previous);DeleteObject(bitmap);DeleteDC(surface);ReleaseDC(window,screen);
+        Expect(annotationEvents.empty(),"typing emitted annotation events before session end");
         SendMessageW(window,WM_APP+20,1,0);
+        Expect(annotationEvents.size()==1&&std::wstring(annotationEvents[0].action)==L"created","text session did not emit exactly one creation");
         Expect(GetDlgItem(window,TextEditorUI::EditId)==nullptr,"commit left edit control open");
         Expect(ComposeText(*background,*output)->pixels==typing,"committing text changed outgoing pixels");
         SendMessageW(window,WM_COMMAND,TextEditorUI::UndoId,0);Expect(output->luma.empty(),"creation and typing were not one undo");

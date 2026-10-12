@@ -48,8 +48,8 @@ class WinUIShell {
     hosting::DesktopWindowXamlSource top{nullptr},bottom{nullptr},settingsIsland{nullptr};
     controls::ContentDialog settingsDialog{nullptr};
     controls::TextBlock accountStatus{nullptr};
-    controls::Button adminButton{nullptr};
-    bool openAdminAfterAccount=false,accountGate=false;
+    controls::Button accountSignin{nullptr},accountCancel{nullptr};
+    bool accountGate=false;
     std::unique_ptr<AdminPanel> adminPanel;
     controls::Border colorPanel{nullptr};
     RECT colorPanelRegion{};
@@ -147,17 +147,24 @@ class WinUIShell {
         controls::Grid root;root.Background(ux::Media::SolidColorBrush(winrt::Windows::UI::Color{255,28,28,32}));settingsIsland.Content(root);
         RECT bounds;GetClientRect(window,&bounds);settingsIsland.SiteBridge().MoveAndResize({0,0,bounds.right,bounds.bottom});
         SetWindowPos(winrt::Microsoft::UI::GetWindowFromWindowId(settingsIsland.SiteBridge().WindowId()),HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
-        controls::ContentDialog dialog;settingsDialog=dialog;dialog.XamlRoot(root.XamlRoot());dialog.RequestedTheme(ux::ElementTheme::Dark);dialog.Title(winrt::box_value(L"Callayers account"));accountGate=!CloudAccessAllowed();dialog.CloseButtonText(accountGate?L"":L"Close");
+        controls::ContentDialog dialog;settingsDialog=dialog;dialog.XamlRoot(root.XamlRoot());dialog.RequestedTheme(ux::ElementTheme::Dark);dialog.Title(winrt::box_value(L"Welcome to Callayers"));accountGate=!CloudAccessAllowed();dialog.CloseButtonText(accountGate?L"":L"Close");
         dialog.Closing([weak=std::weak_ptr<int>(lifetime)](auto&&,controls::ContentDialogClosingEventArgs const& args){if(!weak.expired()&&!CloudAccessAllowed())args.Cancel(true);});
         controls::StackPanel panel;panel.Spacing(12);panel.MinWidth(400);accountStatus=controls::TextBlock();accountStatus.TextWrapping(ux::TextWrapping::Wrap);panel.Children().Append(accountStatus);
-        controls::TextBlock privacy;privacy.Text(L"AI requests send your prompt and selected card context to Callayers and its AI provider. Webcam frames and image files stay local. Content-free usage and error events help improve Callayers. Sign in with Google to use Callayers.");privacy.TextWrapping(ux::TextWrapping::Wrap);panel.Children().Append(privacy);
-        controls::Button signin;signin.Content(winrt::box_value(L"Sign in with Google"));signin.IsEnabled(CloudEnabled());signin.Click([](auto&&,auto&&){CloudSignIn();});panel.Children().Append(signin);
-        controls::Button refresh;refresh.Content(winrt::box_value(L"Refresh account"));refresh.Click([](auto&&,auto&&){CloudRefresh();});panel.Children().Append(refresh);
-        controls::Button signout;signout.Content(winrt::box_value(L"Sign out / cancel sign-in"));signout.Click([](auto&&,auto&&){CloudSignOut();});panel.Children().Append(signout);
-        adminButton=controls::Button();adminButton.Content(winrt::box_value(L"Administration"));adminButton.Visibility(ux::Visibility::Collapsed);
-        adminButton.Click([this](auto&&,auto&&){openAdminAfterAccount=true;settingsDialog.Hide();});panel.Children().Append(adminButton);
-        dialog.Content(panel);dialog.Closed([this,weak=std::weak_ptr<int>(lifetime)](auto&&,auto&&){if(weak.expired())return;header.DispatcherQueue().TryEnqueue([this,weak]{if(weak.expired())return;accountStatus=nullptr;adminButton=nullptr;settingsDialog=nullptr;if(settingsIsland)settingsIsland.Close();settingsIsland=nullptr;SetFocus(window);bool open=openAdminAfterAccount;openAdminAfterAccount=false;if(open)try{ShowAdmin();}catch(...){EditorError(window);}});});
-        auto a=CloudGetAccount();accountStatus.Text(a.email+L"\n"+a.message);dialog.ShowAsync();
+        accountSignin=controls::Button();accountSignin.Content(winrt::box_value(L"Sign in with Google"));accountSignin.HorizontalAlignment(ux::HorizontalAlignment::Stretch);accountSignin.Click([](auto&&,auto&&){CloudSignIn();});panel.Children().Append(accountSignin);
+        accountCancel=controls::Button();accountCancel.Content(winrt::box_value(L"Cancel sign-in"));accountCancel.Click([](auto&&,auto&&){CloudSignOut();});panel.Children().Append(accountCancel);
+        controls::Expander details;details.Header(winrt::box_value(L"Privacy"));
+        controls::TextBlock privacy;privacy.Text(L"AI prompts and selected card content are sent to Callayers and its AI provider. Webcam frames and image files stay local. Usage and error events help improve Callayers.");privacy.TextWrapping(ux::TextWrapping::Wrap);privacy.MaxWidth(420);details.Content(privacy);panel.Children().Append(details);
+        dialog.Content(panel);dialog.Closed([this,weak=std::weak_ptr<int>(lifetime)](auto&&,auto&&){if(weak.expired())return;header.DispatcherQueue().TryEnqueue([this,weak]{if(weak.expired())return;accountStatus=nullptr;accountSignin=nullptr;accountCancel=nullptr;settingsDialog=nullptr;if(settingsIsland)settingsIsland.Close();settingsIsland=nullptr;SetFocus(window);});});
+        UpdateSignIn();dialog.ShowAsync();
+    }
+
+    void UpdateSignIn(){
+        if(!accountStatus)return;auto a=CloudGetAccount();
+        auto text=a.email.empty()?a.message:a.email+L"\n"+a.message;
+        if(accountStatus.Text()!=text)accountStatus.Text(text);
+        accountSignin.IsEnabled(CloudEnabled()&&!a.busy);
+        accountSignin.Content(winrt::box_value(a.busy?L"Waiting for Google…":L"Sign in with Google"));
+        accountCancel.Visibility(a.busy?ux::Visibility::Visible:ux::Visibility::Collapsed);
     }
 
     void ShowAdmin(){
@@ -284,7 +291,7 @@ public:
    <TextBlock x:Name="SaveState" Text="No unsaved changes" Foreground="#AAA8B2" FontSize="11"/>
   </StackPanel>
   <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-   <Button x:Name="FileButton" Content="File"><Button.Flyout><MenuFlyout><MenuFlyoutItem x:Name="NewDeck" Text="New deck"/><MenuFlyoutItem x:Name="OpenDeck" Text="Open…"/><MenuFlyoutSeparator/><MenuFlyoutItem x:Name="SaveDeck" Text="Save"/><MenuFlyoutItem x:Name="SaveAsDeck" Text="Save as…"/><MenuFlyoutSeparator/><MenuFlyoutItem x:Name="Account" Text="Account…"/><MenuFlyoutItem x:Name="AiSettings" Text="Settings…"/></MenuFlyout></Button.Flyout></Button>
+   <Button x:Name="FileButton" Content="File"><Button.Flyout><MenuFlyout><MenuFlyoutItem x:Name="NewDeck" Text="New deck"/><MenuFlyoutItem x:Name="OpenDeck" Text="Open…"/><MenuFlyoutSeparator/><MenuFlyoutItem x:Name="SaveDeck" Text="Save"/><MenuFlyoutItem x:Name="SaveAsDeck" Text="Save as…"/><MenuFlyoutSeparator/><MenuFlyoutItem x:Name="Administration" Text="Administration…" Visibility="Collapsed"/><MenuFlyoutItem x:Name="Account" Text="Log out"/><MenuFlyoutItem x:Name="AiSettings" Text="Settings…"/></MenuFlyout></Button.Flyout></Button>
    <Button x:Name="Annotate" Content="✎  Annotate" ToolTipService.ToolTip="Show or hide the annotation toolbar"/>
    <Button x:Name="Save" Content="Save" ToolTipService.ToolTip="Save deck (Ctrl+S)"/>
   </StackPanel>
@@ -361,7 +368,11 @@ public:
         Bottom<controls::Button>(L"Generate").Click([this](auto&&,auto&&){Generate();});
         Bottom<controls::Button>(L"RetryGeneration").Click([this](auto&&,auto&&){Generate(true);});
         Bottom<controls::Button>(L"CancelGeneration").Click([this](auto&&,auto&&){GenerationEvent(L"canceled");job.Cancel();generating=false;AiMessage(L"Canceled locally. An AI request already submitted may still use your allowance. Your cards are unchanged.");RefreshComposer();});
-        Find<controls::MenuFlyoutItem>(L"Account").Click([this](auto&&,auto&&){try{ShowAccount();}catch(...){EditorError(window);}});
+        Find<controls::MenuFlyoutItem>(L"Account").Text(L"Log out");
+        Find<controls::MenuFlyoutItem>(L"Account").Visibility(CloudEnabled()?ux::Visibility::Visible:ux::Visibility::Collapsed);
+        Find<controls::MenuFlyoutItem>(L"Account").Click([this](auto&&,auto&&){try{CloudSignOut();SyncAccess();}catch(...){EditorError(window);}});
+        Find<controls::MenuFlyoutItem>(L"Administration").Click([this](auto&&,auto&&){try{ShowAdmin();}catch(...){EditorError(window);}});
+        Find<controls::MenuFlyoutItem>(L"AiSettings").Visibility(CloudEnabled()?ux::Visibility::Collapsed:ux::Visibility::Visible);
         Find<controls::MenuFlyoutItem>(L"AiSettings").Click([this](auto&&,auto&&){try{ShowAiSettings();}catch(...){EditorError(window);}});
         Bottom<controls::TextBox>(L"Prompt").KeyDown([this](auto&&,ux::Input::KeyRoutedEventArgs const& args){if(args.Key()==winrt::Windows::System::VirtualKey::Enter&&(GetKeyState(VK_CONTROL)&0x8000)){Generate();args.Handled(true);}});
         setup=std::make_unique<SetupPanel>(window,editor,devices,[this,camera](int index){syncing=true;Find<controls::ComboBox>(L"Camera").SelectedIndex(index);syncing=false;camera(index);},output,[this]{CloseSetup();});
@@ -410,7 +421,8 @@ public:
         }else if(accountStatus&&accountGate){accountGate=false;settingsDialog.CloseButtonText(L"Close");settingsDialog.Hide();}
     }
     void Status(const std::wstring& message,bool busy,bool running){
-        if(accountStatus){auto a=CloudGetAccount();auto text=a.email+L"\n"+a.message;if(accountStatus.Text()!=text)accountStatus.Text(text);if(adminButton)adminButton.Visibility(a.signedIn&&a.administrator?ux::Visibility::Visible:ux::Visibility::Collapsed);}
+        UpdateSignIn();
+        auto account=CloudGetAccount();Find<controls::MenuFlyoutItem>(L"Administration").Visibility(account.signedIn&&account.administrator?ux::Visibility::Visible:ux::Visibility::Collapsed);
         if(adminPanel)adminPanel->Poll();
         PollGeneration();
         auto status=footer.FindName(L"Status").as<controls::TextBlock>();if(status.Text()!=message)status.Text(message);

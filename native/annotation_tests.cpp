@@ -17,6 +17,17 @@ int main(){
         document.Commit(before);check(L"edited",L"text",L"direct",1);
         document.Undo();check(L"edited",L"text",L"undo",1);document.Redo();check(L"edited",L"text",L"redo",1);
         document.Commit(document.scene);Expect(events.empty(),"no-op emitted");
+        // Even unrelated document commits during an open text editor must not
+        // fragment its annotation telemetry into individual changes.
+        document.BeginTextAnnotationSession(document.scene);
+        for(int i=0;i<20;++i){before=document.scene;document.scene.texts[0].text+=L"x";document.Commit(before);}
+        Expect(events.empty(),"open text session emitted intermediate edits");
+        document.EndTextAnnotationSession(true);check(L"edited",L"text",L"direct",1);
+        document.EndTextAnnotationSession(true);Expect(events.empty(),"session emitted twice");
+        document.BeginTextAnnotationSession(document.scene);document.EndTextAnnotationSession(true);
+        Expect(events.empty(),"unchanged text session emitted");
+        before=document.scene;document.BeginTextAnnotationSession(before);document.scene.texts[0].text=L"canceled session";
+        document.scene=before;document.EndTextAnnotationSession(false);Expect(events.empty(),"canceled text session emitted");
         before=document.scene;document.scene.texts[0].text=L"canceled";document.scene=before;document.Commit(before);Expect(events.empty(),"canceled edit emitted");
         before=document.scene;document.scene.texts.clear();document.Commit(before);check(L"deleted",L"text",L"direct",1);
         document.Undo();check(L"created",L"text",L"undo",1);

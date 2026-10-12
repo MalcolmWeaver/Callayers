@@ -268,7 +268,7 @@ void CloudObserve(bool preview,size_t consumers,const std::vector<std::wstring>&
     }
 }
 std::string CloudGenerate(const std::string& providerRequest,const std::string& requestId){
-    auto state=Shared();std::string token;{std::lock_guard lock(state->mutex);token=state->token;}if(token.empty())throw std::runtime_error("Sign in with Google from File > Account to generate cards.");
+    auto state=Shared();std::string token;{std::lock_guard lock(state->mutex);token=state->token;}if(token.empty())throw std::runtime_error("Sign in with Google to generate cards.");
     auto request=JsonObject::Parse(winrt::to_hstring(providerRequest));JsonObject body;body.SetNamedValue(L"requestId",JsonValue::CreateStringValue(winrt::to_hstring(requestId)));body.SetNamedValue(L"input",JsonObject::Parse(request.GetNamedString(L"input")));
     std::optional<Response> response;
     try{response=Request(L"POST",L"/v1/generate",winrt::to_string(body.Stringify()),token,true);}catch(...){}

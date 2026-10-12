@@ -208,6 +208,7 @@ private:
         renderer.FitHeight(t);
         edit=CreateWindowW(L"EDIT",t.text.c_str(),WS_CHILD|WS_VISIBLE|ES_MULTILINE|ES_AUTOVSCROLL|ES_WANTRETURN|align,0,0,1,1,window,reinterpret_cast<HMENU>(EditId),nullptr,nullptr);
         if(!edit)throw HRESULT_FROM_WIN32(GetLastError());
+        document.BeginTextAnnotationSession(beforeEdit);
         SendMessageW(edit,EM_SETLIMITTEXT,20000,0);SetWindowSubclass(edit,EditProc,1,reinterpret_cast<DWORD_PTR>(this));
         PositionEdit();SetFocus(edit);SendMessageW(edit,EM_SETSEL,0,-1);Publish();
     }
@@ -215,7 +216,14 @@ private:
         if(!edit)return;
         if(commit&&Selected())Selected()->text=ReadText(edit);
         HWND old=edit;edit=nullptr;DestroyWindow(old);ClearEditBackground();editingOverlay.reset();
+        if(commit&&Selected()&&Selected()->text.find_first_not_of(L" \t\r\n")==std::wstring::npos){
+            const auto id=Selected()->id;
+            if(std::none_of(beforeEdit.texts.begin(),beforeEdit.texts.end(),[&](const auto& text){return text.id==id;})){
+                document.scene.texts.erase(document.scene.texts.begin()+selected);selected=-1;
+            }
+        }
         if(commit)document.Commit(beforeEdit);else{document.scene=beforeEdit;selected=selectedCard=selectedImage=selectedInk=-1;}
+        document.EndTextAnnotationSession(commit);
         Publish();Sync();
     }
     std::filesystem::path FileDialog(bool save){
