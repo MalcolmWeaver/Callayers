@@ -1,3 +1,10 @@
 /build/
 /logs/
 /.vs/
+/backend/node_modules/
+/backend/dist/
+/backend/web-dist/
+/backend/*.local.*
+/backend/.env*
+/backend/*debug.log
+/backend/.npm-cache/

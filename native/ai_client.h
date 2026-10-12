@@ -18,7 +18,7 @@ class AiJob {
     std::shared_ptr<State> state;
 public:
     ~AiJob();
-    void Start(const AiSettings&,const CardRequestTarget&,const std::wstring& prompt);
+    void Start(const AiSettings&,const CardRequestTarget&,const std::wstring& prompt,const std::string& requestId={});
     void Cancel();
     std::optional<AiResult> TakeResult();
 };

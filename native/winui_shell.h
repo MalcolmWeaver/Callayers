@@ -1,6 +1,7 @@
 #pragma once
 #include "text_editor_ui.h"
 #include "ai_client.h"
+#include "cloud_client.h"
 #include "card_host.h"
 #include <winrt/Microsoft.UI.Xaml.Media.Imaging.h>
 #include <winrt/Windows.Storage.Streams.h>
@@ -45,6 +46,7 @@ class WinUIShell {
     TextEditorUI& editor;
     hosting::DesktopWindowXamlSource top{nullptr},bottom{nullptr},settingsIsland{nullptr};
     controls::ContentDialog settingsDialog{nullptr};
+    controls::TextBlock accountStatus{nullptr};
     controls::Border colorPanel{nullptr};
     RECT colorPanelRegion{};
     std::shared_ptr<int> lifetime=std::make_shared<int>(0);
@@ -65,6 +67,12 @@ class WinUIShell {
     }
     std::optional<CardRequestTarget> lastTarget;
     std::wstring lastPrompt;
+    std::string generationRequestId;
+    void GenerationEvent(const wchar_t* state){
+        using namespace winrt::Windows::Data::Json;JsonObject p;
+        p.SetNamedValue(L"state",JsonValue::CreateStringValue(state));p.SetNamedValue(L"operation",JsonValue::CreateStringValue(lastTarget&&lastTarget->creating?L"create":L"revise"));
+        if(!generationRequestId.empty())p.SetNamedValue(L"request_id",JsonValue::CreateStringValue(winrt::to_hstring(generationRequestId)));CloudTrack(L"card_generation",p);
+    }
     template<class T> T Bottom(const wchar_t* name){return footer.FindName(name).as<T>();}
     void AiMessage(const std::wstring& message){Bottom<controls::TextBlock>(L"AiStatus").Text(message);}
     void RefreshComposer(){
@@ -81,7 +89,9 @@ class WinUIShell {
             if(generating)return;
             if(!retry){lastTarget=editor.GenerationTarget();lastPrompt=Bottom<controls::TextBox>(L"Prompt").Text();}
             if(!lastTarget||!editor.TargetCurrent(*lastTarget)){AiMessage(L"The original card or scene changed. Select a card and start a new request.");return;}
-            job.Start(LoadAiSettings(),*lastTarget,lastPrompt);generating=true;
+            // Retry is a deliberate new generation. Transport retries within CloudGenerate
+            // recover the same server request; they never charge twice automatically.
+            generationRequestId=CloudRequestId();job.Start(LoadAiSettings(),*lastTarget,lastPrompt,generationRequestId);generating=true;GenerationEvent(L"started");
             Bottom<controls::Button>(L"RetryGeneration").Visibility(ux::Visibility::Collapsed);
             AiMessage(!WebsiteUrl(lastPrompt).empty()?L"Reading the website and creating your card…":lastTarget->creating?L"Creating your card…":L"Updating “"+lastTarget->card.name+L"”… Your current card stays visible.");RefreshComposer();
         }catch(const std::exception& e){AiMessage(std::wstring(winrt::to_hstring(e.what())));Bottom<controls::Button>(L"RetryGeneration").Visibility(ux::Visibility::Visible);}
@@ -92,14 +102,16 @@ class WinUIShell {
         generating=false;
         try{
         if(result->card){
+            GenerationEvent(L"succeeded");
             if(lastTarget&&editor.AcceptGenerated(*lastTarget,result->card->html,result->card->name,result->card->assets,result->card->usage)){composerOpen=true;AiMessage(std::wstring(editor.IsCardShown(lastTarget->card.id)?L"Card updated on camera. ":lastTarget->creating?L"Card ready. Check it to show on camera. ":L"Card updated. ")+UsageSummary(result->usage)+(result->notice.empty()?L"":L" · "+result->notice));if(Bottom<controls::TextBox>(L"Prompt").Text()==lastPrompt)Bottom<controls::TextBox>(L"Prompt").Text(L"");}
-            else AiMessage(L"The original card or scene changed. The late result was not applied.");
-        }else{AiMessage(result->error+L" "+UsageSummary(result->usage));Bottom<controls::Button>(L"RetryGeneration").Visibility(ux::Visibility::Visible);}
+            else {GenerationEvent(L"discarded");AiMessage(L"The original card or scene changed. The late result was not applied.");}
+        }else{GenerationEvent(L"failed");AiMessage(result->error+L" "+UsageSummary(result->usage));Bottom<controls::Button>(L"RetryGeneration").Visibility(ux::Visibility::Visible);}
         }catch(const std::exception& e){AiMessage(std::wstring(winrt::to_hstring(e.what())));Bottom<controls::Button>(L"RetryGeneration").Visibility(ux::Visibility::Visible);}
         catch(...){AiMessage(L"Could not apply this card. Retry with fewer images.");Bottom<controls::Button>(L"RetryGeneration").Visibility(ux::Visibility::Visible);}
         RefreshComposer();
     }
     void ShowAiSettings(){
+        if(CloudEnabled()){ShowAccount();return;}
         if(settingsIsland)return;
         auto settings=LoadAiSettings();settingsIsland=hosting::DesktopWindowXamlSource();settingsIsland.Initialize(winrt::Microsoft::UI::GetWindowIdFromWindow(window));
         controls::Grid root;root.Background(ux::Media::SolidColorBrush(winrt::Windows::UI::Color{255,28,28,32}));settingsIsland.Content(root);
@@ -123,6 +135,22 @@ class WinUIShell {
             header.DispatcherQueue().TryEnqueue([this,weak]{if(weak.expired())return;settingsDialog=nullptr;if(settingsIsland)settingsIsland.Close();settingsIsland=nullptr;SetFocus(window);});
         });
         dialog.ShowAsync();
+    }
+
+    void ShowAccount(){
+        if(settingsIsland)return;
+        settingsIsland=hosting::DesktopWindowXamlSource();settingsIsland.Initialize(winrt::Microsoft::UI::GetWindowIdFromWindow(window));
+        controls::Grid root;root.Background(ux::Media::SolidColorBrush(winrt::Windows::UI::Color{255,28,28,32}));settingsIsland.Content(root);
+        RECT bounds;GetClientRect(window,&bounds);settingsIsland.SiteBridge().MoveAndResize({0,0,bounds.right,bounds.bottom});
+        SetWindowPos(winrt::Microsoft::UI::GetWindowFromWindowId(settingsIsland.SiteBridge().WindowId()),HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
+        controls::ContentDialog dialog;settingsDialog=dialog;dialog.XamlRoot(root.XamlRoot());dialog.RequestedTheme(ux::ElementTheme::Dark);dialog.Title(winrt::box_value(L"Callayers account"));dialog.CloseButtonText(L"Close");
+        controls::StackPanel panel;panel.Spacing(12);panel.MinWidth(400);accountStatus=controls::TextBlock();accountStatus.TextWrapping(ux::TextWrapping::Wrap);panel.Children().Append(accountStatus);
+        controls::TextBlock privacy;privacy.Text(L"AI requests send your prompt and selected card context to Callayers and its AI provider. Webcam frames and image files stay local. Content-free usage and error events help improve Callayers. Local cards and camera work without signing in.");privacy.TextWrapping(ux::TextWrapping::Wrap);panel.Children().Append(privacy);
+        controls::Button signin;signin.Content(winrt::box_value(L"Sign in with Google"));signin.IsEnabled(CloudEnabled());signin.Click([](auto&&,auto&&){CloudSignIn();});panel.Children().Append(signin);
+        controls::Button refresh;refresh.Content(winrt::box_value(L"Refresh account"));refresh.Click([](auto&&,auto&&){CloudRefresh();});panel.Children().Append(refresh);
+        controls::Button signout;signout.Content(winrt::box_value(L"Sign out / cancel sign-in"));signout.Click([](auto&&,auto&&){CloudSignOut();});panel.Children().Append(signout);
+        dialog.Content(panel);dialog.Closed([this,weak=std::weak_ptr<int>(lifetime)](auto&&,auto&&){if(weak.expired())return;header.DispatcherQueue().TryEnqueue([this,weak]{if(weak.expired())return;accountStatus=nullptr;settingsDialog=nullptr;if(settingsIsland)settingsIsland.Close();settingsIsland=nullptr;SetFocus(window);});});
+        CloudRefresh();auto a=CloudGetAccount();accountStatus.Text(a.email+L"\n"+a.message);dialog.ShowAsync();
     }
 
     template<class T> T Find(const wchar_t* name){return header.FindName(name).as<T>();}
@@ -235,7 +263,7 @@ public:
    <TextBlock x:Name="SaveState" Text="No unsaved changes" Foreground="#AAA8B2" FontSize="11"/>
   </StackPanel>
   <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-   <Button x:Name="FileButton" Content="File"><Button.Flyout><MenuFlyout><MenuFlyoutItem x:Name="NewDeck" Text="New deck"/><MenuFlyoutItem x:Name="OpenDeck" Text="Open…"/><MenuFlyoutSeparator/><MenuFlyoutItem x:Name="SaveDeck" Text="Save"/><MenuFlyoutItem x:Name="SaveAsDeck" Text="Save as…"/><MenuFlyoutSeparator/><MenuFlyoutItem x:Name="AiSettings" Text="Settings…"/></MenuFlyout></Button.Flyout></Button>
+   <Button x:Name="FileButton" Content="File"><Button.Flyout><MenuFlyout><MenuFlyoutItem x:Name="NewDeck" Text="New deck"/><MenuFlyoutItem x:Name="OpenDeck" Text="Open…"/><MenuFlyoutSeparator/><MenuFlyoutItem x:Name="SaveDeck" Text="Save"/><MenuFlyoutItem x:Name="SaveAsDeck" Text="Save as…"/><MenuFlyoutSeparator/><MenuFlyoutItem x:Name="Account" Text="Account…"/><MenuFlyoutItem x:Name="AiSettings" Text="Settings…"/></MenuFlyout></Button.Flyout></Button>
    <Button x:Name="Annotate" Content="✎  Annotate" ToolTipService.ToolTip="Show or hide the annotation toolbar"/>
    <Button x:Name="Save" Content="Save" ToolTipService.ToolTip="Save deck (Ctrl+S)"/>
   </StackPanel>
@@ -311,7 +339,8 @@ public:
         Bottom<controls::Button>(L"HideCard").Click([this](auto&&,auto&&){try{editor.HideCard();}catch(...){EditorError(window);}});
         Bottom<controls::Button>(L"Generate").Click([this](auto&&,auto&&){Generate();});
         Bottom<controls::Button>(L"RetryGeneration").Click([this](auto&&,auto&&){Generate(true);});
-        Bottom<controls::Button>(L"CancelGeneration").Click([this](auto&&,auto&&){job.Cancel();generating=false;AiMessage(L"Canceled. Your cards are unchanged.");RefreshComposer();});
+        Bottom<controls::Button>(L"CancelGeneration").Click([this](auto&&,auto&&){GenerationEvent(L"canceled");job.Cancel();generating=false;AiMessage(L"Canceled locally. An AI request already submitted may still use your allowance. Your cards are unchanged.");RefreshComposer();});
+        Find<controls::MenuFlyoutItem>(L"Account").Click([this](auto&&,auto&&){try{ShowAccount();}catch(...){EditorError(window);}});
         Find<controls::MenuFlyoutItem>(L"AiSettings").Click([this](auto&&,auto&&){try{ShowAiSettings();}catch(...){EditorError(window);}});
         Bottom<controls::TextBox>(L"Prompt").KeyDown([this](auto&&,ux::Input::KeyRoutedEventArgs const& args){if(args.Key()==winrt::Windows::System::VirtualKey::Enter&&(GetKeyState(VK_CONTROL)&0x8000)){Generate();args.Handled(true);}});
         setup=std::make_unique<SetupPanel>(window,editor,devices,[this,camera](int index){syncing=true;Find<controls::ComboBox>(L"Camera").SelectedIndex(index);syncing=false;camera(index);},output,[this]{CloseSetup();});
@@ -343,6 +372,7 @@ public:
         if(label.Text()!=text)label.Text(text);
     }
     void Status(const std::wstring& message,bool busy,bool running){
+        if(accountStatus){auto a=CloudGetAccount();auto text=a.email+L"\n"+a.message;if(accountStatus.Text()!=text)accountStatus.Text(text);}
         PollGeneration();
         auto status=footer.FindName(L"Status").as<controls::TextBlock>();if(status.Text()!=message)status.Text(message);
         auto button=Find<controls::Button>(L"Output");button.IsEnabled(!busy&&!running);

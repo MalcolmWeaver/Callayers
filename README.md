@@ -1,5 +1,11 @@
 # Callayers
 
+## Accounts and beta service
+
+The account/backend implementation and manual setup walkthrough are in [docs/cloud-rollout.md](docs/cloud-rollout.md). It adds Google sign-in, approved seven-day trials, manual paid entitlements, AI spending limits, PostHog events, and a small admin page. Cloud accounts have not been created or deployed yet. The implementing agent is building only; runtime verification is intentionally left to the owner.
+
+For a cloud-connected build, pass `-ServiceUrl` (direct Cloud Run HTTPS origin) and `-WebUrl` (Firebase Hosting origin) to `scripts/build.ps1 -SkipTests`. File → Account opens sign-in and allowance details. A configured cloud build routes generation through the service and never falls back to a personal API key. Without a service address, the existing developer API-key flow below remains available. The installer is a separate follow-up.
+
 Fresh implementation of the camera, text editor, WinUI shell, live cards, and OpenAI card generation in [mvp-dev-plan.md](mvp-dev-plan.md).
 The previous implementation remains deleted; nothing here restores it.
 
