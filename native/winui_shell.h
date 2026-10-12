@@ -25,6 +25,7 @@
 #include <winrt/Microsoft.UI.Xaml.XamlTypeInfo.h>
 #include <winrt/Windows.UI.Xaml.Interop.h>
 #include <dwmapi.h>
+#include "setup_panel.h"
 
 namespace callayers {
 namespace ux=winrt::Microsoft::UI::Xaml;
@@ -53,12 +54,21 @@ class WinUIShell {
     std::vector<controls::Border> cardRows;
     std::vector<controls::CheckBox> showChecks;
     AiJob job;
+    std::unique_ptr<SetupPanel> setup;
+    void ShowSetup(int step){
+        auto grid=footer.as<controls::Grid>();for(auto child:grid.Children())child.Visibility(ux::Visibility::Collapsed);
+        setup->Begin(step);
+    }
+    void CloseSetup(){
+        auto grid=footer.as<controls::Grid>();for(auto child:grid.Children())child.Visibility(ux::Visibility::Visible);
+        setup->Root.Visibility(ux::Visibility::Collapsed);Refresh();
+    }
     std::optional<CardRequestTarget> lastTarget;
     std::wstring lastPrompt;
     template<class T> T Bottom(const wchar_t* name){return footer.FindName(name).as<T>();}
     void AiMessage(const std::wstring& message){Bottom<controls::TextBlock>(L"AiStatus").Text(message);}
     void RefreshComposer(){
-        Bottom<controls::StackPanel>(L"Composer").Visibility(composerOpen?ux::Visibility::Visible:ux::Visibility::Collapsed);
+        Bottom<controls::StackPanel>(L"Composer").Visibility(composerOpen&&!SetupActive()?ux::Visibility::Visible:ux::Visibility::Collapsed);
         Bottom<controls::TextBlock>(L"PromptTarget").Text(editor.CardSelected()?L"Edit “"+editor.CardName()+L"”":L"New card");
         Bottom<controls::Button>(L"Generate").Content(winrt::box_value(generating?L"Working…":editor.CardSelected()?L"Update card":L"Generate card"));
         Bottom<controls::Button>(L"Generate").IsEnabled(!generating);
@@ -269,6 +279,8 @@ public:
   <StackPanel Orientation="Horizontal" Spacing="6"><Button x:Name="Generate" Content="Generate card" Background="#A39BFA" Foreground="#201D33"/><Button x:Name="CancelGeneration" Content="Cancel" Visibility="Collapsed"/></StackPanel>
  </StackPanel>
  <StackPanel Grid.Row="3" Spacing="6">
+  <Button x:Name="UseInCall" Content="Use in a call" HorizontalAlignment="Stretch"/>
+  <TextBlock x:Name="ConnectionStatus" Text="Preparing camera…" FontSize="12" Foreground="#C4C0D2" TextWrapping="Wrap"/>
   <StackPanel Orientation="Horizontal" Spacing="6"><ProgressRing x:Name="AiProgress" Width="18" Height="18" IsActive="False" Visibility="Collapsed"/><Button x:Name="RetryGeneration" Content="Retry" Padding="8,2" Visibility="Collapsed"/></StackPanel>
   <TextBlock x:Name="AiStatus" Text="Check cards to show them. Click a title to edit; double-click to rename." FontSize="11" Foreground="#C4C0D2" TextWrapping="Wrap" MaxHeight="68" IsTextSelectionEnabled="True"/>
   <TextBlock x:Name="Status" Text="Camera output is off" FontSize="11" Foreground="#9692A4" TextWrapping="Wrap" MaxHeight="48"/>
@@ -284,7 +296,7 @@ public:
         Find<controls::MenuFlyoutItem>(L"SaveAsDeck").Click([this](auto&&,auto&&){try{editor.SaveAs();}catch(...){EditorError(window);}});
         auto sources=Find<controls::ComboBox>(L"Camera");sources.Items().Append(winrt::box_value(L"Test pattern"));
         for(auto& device:devices)sources.Items().Append(winrt::box_value(device.name));sources.SelectedIndex(0);
-        sources.SelectionChanged([this,camera](auto&&,auto&&){if(!syncing)try{camera(Find<controls::ComboBox>(L"Camera").SelectedIndex());}catch(...){EditorError(window);}});
+        sources.SelectionChanged([this,camera](auto&&,auto&&){if(!syncing)try{int index=Find<controls::ComboBox>(L"Camera").SelectedIndex();camera(index);if(setup)setup->CameraIndex(index);}catch(...){EditorError(window);}});
         Action(L"Output",output);
         Action(L"Annotate",[this]{annotating=!annotating;editor.SetAnnotationMode(annotating);Refresh();Relayout();});
         Action(L"Pen",[this]{editor.SetDrawingTool(TextEditorUI::DrawTool::Pen);});
@@ -302,7 +314,11 @@ public:
         Bottom<controls::Button>(L"CancelGeneration").Click([this](auto&&,auto&&){job.Cancel();generating=false;AiMessage(L"Canceled. Your cards are unchanged.");RefreshComposer();});
         Find<controls::MenuFlyoutItem>(L"AiSettings").Click([this](auto&&,auto&&){try{ShowAiSettings();}catch(...){EditorError(window);}});
         Bottom<controls::TextBox>(L"Prompt").KeyDown([this](auto&&,ux::Input::KeyRoutedEventArgs const& args){if(args.Key()==winrt::Windows::System::VirtualKey::Enter&&(GetKeyState(VK_CONTROL)&0x8000)){Generate();args.Handled(true);}});
+        setup=std::make_unique<SetupPanel>(window,editor,devices,[this,camera](int index){syncing=true;Find<controls::ComboBox>(L"Camera").SelectedIndex(index);syncing=false;camera(index);},output,[this]{CloseSetup();});
+        controls::Grid::SetRowSpan(setup->Root,4);footer.as<controls::Grid>().Children().Append(setup->Root);
+        Bottom<controls::Button>(L"UseInCall").Click([this](auto&&,auto&&){ShowSetup(2);});
         editor.StateChanged=[this]{Refresh();};Refresh();
+        if(!SetupFinished())ShowSetup(0);
         BOOL dark=TRUE;DwmSetWindowAttribute(window,DWMWA_USE_IMMERSIVE_DARK_MODE,&dark,sizeof(dark));
     }
     ~WinUIShell(){lifetime.reset();job.Cancel();editor.StateChanged={};if(settingsDialog)settingsDialog.Hide();if(settingsIsland)settingsIsland.Close();if(top)top.Close();if(bottom)bottom.Close();}
@@ -317,7 +333,15 @@ public:
         bottom.SiteBridge().MoveAndResize({0,headerHeight,sidebar,std::max(1,height-headerHeight)});
     }
     int HeaderHeight()const{return annotating?128:72;}
-    void CameraIndex(int index){syncing=true;Find<controls::ComboBox>(L"Camera").SelectedIndex(index);syncing=false;}
+    void CameraIndex(int index){syncing=true;Find<controls::ComboBox>(L"Camera").SelectedIndex(index);syncing=false;if(setup)setup->CameraIndex(index);}
+    bool SetupActive()const{return setup&&setup->Active();}
+    void SetupStatus(bool fresh,bool running,bool live,HRESULT failure,const std::wstring& message){
+        setup->Update(fresh,running,live,failure,message);
+        auto label=Bottom<controls::TextBlock>(L"ConnectionStatus");
+        std::wstring text=live&&fresh&&running?L"● Camera in use · Live video delivered":!running?L"Camera output unavailable":setup->Verified()?L"Ready for your next call":L"Ready · Choose Callayers in your calling app";
+        if(FAILED(failure))text=L"Camera needs attention";
+        if(label.Text()!=text)label.Text(text);
+    }
     void Status(const std::wstring& message,bool busy,bool running){
         PollGeneration();
         auto status=footer.FindName(L"Status").as<controls::TextBlock>();if(status.Text()!=message)status.Text(message);
