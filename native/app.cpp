@@ -1,4 +1,6 @@
 #include "common.h"
+#include "camera_demand.h"
+#include "tray_icon.h"
 #include "card_host.h"
 #include "text_editor_ui.h"
 #include "winui_shell.h"
@@ -20,6 +22,8 @@ struct Frames {
     std::atomic<std::shared_ptr<Frame>> composed{Pattern(0,true)};
     std::atomic<std::shared_ptr<const TextOverlay>> overlay;
     std::shared_ptr<CardHost> cards;
+    std::atomic<bool> demanded{false};
+    std::atomic<ULONGLONG> lastFrameRequest{0};
     std::atomic<int> mode{1};
     std::atomic<HRESULT> error{S_OK};
     std::atomic<uint64_t> sequence{0};
@@ -52,6 +56,7 @@ public:
         pattern=std::thread([this]{
             auto due=Clock::now();
             while(WaitForSingleObject(stop.value,0)!=WAIT_OBJECT_0) {
+                if(!frames->demanded){WaitForSingleObject(stop.value,33);due=Clock::now();continue;}
                 if(frames->mode==1)frames->latest=Pattern(++frames->sequence);
                 auto background=frames->latest.load();
                 if(GetTickCount64()-background->header.capturedMs>750)background=frames->idle;
@@ -80,6 +85,9 @@ private:
                 connected=GetOverlappedResult(pipe.value,&ov,&count,FALSE);
             }else if(!connected&&error==ERROR_PIPE_CONNECTED)connected=TRUE;
             if(connected) {
+                // Older registered source DLLs do not hold a demand lease. A
+                // frame request is still evidence that a camera consumer exists.
+                frames->lastFrameRequest=GetTickCount64();
                 auto f=frames->Current();FrameHeader header=f->header;
                 // Idle frames remain valid replies, but are visibly distinct from live frames.
                 if(header.mode==0)header.capturedMs=GetTickCount64();
@@ -213,6 +221,9 @@ struct App {
     std::unique_ptr<Publisher> publisher;
     std::unique_ptr<TextEditorUI> editor;
     std::unique_ptr<WinUIShell> shell;
+    TrayIcon tray;
+    std::unique_ptr<CameraDemandServer> demand;
+    bool captureAttempted=false;
     int cameraIndex=0;
     bool shellOnly=false;
     ComPtr<Capture> capture;
@@ -229,7 +240,7 @@ struct App {
     void StartOutput(){
         if(activating)return;
         if(activation.joinable())activation.join();
-        if(virtualCamera){Check(virtualCamera->Stop());virtualCamera.Reset();cameraStatus=L"Camera output is off";return;}
+        if(virtualCamera)return;
         activating=true;activationResult=S_FALSE;cameraStatus=L"Starting virtual camera…";
         activation=std::thread([this]{
             CoInitializeEx(nullptr,COINIT_MULTITHREADED);
@@ -238,14 +249,27 @@ struct App {
             activating=false;CoUninitialize();
         });
     }
+    bool PreviewVisible()const{return window&&IsWindowVisible(window)&&!IsIconic(window);}
+    void UpdateDemand(){
+        const bool needed=NeedsCameraFrames(PreviewVisible(),demand?demand->Poll():0,frames->lastFrameRequest.load());
+        frames->demanded=needed;
+        if(!needed||cameraIndex<=0){
+            if(capture){capture->Close();capture.Reset();}
+            captureAttempted=false;
+            if(!needed){frames->latest=frames->idle;frames->composed=frames->idle;}
+        }else if(!captureAttempted){
+            captureAttempted=true;frames->error=S_OK;frames->latest=frames->idle;
+            capture=Make<Capture>();
+            HRESULT hr=capture->Open(devices.at(cameraIndex-1),frames);
+            if(FAILED(hr)){frames->error=hr;capture.Reset();}
+        }
+        if(frames->cards)frames->cards->SetActive(needed);
+    }
     void Select(){
         if(capture){capture->Close();capture.Reset();}
-        frames->error=S_OK;frames->latest=Pattern(0,true);
-        int index=cameraIndex;
-        if(index<=0){frames->mode=1;return;}
-        frames->mode=2;capture=Make<Capture>();
-        HRESULT hr=capture->Open(devices.at(index-1),frames);
-        if(FAILED(hr))frames->error=hr;
+        captureAttempted=false;frames->error=S_OK;frames->latest=frames->idle;
+        frames->mode=cameraIndex<=0?1:2;
+        UpdateDemand();
     }
     void Layout(){
         RECT r;GetClientRect(window,&r);const double dpi=GetDpiForWindow(window)/96.;const int margin=static_cast<int>(24*dpi),left=static_cast<int>(300*dpi),top=static_cast<int>(((shell?shell->HeaderHeight():72)+24)*dpi),bottom=static_cast<int>(24*dpi);
@@ -258,8 +282,9 @@ struct App {
         InvalidateRect(window,nullptr,FALSE);
     }
     void Tick(){
+        UpdateDemand();
         if(editor)editor->TickInk();
-        if(shellOnly){
+        if(shellOnly&&frames->demanded){
             if(frames->mode==1)frames->latest=Pattern(++frames->sequence);
             auto background=frames->latest.load();if(GetTickCount64()-background->header.capturedMs>750)background=frames->idle;
             if(frames->cards)if(auto card=frames->cards->Latest())background=ComposeText(*background,*card);
@@ -280,7 +305,7 @@ struct App {
         else if(frames->mode==2&&frame->header.mode==0)message=L"Waiting for webcam frames — idle image is being sent.";
         if(frames->cards&&FAILED(frames->cards->Error()))message=L"Card rendering failed: "+ErrorText(frames->cards->Error())+L". Save your deck and restart Callayers.";
         if(shell)shell->Status(message,activating,!activating&&virtualCamera!=nullptr);
-        if(!IsIconic(window)){
+        if(PreviewVisible()){
             if(editor&&editor->IsEditing()){
                 auto background=frames->latest.load();
                 if(GetTickCount64()-background->header.capturedMs>750)background=frames->idle;
@@ -297,6 +322,8 @@ LRESULT CALLBACK WindowProc(HWND window,UINT msg,WPARAM wp,LPARAM lp){
     if(msg==WM_NCCREATE){app=static_cast<App*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);app->window=window;SetWindowLongPtrW(window,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(app));}
     if(!app)return DefWindowProcW(window,msg,wp,lp);
     try{
+    static const UINT taskbarCreated=RegisterWindowMessageW(L"TaskbarCreated");
+    if(msg==taskbarCreated){if(!app->tray.Recreate(window))TrayIcon::Open(window);return 0;}
     if(app->editor){for(const auto& change:app->frames->cards->TakeStates())app->editor->ApplyCardState(change.id,change.epoch,change.html,change.state);LRESULT result;if(app->editor->Message(msg,wp,lp,result))return result;}
     switch(msg){
     case WM_CREATE:{
@@ -310,8 +337,10 @@ LRESULT CALLBACK WindowProc(HWND window,UINT msg,WPARAM wp,LPARAM lp){
         SetTimer(window,1,33,nullptr);return 0;}
     case WM_GETMINMAXINFO:{auto info=reinterpret_cast<MINMAXINFO*>(lp);double dpi=GetDpiForWindow(window)/96.;info->ptMinTrackSize={static_cast<LONG>(1000*dpi),static_cast<LONG>(600*dpi)};return 0;}
     case WM_DPICHANGED:{auto r=reinterpret_cast<RECT*>(lp);SetWindowPos(window,nullptr,r->left,r->top,r->right-r->left,r->bottom-r->top,SWP_NOZORDER|SWP_NOACTIVATE);app->Layout();return 0;}
-    case WM_SIZE:app->Layout();return 0;
-    case WM_TIMER:if(wp==2){KillTimer(window,2);SendMessageW(window,WM_CLOSE,0,0);return 0;}app->Tick();return 0;
+    case WM_SIZE:app->Layout();app->UpdateDemand();return 0;
+    case WM_SHOWWINDOW:PostMessageW(window,WM_TIMER,1,0);break;
+    case TrayMessage:app->tray.Event(window,lp);app->UpdateDemand();return 0;
+    case WM_TIMER:if(wp==2){KillTimer(window,2);SendMessageW(window,QuitMessage,0,0);return 0;}app->Tick();return 0;
     case WM_ERASEBKGND:return 1; // WM_PAINT presents the complete buffered background.
     case WM_PAINT:{
         PAINTSTRUCT ps;HDC target=BeginPaint(window,&ps);
@@ -331,7 +360,14 @@ LRESULT CALLBACK WindowProc(HWND window,UINT msg,WPARAM wp,LPARAM lp){
             BitBlt(target,r.left,r.top,r.right-r.left,r.bottom-r.top,dc,r.left,r.top,SRCCOPY);
         }
         EndPaint(window,&ps);if(app->editor)app->editor->RefreshEdit();return 0;}
-    case WM_CLOSE:if(app->editor&&!app->editor->MayDiscard())return 0;app->shell.reset();DestroyWindow(window);return 0;
+    case WM_CLOSE:
+        if(app->tray.Add(window)){ShowWindow(window,SW_HIDE);app->UpdateDemand();}
+        else MessageBoxW(window,L"Could not add the tray icon. Callayers will stay open so you can reach it.",L"Callayers",MB_OK|MB_ICONERROR);
+        return 0;
+    case QuitMessage:
+        TrayIcon::Open(window);
+        if(app->editor&&!app->editor->MayDiscard())return 0;
+        app->tray.Remove();app->shell.reset();DestroyWindow(window);return 0;
     case WM_DESTROY:KillTimer(window,1);PostQuitMessage(0);return 0;
     }
     }catch(...){
@@ -342,6 +378,9 @@ LRESULT CALLBACK WindowProc(HWND window,UINT msg,WPARAM wp,LPARAM lp){
 }
 }
 int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR command,int show){
+    if(!wcsstr(command,L"--headless")&&!wcsstr(command,L"--shell-only")){
+        if(HWND existing=FindWindowW(L"CallayersEditor",nullptr)){TrayIcon::Open(existing);return 0;}
+    }
     HRESULT com=CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED);if(FAILED(com))return 1;
     HRESULT startup=MFStartup(MF_VERSION);if(FAILED(startup)){CoUninitialize();return 2;}
     int result=0;
@@ -355,7 +394,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR command,int show){
             xamlApplication=winrt::make<IslandApplication>();xamlManager=hosting::WindowsXamlManager::InitializeForCurrentThread();
             xamlApplication.Resources().MergedDictionaries().Append(controls::XamlControlsResources());
         }
-        App app;app.frames->cards=std::make_shared<CardHost>();app.shellOnly=wcsstr(command,L"--shell-only")!=nullptr;if(!app.shellOnly)app.publisher=std::make_unique<Publisher>(app.frames);app.devices=Cameras();
+        App app;app.frames->cards=std::make_shared<CardHost>();app.shellOnly=wcsstr(command,L"--shell-only")!=nullptr;if(!app.shellOnly)app.publisher=std::make_unique<Publisher>(app.frames);app.devices=Cameras();if(!app.shellOnly)app.demand=std::make_unique<CameraDemandServer>();
         if(wcsstr(command,L"--demo-text")){
             Scene scene;TextElement text;text.id=NewId();text.text=L"Callayers text test";text.x=.05;text.y=.12;text.size=72;scene.texts.push_back(text);
             TextRenderer renderer;app.frames->overlay=renderer.Render(scene);
@@ -364,11 +403,12 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR command,int show){
             if(wcsstr(command,L"--demo-cards")){Scene scene;scene.cards={SampleCard(),SampleCard(true)};app.frames->cards->SetScene(scene);}
             if(wcsstr(command,L"--webcam")){
                 if(app.devices.empty())throw HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
-                app.frames->mode=2;app.capture=Make<Capture>();Check(app.capture->Open(app.devices.front(),app.frames));
+                app.cameraIndex=1;app.frames->mode=2;
             }
             if(wcsstr(command,L"--publish")){auto camera=VirtualCamera();Check(camera->Start(nullptr));app.virtualCamera=camera;}
             unsigned seconds=15;auto arg=wcsstr(command,L"--seconds ");if(arg)seconds=std::clamp(static_cast<unsigned>(_wtoi(arg+10)),1u,300u);
-            Sleep(seconds*1000);
+            auto end=Clock::now()+std::chrono::seconds(seconds);
+            while(Clock::now()<end){app.UpdateDemand();Sleep(33);}
         }else{
             WNDCLASSW wc{};wc.hInstance=instance;wc.lpszClassName=L"CallayersEditor";wc.lpfnWndProc=WindowProc;wc.style=CS_DBLCLKS;
             wc.hIcon=LoadIconW(instance,MAKEINTRESOURCEW(101));
@@ -380,7 +420,8 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR command,int show){
                 app.cameraIndex=1;app.shell->CameraIndex(1);app.Select();
             }
             if(wcsstr(command,L"--demo-cards")){app.editor->AddSampleCard();app.editor->AddSampleCard();}
-            if(wcsstr(command,L"--publish"))app.StartOutput();
+            app.tray.Add(window);
+            if(!app.shellOnly)app.StartOutput();
             MSG message{};while(GetMessageW(&message,nullptr,0,0)>0){
                 try{if(app.shell&&app.shell->Key(message))continue;}catch(...){EditorError(window);continue;}
                 if(ContentPreTranslateMessage(&message))continue;

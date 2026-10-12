@@ -33,16 +33,20 @@ The Windows camera service must load the media-source DLL from a stable location
 
 This copies a versioned development DLL into `%ProgramFiles%\Callayers Development` and registers only the Callayers CLSID `{A487A33B-6EC3-43F1-A894-CA2D937619F0}`. Re-run after changing the DLL. No kernel driver or other camera registration is modified.
 
-Run `build\Release\Callayers.exe` as your normal user. Choose **Test pattern** or a webcam, then click **Start camera**. Select **Callayers (Windows Virtual Camera)** in a meeting app; Windows controls the appended device-name suffix.
+Run `build\Release\Callayers.exe` as your normal user. Choose **Test pattern** or a webcam. The virtual camera starts automatically; **Retry camera** is available if activation fails. Select **Callayers (Windows Virtual Camera)** in a meeting app; Windows controls the appended device-name suffix.
 
 The native WinUI 3 shell is organized around a left-hand card library and a camera stage. **Create with AI** opens the sidebar composer; card titles select a card for revision, and independent checkboxes put cards on the stage. Camera controls and file actions stay in the header. **Annotate** reveals a compact, Preview-inspired markup toolbar above the stage.
 Launch with `--webcam --publish` to select the first available webcam and start output immediately.
 
 - Moving bar: active test pattern.
 - Live image: selected webcam, letterboxed to 16:9 without stretching or intentional mirroring.
-- Gray pause symbol: no fresh producer frame, including after the app closes.
+- Gray pause symbol: no fresh producer frame, including after quitting the runtime.
 - A webcam failure is reported in the window; selecting the webcam again retries it.
-- Closing the app stops physical webcam capture. The registered virtual device remains available and supplies its own idle frames.
+- Closing the editor hides it to the system tray; reopening Callayers restores the editor. Use **Quit Callayers** in the tray menu to exit (with the usual unsaved-deck prompt).
+- The physical webcam is acquired only while the editor preview is visible or at least one virtual-camera stream is running. Minimizing also removes preview demand. Closing the last consumer releases the webcam; restoring the preview or opening a camera stream reacquires it.
+- With no consumers, composition and browser-frame capture stop. Browser documents stay alive, so card scripts/timers retain their existing behavior.
+- The registered virtual device stays available after quitting and supplies idle frames. Selecting it does not launch an exited runtime; open Callayers first.
+- Stream demand uses persistent local pipe connections, released on stream stop/shutdown or process death and reconnected after runtime restart. Update the registered camera DLL when installing this change. Older source DLLs are supported through ongoing frame requests, with a one-second idle grace period after the last request.
 
 Camera creation persists for the current user. Registration of the source DLL is machine-wide. The development producer is single-instance per machine, with local pipe access limited to its user, service identities, and administrators. This is a development build, not a signed release installer.
 

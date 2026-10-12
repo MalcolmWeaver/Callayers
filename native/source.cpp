@@ -1,4 +1,5 @@
 #include "common.h"
+#include "camera_demand.h"
 #include <ks.h>
 #include <ksmedia.h>
 #include <ksproxy.h>
@@ -36,6 +37,8 @@ class Stream final : public RuntimeClass<RuntimeClassFlags<ClassicCom>,ChainInte
     bool closed=false;
     uint64_t generation=0;
     std::thread worker;
+    std::thread demandWorker;
+    CameraDemandClient demand;
     Handle stop{CreateEventW(nullptr,TRUE,FALSE,nullptr)};
 public:
     ComPtr<IMFMediaEventQueue> events;
@@ -55,19 +58,26 @@ public:
             Check(attributes->SetUINT32(MF_DEVICESTREAM_FRAMESERVER_SHARED,TRUE));
             Check(attributes->SetUINT32(MF_DEVICESTREAM_ATTRIBUTE_FRAMESOURCE_TYPES,MFFrameSourceTypes_Color));
             worker=std::thread([this]{Run();});
+            demandWorker=std::thread([this]{
+                while(WaitForSingleObject(stop.value,100)==WAIT_TIMEOUT){
+                    std::lock_guard lock(mutex);demand.Update(!closed&&state==MF_STREAM_STATE_RUNNING);
+                }
+            });
             return S_OK;
         } catch(HRESULT hr){source.Reset();return hr;} catch(...){source.Reset();return E_OUTOFMEMORY;}
     }
     ~Stream(){ Close(); }
     void Close() {
-        {std::lock_guard lock(mutex); if(closed)return;closed=true;requests.clear();source.Reset();}
+        {std::lock_guard lock(mutex); if(closed)return;closed=true;demand.Update(false);requests.clear();source.Reset();}
         SetEvent(stop.value); wake.notify_all();
         if(worker.joinable()) worker.join();
+        if(demandWorker.joinable()) demandWorker.join();
         if(events)events->Shutdown();
     }
     void SetRunning(bool running) {
         std::lock_guard lock(mutex);
         state=running?MF_STREAM_STATE_RUNNING:MF_STREAM_STATE_STOPPED;
+        demand.Update(running);
         ++generation; requests.clear(); wake.notify_all();
     }
     EVENT_METHODS
@@ -86,7 +96,7 @@ public:
     HRESULT STDMETHODCALLTYPE SetStreamState(MF_STREAM_STATE next) override {
         std::lock_guard lock(mutex);if(closed)return MF_E_SHUTDOWN;
         if(next==MF_STREAM_STATE_PAUSED)return MF_E_INVALID_STATE_TRANSITION;
-        state=next; ++generation;requests.clear();wake.notify_all();return S_OK;
+        state=next;demand.Update(next==MF_STREAM_STATE_RUNNING); ++generation;requests.clear();wake.notify_all();return S_OK;
     }
     HRESULT STDMETHODCALLTYPE GetStreamState(MF_STREAM_STATE* out) override {
         if(!out)return E_POINTER;std::lock_guard lock(mutex);if(closed)return MF_E_SHUTDOWN;*out=state;return S_OK;
