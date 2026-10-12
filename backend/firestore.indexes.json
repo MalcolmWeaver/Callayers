@@ -5,8 +5,6 @@
   "fieldOverrides": [
     { "collectionGroup": "results", "fieldPath": "expiresAt", "ttl": true, "indexes": [] },
     { "collectionGroup": "results", "fieldPath": "response", "indexes": [] },
-    { "collectionGroup": "logins", "fieldPath": "expiresAt", "ttl": true, "indexes": [] },
-    { "collectionGroup": "sessions", "fieldPath": "expiresAt", "ttl": true, "indexes": [] },
     { "collectionGroup": "limits", "fieldPath": "expiresAt", "ttl": true, "indexes": [] }
   ]
 }

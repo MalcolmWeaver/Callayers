@@ -9,7 +9,7 @@ LRESULT CALLBACK WindowProc(HWND window,UINT msg,WPARAM wp,LPARAM lp){
 }
 void Expect(bool condition,const char* message){if(!condition)throw std::runtime_error(message);}
 }
-int main(int argc,char**){
+int main(int argc,char** argv){
     winrt::init_apartment(winrt::apartment_type::multi_threaded);
     HWND window=nullptr;
     try{
@@ -66,7 +66,11 @@ int main(int argc,char**){
         Expect(ComposeText(*background,*output)->pixels!=typing,"drag did not move text");
         SendMessageW(window,WM_COMMAND,TextEditorUI::UndoId,0);Expect(ComposeText(*background,*output)->pixels==typing,"one undo did not reverse the whole drag");
         SendMessageW(window,WM_LBUTTONDBLCLK,0,MAKELPARAM(150,270));field=GetDlgItem(window,TextEditorUI::EditId);Expect(field!=nullptr,"double click did not edit");
+        const auto beforeCancel=annotationEvents.size();
         SendMessageW(field,EM_SETSEL,0,-1);SendMessageW(field,EM_REPLACESEL,TRUE,reinterpret_cast<LPARAM>(L"Canceled change"));SendMessageW(window,WM_APP+20,0,0);Expect(ComposeText(*background,*output)->pixels==typing,"cancel did not restore original text");
+        Expect(annotationEvents.size()==beforeCancel,"canceled text session emitted telemetry");
+        SendMessageW(window,WM_LBUTTONDBLCLK,0,MAKELPARAM(150,270));SendMessageW(window,WM_APP+20,1,0);
+        Expect(annotationEvents.size()==beforeCancel,"unchanged text session emitted telemetry");
         SendMessageW(window,WM_LBUTTONDOWN,MK_LBUTTON,MAKELPARAM(150,270));SendMessageW(window,WM_LBUTTONUP,0,MAKELPARAM(150,270));
         SendMessageW(window,WM_COMMAND,TextEditorUI::DeleteId,0);Expect(output->luma.empty(),"delete failed");
         SendMessageW(window,WM_COMMAND,TextEditorUI::UndoId,0);Expect(ComposeText(*background,*output)->pixels==typing,"undo delete failed");
@@ -74,6 +78,10 @@ int main(int argc,char**){
         editor->ChangeStyle([](auto& t){t.family=L"Georgia";t.size=84;t.bold=true;t.alignment=1;});
         Expect(editor->Selection()->family==L"Georgia"&&editor->Selection()->size==84,"shell style command did not reach selected text");
         editor->Command(TextEditorUI::UndoId);Expect(ComposeText(*background,*output)->pixels==typing,"shell style command did not undo in one step");
+        if(argc>1&&std::string(argv[1])=="--annotation-session"){
+            editor=nullptr;controller.reset();DestroyWindow(window);
+            std::cout<<"PASS: text sessions, empty creation, typing, cancellation, undo, and formatting\n";return 0;
+        }
         Scene cards;editor->SceneChanged=[&](const Scene& next){cards=next;};
         editor->AddSampleCard();Expect(editor->CardSelected()&&cards.cards.size()==1,"card creation did not publish");
         auto originalCard=cards.cards[0];

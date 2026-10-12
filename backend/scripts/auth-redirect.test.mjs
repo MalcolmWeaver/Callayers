@@ -5,65 +5,79 @@ import { build } from 'esbuild';
 import Fastify from 'fastify';
 import { registerAuthProxy } from '../dist/auth-proxy.js';
 
-const id = 'a'.repeat(64);
+const state = 'a'.repeat(64);
 const bundle = await build({ entryPoints: ['web/app.ts'], bundle: true, write: false, format: 'iife', plugins: [{
   name: 'mock-firebase', setup(b) {
     b.onResolve({ filter: /^firebase\// }, args => ({ path: args.path, namespace: 'mock' }));
-    b.onLoad({ filter: /.*/, namespace: 'mock' }, () => ({ contents: `export const { initializeApp, getAuth, GoogleAuthProvider, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged, setPersistence, browserSessionPersistence } = globalThis.firebase;` }));
+    b.onLoad({ filter: /.*/, namespace: 'mock' }, () => ({ contents: `export const { initializeApp, getAuth, GoogleAuthProvider, signInWithRedirect, getRedirectResult, signOut, setPersistence, browserSessionPersistence } = globalThis.firebase;` }));
   }
 }] });
 async function browser({ hash = '', pending, credential = null, failure = false } = {}) {
   const elements = new Map(); const storage = new Map(pending ? [['callayers.google-redirect', JSON.stringify(pending)]] : []);
-  const calls = []; let navigated;
-  const auth = { currentUser: { getIdToken: async () => 'token' } };
+  const calls = []; let submitted;
   const context = {
-    URL, Date, JSON, console,
-    location: { hash, pathname: '/login.html', replace: url => { navigated = url; } },
-    history: { replaceState() {} },
+    URL, URLSearchParams, Date, JSON, console,
+    location: { hash, pathname: '/login.html' }, history: { replaceState() {} },
     sessionStorage: { getItem: k => storage.get(k), setItem: (k,v) => storage.set(k,v), removeItem: k => storage.delete(k) },
-    document: { getElementById: name => {
-      if (!elements.has(name)) elements.set(name, { hidden: false, click() { this.onclick?.(); } });
-      return elements.get(name);
-    } },
-    fetch: async url => { calls.push(url); return { ok: true, json: async () => url.endsWith('approve') ? { returnUrl: 'http://127.0.0.1:49152/callback?state=x&grant=y' } : {} }; },
+    document: {
+      body: { appendChild() {} },
+      createElement: () => ({ appendChild(input) { this.input = input; }, submit() { submitted = this; calls.push('submit'); } }),
+      getElementById: name => {
+        if (!elements.has(name)) elements.set(name, { hidden: false, click() { this.onclick?.(); } });
+        return elements.get(name);
+      }
+    },
+    fetch: async url => { calls.push(url); return { ok: true, json: async () => ({}) }; },
     firebase: {
-      initializeApp: x => x, getAuth: () => auth, GoogleAuthProvider: class { setCustomParameters() {} },
+      initializeApp: x => x, getAuth: () => ({}), GoogleAuthProvider: class { setCustomParameters() {} },
       signInWithRedirect: async () => { calls.push('redirect'); },
       getRedirectResult: async () => { if (failure) throw new Error('Google canceled'); return credential; },
-      signOut: async () => {}, onAuthStateChanged: (_a, cb) => cb(auth.currentUser),
-      setPersistence: async () => {}, browserSessionPersistence: {}
+      signOut: async () => { calls.push('signout'); }, setPersistence: async () => {}, browserSessionPersistence: {}
     }
   };
   vm.runInNewContext(bundle.outputFiles[0].text, context);
   await new Promise(resolve => setImmediate(resolve));
-  return { calls, storage, elements, navigated };
+  return { calls, storage, elements, submitted };
 }
-const pending = { id, automatic: true, started: Date.now(), redirecting: true };
-test('new desktop link redirects without a second click and saves tab state', async () => {
-  const r = await browser({ hash: '#' + id + '&desktop=1' });
+const pending = { port: 49152, state, started: Date.now(), redirecting: true };
+const credential = { user: { refreshToken: 'private-refresh-credential' } };
+test('new desktop link opens account picker and saves tab state', async () => {
+  const r = await browser({ hash: '#port=49152&state=' + state });
   assert.ok(r.calls.includes('redirect'));
   assert.equal(JSON.parse(r.storage.get('callayers.google-redirect')).redirecting, true);
-  assert.ok(!r.calls.includes('/v1/login/approve'));
+  assert.equal(r.submitted, undefined);
 });
-test('fresh Google redirect result approves and returns to desktop', async () => {
-  const r = await browser({ pending, credential: { user: {} } });
-  assert.ok(r.calls.includes('/v1/login/approve'));
-  assert.match(r.navigated, /^http:\/\/127\.0\.0\.1:/);
+test('fresh result posts credential only to loopback, clearing browser auth first', async () => {
+  const r = await browser({ pending, credential });
+  assert.equal(r.submitted.action, `http://127.0.0.1:49152/callback?state=${state}`);
+  assert.equal(r.submitted.method, 'POST');
+  assert.equal(r.submitted.input.name, 'refresh_token');
+  assert.equal(r.submitted.input.value, credential.user.refreshToken);
+  assert.deepEqual(r.calls, ['/v1/client-config', 'signout', 'submit']);
   assert.equal(r.storage.size, 0);
 });
-test('remembered account without redirect result never approves or loops', async () => {
+test('remembered account without fresh redirect never connects or loops', async () => {
   const r = await browser({ pending });
   assert.deepEqual(r.calls, ['/v1/client-config']);
+  assert.equal(r.submitted, undefined);
   assert.match(r.elements.get('status').textContent, /did not finish/);
 });
 test('new link cannot consume an older Google result', async () => {
-  const r = await browser({ hash: '#' + id + '&desktop=1', pending, credential: {} });
-  assert.ok(!r.calls.includes('/v1/login/approve'));
+  const r = await browser({ hash: '#port=49152&state=' + state, pending, credential });
+  assert.equal(r.submitted, undefined);
 });
-test('expired connection and provider failure do not approve', async () => {
-  for (const options of [{ pending: { ...pending, started: Date.now() - 700000 }, credential: {} }, { pending, failure: true }]) {
+test('expired, malformed and canceled attempts never transfer credentials', async () => {
+  for (const options of [
+    { pending: { ...pending, started: Date.now() - 700000 }, credential },
+    { pending: { ...pending, port: 80 }, credential },
+    { pending: { ...pending, port: 65536 }, credential },
+    { pending: { ...pending, port: 49152.5 }, credential },
+    { pending: { ...pending, state: '../bad' }, credential },
+    { pending: { ...pending, started: Date.now() + 700000 }, credential },
+    { pending, failure: true }, { pending, credential: { user: {} } }
+  ]) {
     const r = await browser(options);
-    assert.ok(!r.calls.includes('/v1/login/approve'));
+    assert.equal(r.submitted, undefined);
     assert.ok(!r.calls.includes('redirect'));
   }
 });

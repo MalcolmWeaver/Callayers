@@ -54,6 +54,7 @@ add_test(NAME source_lifecycle COMMAND CameraProbe --source-test $<TARGET_FILE:C
 add_test(NAME editor_document COMMAND EditorTests)
 add_test(NAME editor_interactions COMMAND EditorUITests)
 add_test(NAME shell_editor_commands COMMAND EditorUITests --modern)
+add_test(NAME text_annotation_session COMMAND EditorUITests --annotation-session)
 add_executable(SetupTests native/setup_tests.cpp)
 target_link_libraries(SetupTests PRIVATE camera_common d2d1 dwrite windowscodecs runtimeobject gdi32 user32 comctl32 comdlg32)
 add_test(NAME setup_flow COMMAND SetupTests)

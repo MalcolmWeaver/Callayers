@@ -5,6 +5,9 @@
 #include <string>
 #include <stdexcept>
 #include <utility>
+#include <map>
+#include <algorithm>
+#include <charconv>
 
 namespace callayers {
 // One sign-in attempt owns one ephemeral loopback port. No LAN interface,
@@ -19,10 +22,10 @@ class LoginReturn {
         ~Winsock(){WSACleanup();}
     } winsock;
     Socket listener;
-    std::string state;
+    std::string state, origin;
 public:
     unsigned short port=0;
-    explicit LoginReturn(std::string value):state(std::move(value)){
+    explicit LoginReturn(std::string value,std::string expectedOrigin):state(std::move(value)),origin(std::move(expectedOrigin)){
         listener.value=socket(AF_INET,SOCK_STREAM,IPPROTO_TCP);
         BOOL exclusive=TRUE;
         if(listener.value==INVALID_SOCKET||setsockopt(listener.value,SOL_SOCKET,SO_EXCLUSIVEADDRUSE,reinterpret_cast<const char*>(&exclusive),sizeof(exclusive)))
@@ -39,13 +42,49 @@ public:
         Socket client{accept(listener.value,nullptr,nullptr)};if(client.value==INVALID_SOCKET)return {};
         DWORD milliseconds=250;setsockopt(client.value,SOL_SOCKET,SO_RCVTIMEO,reinterpret_cast<char*>(&milliseconds),sizeof(milliseconds));
         setsockopt(client.value,SOL_SOCKET,SO_SNDTIMEO,reinterpret_cast<char*>(&milliseconds),sizeof(milliseconds));
-        std::string request;char bytes[2048];
-        for(int i=0;i<8&&request.find("\r\n\r\n")==std::string::npos;++i){int n=recv(client.value,bytes,sizeof(bytes),0);if(n<=0)return {};request.append(bytes,n);}
-        const auto prefix="GET /callback?state="+state+"&grant=";
+        std::string request;char bytes[2048];size_t end=std::string::npos,length=0;
+        std::map<std::string,std::string> headers;bool valid=true;
+        while(request.size()<16384){
+            int n=recv(client.value,bytes,sizeof(bytes),0);if(n<=0)return {};request.append(bytes,n);
+            if(end==std::string::npos){
+                end=request.find("\r\n\r\n");if(end==std::string::npos)continue;
+                auto line=request.find("\r\n");
+                valid=request.substr(0,line)=="POST /callback?state="+state+" HTTP/1.1";
+                for(auto start=line+2;start<end;){
+                    auto next=request.find("\r\n",start),colon=request.find(':',start);
+                    if(colon>=next){valid=false;break;}
+                    auto name=request.substr(start,colon-start),value=request.substr(colon+1,next-colon-1);
+                    std::transform(name.begin(),name.end(),name.begin(),[](unsigned char c){return c>='A'&&c<='Z'?char(c+32):char(c);});
+                    while(!value.empty()&&(value.front()==' '||value.front()=='\t'))value.erase(0,1);
+                    while(!value.empty()&&(value.back()==' '||value.back()=='\t'))value.pop_back();
+                    if(!headers.emplace(name,value).second)valid=false;
+                    start=next+2;
+                }
+                const auto& size=headers["content-length"];
+                const auto parsed=std::from_chars(size.data(),size.data()+size.size(),length);
+                valid=valid&&parsed.ec==std::errc{}&&parsed.ptr==size.data()+size.size()&&length>14&&length<=8192&&
+                    !headers.contains("transfer-encoding")&&headers["origin"]==origin&&
+                    headers["host"]=="127.0.0.1:"+std::to_string(port)&&
+                    headers["content-type"]=="application/x-www-form-urlencoded";
+                if(!valid)break;
+            }
+            if(request.size()>=end+4+length)break;
+        }
         std::string grant;
-        if(request.find("\r\n\r\n")!=std::string::npos&&request.starts_with(prefix)&&request.size()>=prefix.size()+64+11&&request.substr(prefix.size()+64,11)==" HTTP/1.1\r\n"){
-            auto candidate=request.substr(prefix.size(),64);
-            if(candidate.find_first_not_of("0123456789abcdef")==std::string::npos)grant=std::move(candidate);
+        if(valid&&end!=std::string::npos&&request.size()==end+4+length){
+            const auto data=request.substr(end+4);
+            if(data.starts_with("refresh_token=")&&data.find('&')==std::string::npos){
+                const auto hex=[](char c)->int{if(c>='0'&&c<='9')return c-'0';if(c>='a'&&c<='f')return c-'a'+10;if(c>='A'&&c<='F')return c-'A'+10;return -1;};
+                for(size_t i=14;i<data.size();++i){
+                    unsigned char c=data[i];
+                    if(c=='%'){
+                        if(i+2>=data.size()||hex(data[i+1])<0||hex(data[i+2])<0){valid=false;break;}
+                        c=static_cast<unsigned char>((hex(data[i+1])<<4)|hex(data[i+2]));i+=2;
+                    }else if(c=='+')c=' ';
+                    if(c<=32||c>=127){valid=false;break;}grant+=char(c);
+                }
+                if(!valid||grant.size()>2560)grant.clear();
+            }
         }
         const std::string body=grant.empty()?"Invalid sign-in return. Start sign-in again in Callayers.":
             "<!doctype html><html><head><meta charset=\"utf-8\"><title>Callayers</title></head><body><h1>Returning to Callayers</h1><p>You can close this tab. If Windows keeps the browser in front, select Callayers in the taskbar.</p></body></html>";

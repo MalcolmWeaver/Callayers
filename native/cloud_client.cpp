@@ -29,14 +29,15 @@ std::string Sha(const std::string& text){BCRYPT_ALG_HANDLE alg=nullptr;BCRYPT_HA
     if(status>=0)status=BCryptFinishHash(hash,digest,sizeof(digest),0);
     if(hash)BCryptDestroyHash(hash);BCryptCloseAlgorithmProvider(alg,0);if(status<0)throw std::runtime_error("Could not initialize sign-in.");return Hex(digest,sizeof(digest));
 }
-std::wstring CredentialName(){return L"Callayers/Session/"+std::wstring(winrt::to_hstring(Sha(winrt::to_string(Base()))));}
+std::wstring CredentialName(){return L"Callayers/FirebaseRefresh/"+std::wstring(winrt::to_hstring(Sha(winrt::to_string(Base()))));}
 std::filesystem::path DataPath(const wchar_t* name){wchar_t path[MAX_PATH];Check(SHGetFolderPathW(nullptr,CSIDL_LOCAL_APPDATA,nullptr,0,path));auto dir=std::filesystem::path(path)/L"Callayers"/L"cloud"/winrt::to_hstring(Sha(winrt::to_string(Base()))).c_str();std::filesystem::create_directories(dir);return dir/name;}
-std::string ReadCredential(){PCREDENTIALW c=nullptr;if(!CredReadW(CredentialName().c_str(),CRED_TYPE_GENERIC,0,&c))return {};std::string result(reinterpret_cast<char*>(c->CredentialBlob),c->CredentialBlobSize);CredFree(c);return result;}
-void SaveCredential(const std::string& token){auto name=CredentialName();CREDENTIALW c{};c.Type=CRED_TYPE_GENERIC;c.TargetName=name.data();c.CredentialBlobSize=static_cast<DWORD>(token.size());c.CredentialBlob=reinterpret_cast<BYTE*>(const_cast<char*>(token.data()));c.Persist=CRED_PERSIST_LOCAL_MACHINE;Check(CredWriteW(&c,0)?S_OK:HRESULT_FROM_WIN32(GetLastError()));}
+std::mutex credentialMutex;
+std::string ReadCredential(){std::lock_guard lock(credentialMutex);PCREDENTIALW c=nullptr;if(!CredReadW(CredentialName().c_str(),CRED_TYPE_GENERIC,0,&c))return {};std::string result(reinterpret_cast<char*>(c->CredentialBlob),c->CredentialBlobSize);CredFree(c);return result;}
+void SaveCredential(const std::string& token){std::lock_guard lock(credentialMutex);auto name=CredentialName();CREDENTIALW c{};c.Type=CRED_TYPE_GENERIC;c.TargetName=name.data();c.CredentialBlobSize=static_cast<DWORD>(token.size());c.CredentialBlob=reinterpret_cast<BYTE*>(const_cast<char*>(token.data()));c.Persist=CRED_PERSIST_LOCAL_MACHINE;Check(CredWriteW(&c,0)?S_OK:HRESULT_FROM_WIN32(GetLastError()));}
 struct Internet {HINTERNET h;explicit Internet(HINTERNET value):h(value){if(!h)throw std::runtime_error("Could not connect to Callayers.");}~Internet(){WinHttpCloseHandle(h);}};
 struct Response {DWORD status;JsonObject body;};
-Response Request(const wchar_t* method,const std::wstring& path,const std::string& body,const std::string& token={},bool generation=false){
-    auto base=Base();URL_COMPONENTS url{};url.dwStructSize=sizeof(url);url.dwHostNameLength=DWORD(-1);url.dwUrlPathLength=DWORD(-1);url.dwExtraInfoLength=DWORD(-1);url.dwUserNameLength=DWORD(-1);url.dwPasswordLength=DWORD(-1);
+Response WireRequest(const std::wstring& base,const wchar_t* method,const std::wstring& path,const std::string& body,const std::string& token={},bool generation=false,const wchar_t* contentType=L"application/json"){
+    URL_COMPONENTS url{};url.dwStructSize=sizeof(url);url.dwHostNameLength=DWORD(-1);url.dwUrlPathLength=DWORD(-1);url.dwExtraInfoLength=DWORD(-1);url.dwUserNameLength=DWORD(-1);url.dwPasswordLength=DWORD(-1);
     if(!WinHttpCrackUrl(base.c_str(),0,0,&url)||url.nScheme!=INTERNET_SCHEME_HTTPS||url.dwUserNameLength||url.dwPasswordLength||url.dwExtraInfoLength||url.dwUrlPathLength>1)throw std::runtime_error("Configure a valid HTTPS Callayers service address.");
     Internet session(WinHttpOpen(L"Callayers/0.5",WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,WINHTTP_NO_PROXY_NAME,WINHTTP_NO_PROXY_BYPASS,0));
     WinHttpSetTimeouts(session.h,5000,5000,10000,generation?140000:10000);
@@ -44,7 +45,7 @@ Response Request(const wchar_t* method,const std::wstring& path,const std::strin
     Internet connection(WinHttpConnect(session.h,host.c_str(),url.nPort,0));
     Internet request(WinHttpOpenRequest(connection.h,method,path.c_str(),nullptr,WINHTTP_NO_REFERER,WINHTTP_DEFAULT_ACCEPT_TYPES,WINHTTP_FLAG_SECURE));
     DWORD redirects=WINHTTP_OPTION_REDIRECT_POLICY_NEVER;WinHttpSetOption(request.h,WINHTTP_OPTION_REDIRECT_POLICY,&redirects,sizeof(redirects));
-    std::wstring headers=L"Content-Type: application/json\r\n";if(!token.empty())headers+=L"Authorization: Bearer "+std::wstring(winrt::to_hstring(token))+L"\r\n";
+    std::wstring headers=L"Content-Type: "+std::wstring(contentType)+L"\r\n";if(!token.empty())headers+=L"Authorization: Bearer "+std::wstring(winrt::to_hstring(token))+L"\r\n";
     auto sent=WinHttpSendRequest(request.h,headers.c_str(),static_cast<DWORD>(headers.size()),body.empty()?WINHTTP_NO_REQUEST_DATA:const_cast<char*>(body.data()),static_cast<DWORD>(body.size()),static_cast<DWORD>(body.size()),0);
     SecureZeroMemory(headers.data(),headers.size()*sizeof(wchar_t));
     if(!sent||!WinHttpReceiveResponse(request.h,nullptr))throw std::runtime_error("Could not reach Callayers. Check your connection and try again.");
@@ -52,6 +53,52 @@ Response Request(const wchar_t* method,const std::wstring& path,const std::strin
     std::string bytes;char buffer[16384];DWORD read=0;
     do{if(!WinHttpReadData(request.h,buffer,sizeof(buffer),&read))throw std::runtime_error("The Callayers connection was interrupted.");if(bytes.size()+read>2*1024*1024)throw std::runtime_error("The service response was too large.");bytes.append(buffer,read);}while(read);
     return {status,bytes.empty()?JsonObject{}:JsonObject::Parse(winrt::to_hstring(bytes))};
+}
+// Serialize refreshes across account, AI, telemetry, and administrator workers.
+// The key identifies the in-process login; rotated credentials are persisted
+// without allowing an old request to restore a signed-out account.
+std::mutex refreshMutex;
+struct FirebaseTokens { std::string refreshValue, accessToken; ULONGLONG accessUntil=0; };
+std::map<std::string,FirebaseTokens> firebaseTokens;
+std::string FormEncode(const std::string& value){
+    std::string out;constexpr char hex[]="0123456789ABCDEF";
+    for(unsigned char c:value){if((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='-'||c=='_'||c=='.'||c=='~')out+=char(c);else{out+='%';out+=hex[c>>4];out+=hex[c&15];}}return out;
+}
+Response Request(const wchar_t* method,const std::wstring& path,const std::string& body,const std::string& credential={},bool generation=false){
+    std::string token;
+    if(!credential.empty()){
+        std::lock_guard lock(refreshMutex);
+        auto& cached=firebaseTokens[credential];
+        auto& refreshValue=cached.refreshValue;auto& accessToken=cached.accessToken;auto& accessUntil=cached.accessUntil;
+        if(refreshValue.empty())refreshValue=credential;
+        if(accessToken.empty()||GetTickCount64()>=accessUntil){
+            auto config=WireRequest(Base(),L"GET",L"/v1/client-config",{});
+            if(config.status>=400)return config;
+            const auto apiKey=winrt::to_string(config.body.GetNamedString(L"apiKey"));
+            auto renewed=WireRequest(L"https://securetoken.googleapis.com",L"POST",L"/v1/token?key="+std::wstring(winrt::to_hstring(FormEncode(apiKey))),
+                "grant_type=refresh_token&refresh_token="+FormEncode(refreshValue),{},false,L"application/x-www-form-urlencoded");
+            if(renewed.status>=400){
+                JsonObject error;error.SetNamedValue(L"message",JsonValue::CreateStringValue(renewed.status==400||renewed.status==401||renewed.status==403?
+                    L"Sign in with Google again.":L"Could not renew sign-in. Please try again."));
+                return {renewed.status==400||renewed.status==401||renewed.status==403?DWORD(401):DWORD(503),error};
+            }
+            const auto next=winrt::to_string(renewed.body.GetNamedString(L"refresh_token"));
+            const auto fresh=winrt::to_string(renewed.body.GetNamedString(L"id_token"));
+            const auto seconds=std::stoul(winrt::to_string(renewed.body.GetNamedString(L"expires_in")));
+            if(next.empty()||fresh.empty()||seconds<=60)throw std::runtime_error("Could not renew sign-in.");
+            {
+                std::lock_guard credentialLock(credentialMutex);
+                PCREDENTIALW saved=nullptr;
+                if(CredReadW(CredentialName().c_str(),CRED_TYPE_GENERIC,0,&saved)){
+                    const bool same=std::string(reinterpret_cast<char*>(saved->CredentialBlob),saved->CredentialBlobSize)==refreshValue;CredFree(saved);
+                    if(same){auto name=CredentialName();CREDENTIALW c{};c.Type=CRED_TYPE_GENERIC;c.TargetName=name.data();c.CredentialBlobSize=static_cast<DWORD>(next.size());c.CredentialBlob=reinterpret_cast<BYTE*>(const_cast<char*>(next.data()));c.Persist=CRED_PERSIST_LOCAL_MACHINE;Check(CredWriteW(&c,0)?S_OK:HRESULT_FROM_WIN32(GetLastError()));}
+                }
+            }
+            refreshValue=next;accessToken=fresh;accessUntil=GetTickCount64()+static_cast<ULONGLONG>(seconds-60)*1000;
+        }
+        token=accessToken;
+    }
+    return WireRequest(Base(),method,path,body,token,generation);
 }
 void Require(const Response& response){if(response.status>=400)throw std::runtime_error(winrt::to_string(response.body.GetNamedString(L"message",L"Callayers is temporarily unavailable.")));}
 struct Entry {std::wstring uid;std::string json;};
@@ -182,24 +229,20 @@ void CloudSignIn(){
     {std::lock_guard lock(state->mutex);if(state->account.busy)return;epoch=++state->epoch;state->account.signedIn=false;state->account.busy=true;state->account.administrator=false;state->account.message=L"Opening Google sign-in…";}
     std::thread([state,epoch]{CoInitializeEx(nullptr,COINIT_MULTITHREADED);
         try{
-            const auto proof=RandomSecret(),returnState=RandomSecret();LoginReturn callback(returnState);
-            JsonObject target;target.SetNamedValue(L"port",JsonValue::CreateNumberValue(callback.port));target.SetNamedValue(L"state",JsonValue::CreateStringValue(winrt::to_hstring(returnState)));
-            JsonObject start;start.SetNamedValue(L"challenge",JsonValue::CreateStringValue(winrt::to_hstring(Sha(proof))));start.SetNamedValue(L"desktopReturn",target);
-            auto result=Request(L"POST",L"/v1/login/start",winrt::to_string(start.Stringify()));Require(result);
+            const auto returnState=RandomSecret();LoginReturn callback(returnState,winrt::to_string(Base()));
+            const auto url=Base()+L"/login.html#port="+std::to_wstring(callback.port)+L"&state="+std::wstring(winrt::to_hstring(returnState));
             {std::lock_guard lock(state->mutex);if(epoch!=state->epoch){CoUninitialize();return;}state->account.message=L"Choose your Google account in the browser. Callayers will reconnect automatically.";}
-            auto url=std::wstring(result.body.GetNamedString(L"url"));
-            // The backend may only direct the browser to its own configured origin.
-            if(!url.starts_with(Base()+L"/login.html#"))throw std::runtime_error("The sign-in address does not match this build. Check the service URL.");
             if(reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr,L"open",url.c_str(),nullptr,nullptr,SW_SHOWNORMAL))<=32)throw std::runtime_error("Could not open your browser.");
-            JsonObject exchange;exchange.SetNamedValue(L"id",result.body.GetNamedValue(L"id"));exchange.SetNamedValue(L"proof",JsonValue::CreateStringValue(winrt::to_hstring(proof)));
-            const auto deadline=Clock::now()+std::chrono::minutes(10);std::string grant;
+            const auto deadline=Clock::now()+std::chrono::minutes(10);
             while(Clock::now()<deadline){
                 {std::lock_guard lock(state->mutex);if(state->stop||epoch!=state->epoch){CoUninitialize();return;}}
-                if(grant.empty()){grant=callback.Poll();if(grant.empty())continue;exchange.SetNamedValue(L"grant",JsonValue::CreateStringValue(winrt::to_hstring(grant)));}
-                auto poll=Request(L"POST",L"/v1/login/exchange",winrt::to_string(exchange.Stringify()));Require(poll);if(poll.body.GetNamedBoolean(L"pending"))continue;
-                {std::lock_guard lock(state->mutex);if(epoch!=state->epoch){CoUninitialize();return;}SaveCredential(proof);state->token=proof;state->account.uid=poll.body.GetNamedString(L"uid");
+                auto credential=callback.Poll();if(credential.empty())continue;
+                // Verify identity and account access before remembering the credential.
+                auto account=Request(L"GET",L"/v1/account",{},credential);Require(account);
+                {std::lock_guard lock(state->mutex);if(epoch!=state->epoch){CoUninitialize();return;}
+                    std::lock_guard refreshLock(refreshMutex);SaveCredential(firebaseTokens.at(credential).refreshValue);state->token=credential;state->account.uid=account.body.GetNamedString(L"uid");
                     std::erase_if(state->queue,[&](const Entry& e){return !e.uid.empty()&&e.uid!=state->account.uid;});++state->queueRevision;}
-                auto account=Request(L"GET",L"/v1/account",{},proof);Require(account);AccountResponse(state,account.body,epoch);CloudFailure(L"authentication",L"signed_in",S_OK);
+                AccountResponse(state,account.body,epoch);CloudFailure(L"authentication",L"signed_in",S_OK);
                 {std::lock_guard lock(state->mutex);if(epoch==state->epoch){state->account.busy=false;state->returnToApp=true;}}CoUninitialize();return;
             }
             throw std::runtime_error("Sign-in timed out. Choose Sign in again.");
@@ -211,8 +254,9 @@ void CloudSignIn(){
 void CloudSignOut(){
     auto state=Shared();std::string token;
     {std::lock_guard lock(state->mutex);token=state->token;state->token.clear();state->returnToApp=false;++state->epoch;state->queue.clear();++state->queueRevision;state->account=CloudAccount{};state->account.configured=CloudEnabled();state->account.message=L"Signed out. Sign in with Google to continue. Your deck is kept in memory.";}
-    CredDeleteW(CredentialName().c_str(),CRED_TYPE_GENERIC,0);state->cv.notify_all();
-    if(!token.empty())std::thread([token]{CoInitializeEx(nullptr,COINIT_MULTITHREADED);try{Request(L"POST",L"/v1/logout","{}",token);}catch(...){}CoUninitialize();}).detach();
+    {std::lock_guard refreshLock(refreshMutex);firebaseTokens.erase(token);std::lock_guard lock(credentialMutex);CredDeleteW(CredentialName().c_str(),CRED_TYPE_GENERIC,0);}
+    state->cv.notify_all();
+
 }
 void CloudTrack(const wchar_t* event,JsonObject properties){
     if(!CloudEnabled())return;

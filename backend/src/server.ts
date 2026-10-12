@@ -1,8 +1,8 @@
 import Fastify from 'fastify';
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
-import { config, db, hash, ApiError, rateLimit, accountRef, month } from './core.js';
-import { startLogin, approveLogin, exchangeLogin, desktopUser, adminUser, googleUser } from './auth.js';
+import { config, db, ApiError, rateLimit, accountRef, month } from './core.js';
+import { desktopUser, adminUser, googleUser } from './auth.js';
 import { generate, requestStatus, accountStatus } from './ai.js';
 import { capture } from './telemetry.js';
 import { registerAuthProxy } from './auth-proxy.js';
@@ -32,8 +32,9 @@ for (const [route, file, type] of [
 ] as const) {
   const bytes = readFileSync(new URL('../web-dist/' + file, import.meta.url));
   app.get(route, async (_req, reply) => reply.type(type)
-    .header('Referrer-Policy', 'no-referrer').header('X-Frame-Options', 'DENY')
-    .header('Content-Security-Policy', "default-src 'self'; script-src 'self' https://apis.google.com; connect-src 'self' https://*.googleapis.com https://*.firebaseapp.com; frame-src 'self' https://*.firebaseapp.com https://accounts.google.com; img-src 'self' https://*.googleusercontent.com; style-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
+    // Origin-only policy preserves Origin on the HTTPS-to-loopback form POST.
+    .header('Referrer-Policy', 'origin').header('X-Frame-Options', 'DENY')
+    .header('Content-Security-Policy', "default-src 'self'; script-src 'self' https://apis.google.com; connect-src 'self' https://*.googleapis.com https://*.firebaseapp.com; frame-src 'self' https://*.firebaseapp.com https://accounts.google.com; img-src 'self' https://*.googleusercontent.com; style-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action http://127.0.0.1:*")
     .send(bytes));
 }
 await registerAuthProxy(app, config.GOOGLE_CLOUD_PROJECT);
@@ -42,17 +43,10 @@ app.get('/v1/client-config', async () => {
   return { apiKey: config.FIREBASE_WEB_API_KEY, projectId: config.GOOGLE_CLOUD_PROJECT, authDomain: new URL(config.PUBLIC_ORIGIN).host };
 });
 app.get('/health', async () => ({ ok: true }));
-app.post('/v1/login/start', startLogin);
-app.post('/v1/login/approve', approveLogin);
-app.post('/v1/login/exchange', exchangeLogin);
 app.get('/v1/browser/me', async req => { const u = await googleUser(req); return { uid: u.uid, email: u.email }; });
 app.get('/v1/account', async req => {
   const uid = await desktopUser(req);
   return { ...await accountStatus(uid), administrator: (await db.collection('admins').doc(uid).get()).exists };
-});
-app.post('/v1/logout', async req => {
-  await desktopUser(req); const token = req.headers.authorization!.slice(7);
-  await db.collection('sessions').doc(hash(token)).delete(); return { signedOut: true };
 });
 app.post('/v1/generate', async req => generate(await desktopUser(req), req.body));
 app.get<{ Params: { id: string } }>('/v1/requests/:id', async req => {
