@@ -28,6 +28,12 @@ int main(){
         Require(LumaAt(*overlay,1240,230)>150,"second card style did not remain independent");
         auto background=Pattern(0);auto composed=ComposeText(*background,*overlay);
         Require(composed->pixels[0]==background->pixels[0],"transparent area changed the camera background");
+        host.SetActive(false);Sleep(150);auto pausedCount=host.FrameCount();Sleep(250);
+        Require(host.FrameCount()==pausedCount,"idle renderer kept capturing frames");
+        host.SetActive(true);
+        for(int i=0;i<40&&host.FrameCount()==pausedCount;++i)Sleep(50);
+        Require(host.FrameCount()>pausedCount&&SUCCEEDED(host.Error()),"renderer did not resume capture");
+        Require(LumaAt(*host.Latest(),static_cast<UINT>(scene.cards[0].x*Width)+50,static_cast<UINT>(scene.cards[0].y*Height)+50)>220,"idle/resume recreated the card document");
         std::cout<<"PASS: "<<host.FrameCount()<<" captured frames, "<<changes<<" animation changes; transparent background, separate styles, move/resize without reload\n";
         scene.cards[0].html=L"<style>html,body{margin:0;height:100%;background:transparent}div{height:100%;background:white}</style><div></div>";
         host.SetScene(scene);bool replacement=false;

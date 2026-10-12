@@ -321,8 +321,8 @@ public:
     void Status(const std::wstring& message,bool busy,bool running){
         PollGeneration();
         auto status=footer.FindName(L"Status").as<controls::TextBlock>();if(status.Text()!=message)status.Text(message);
-        auto button=Find<controls::Button>(L"Output");if(button.IsEnabled()==busy)button.IsEnabled(!busy);
-        winrt::hstring label=busy?L"Starting…":running?L"Stop camera":L"Start camera";
+        auto button=Find<controls::Button>(L"Output");button.IsEnabled(!busy&&!running);
+        winrt::hstring label=busy?L"Starting…":running?L"Camera available":L"Retry camera";
         if(winrt::unbox_value<winrt::hstring>(button.Content())!=label)button.Content(winrt::box_value(label));
         auto name=Find<controls::TextBlock>(L"DeckName");if(name.Text()!=editor.Name())name.Text(editor.Name());
         auto save=Find<controls::TextBlock>(L"SaveState");winrt::hstring saved=editor.Dirty()?L"Unsaved changes":L"No unsaved changes";if(save.Text()!=saved)save.Text(saved);

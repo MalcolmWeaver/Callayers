@@ -21,6 +21,7 @@ namespace cap=winrt::Windows::Graphics::Capture;
 using winrt::Windows::Graphics::DirectX::DirectXPixelFormat;
 struct CardHost::Impl {
     std::atomic<bool> stopping=false;
+    std::atomic<bool> active=true;
     std::atomic<HRESULT> error=S_OK;
     std::atomic<uint64_t> count=0;
     std::atomic<std::shared_ptr<const TextOverlay>> latest;
@@ -65,6 +66,7 @@ struct CardHost::Impl {
     Impl(bool preview):thumbnails(preview){thread=std::thread([this]{Run();});}
     ~Impl(){stopping=true;if(thread.joinable())thread.join();}
     void StartCapture(){
+        staging.Reset();
         auto item=cap::GraphicsCaptureItem::CreateFromVisual(visual);
         Check(D3D11CreateDevice(nullptr,D3D_DRIVER_TYPE_HARDWARE,nullptr,D3D11_CREATE_DEVICE_BGRA_SUPPORT,nullptr,0,D3D11_SDK_VERSION,&device,nullptr,&context));
         ComPtr<IDXGIDevice> dxgi;Check(device.As(&dxgi));
@@ -75,6 +77,11 @@ struct CardHost::Impl {
         session=pool.CreateCaptureSession(item);session.IsCursorCaptureEnabled(false);session.StartCapture();
     }
     void Poll(){
+        if(!active){
+            if(session)session.Close();if(pool)pool.Close();session=nullptr;pool=nullptr;
+            return;
+        }
+        if(!pool&&composition)StartCapture();
         if(!pool)return;auto frame=pool.TryGetNextFrame();if(!frame)return;
         auto access=frame.Surface().as<::Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess>();
         ComPtr<ID3D11Texture2D> texture;Check(access->GetInterface(IID_PPV_ARGS(&texture)));
@@ -206,6 +213,7 @@ window.setCards=list=>{
     }
 };
 CardHost::CardHost(bool thumbnails):impl(std::make_unique<Impl>(thumbnails)){}
+void CardHost::SetActive(bool active){impl->active=active;}
 std::shared_ptr<const std::vector<BYTE>> CardHost::ThumbnailPixels()const{return impl->thumbnailPixels.load();}
 CardHost::~CardHost()=default;
 void CardHost::SetScene(const Scene& scene,uint64_t epoch){std::lock_guard lock(impl->sceneMutex);if(impl->pending==scene.cards&&impl->pendingEpoch==epoch)return;impl->pending=scene.cards;impl->pendingEpoch=epoch;impl->changed=true;}

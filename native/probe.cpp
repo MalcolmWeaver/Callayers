@@ -1,4 +1,5 @@
 #include "common.h"
+#include "camera_demand.h"
 #include <iostream>
 #include <filesystem>
 
@@ -51,6 +52,13 @@ ComPtr<IMFMediaEvent> Event(IMFMediaEventGenerator* generator){
     throw HRESULT_FROM_WIN32(WAIT_TIMEOUT);
 }
 void SourceTest(const wchar_t* path){
+    const auto demandName=std::filesystem::path(path).stem()==L"CallayersCameraTest"?L"\\\\.\\pipe\\Callayers.CameraDemand.test.source":DemandPipeName;
+    auto demand=std::make_unique<CameraDemandServer>(demandName);
+    auto expectDemand=[&](size_t count){
+        auto deadline=Clock::now()+std::chrono::seconds(3);
+        while(Clock::now()<deadline){if(demand->Poll()==count)return;Sleep(10);}
+        Require(false,"source stream demand did not match lifecycle");
+    };
     HMODULE module=LoadLibraryW(std::filesystem::absolute(path).c_str());if(!module)throw HRESULT_FROM_WIN32(GetLastError());
     using GetFactory=HRESULT(WINAPI*)(REFCLSID,REFIID,void**);
     auto factoryFunction=reinterpret_cast<GetFactory>(GetProcAddress(module,"DllGetClassObject"));Require(factoryFunction!=nullptr,"missing COM export");
@@ -69,6 +77,10 @@ void SourceTest(const wchar_t* path){
             if(t==MENewStream){PROPVARIANT v{};Check(e->GetValue(&v));Check(v.punkVal->QueryInterface(IID_PPV_ARGS(&stream)));PropVariantClear(&v);}}
         Require(stream!=nullptr,"source did not announce stream");
         auto start=Event(stream.Get());MediaEventType kind;Check(start->GetType(&kind));Require(kind==MEStreamStarted,"missing stream start");
+        expectDemand(1);
+        // Active streams retain demand even when no samples are being requested.
+        Sleep(150);expectDemand(1);
+        demand.reset();demand=std::make_unique<CameraDemandServer>(demandName);expectDemand(1);
         LONGLONG previous=-1;uint64_t initial=0,latest=0;auto began=Clock::now();
         for(int i=0;i<35;++i){
             Check(stream->RequestSample(nullptr));auto e=Event(stream.Get());Check(e->GetType(&kind));Require(kind==MEMediaSample,"expected a sample");
@@ -80,11 +92,14 @@ void SourceTest(const wchar_t* path){
         }
         double seconds=std::chrono::duration<double>(Clock::now()-began).count();Require(seconds>=0.9&&seconds<3,"sample pacing outside tolerance");
         Check(source->Stop());Require(stream->RequestSample(nullptr)==MF_E_INVALIDREQUEST,"stopped stream accepted a sample");
+        expectDemand(0);
         // Drain stop events before testing restart.
         Event(source.Get());Event(stream.Get());
         Check(source->Start(pd.Get(),nullptr,&position));Event(source.Get());Event(source.Get());Event(stream.Get());
+        expectDemand(1);
         Check(stream->RequestSample(nullptr));Event(stream.Get());
         Check(source->Shutdown());Require(source->GetCharacteristics(&characteristics)==MF_E_SHUTDOWN,"shutdown contract failed");
+        expectDemand(0);
         stream.Reset();source.Reset();factory.Reset();
         using CanUnload=HRESULT(WINAPI*)();auto unload=reinterpret_cast<CanUnload>(GetProcAddress(module,"DllCanUnloadNow"));
         Require(unload&&unload()==S_OK,"COM objects leaked after shutdown");

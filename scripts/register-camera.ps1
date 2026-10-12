@@ -19,4 +19,4 @@ New-Item -Path "$classKey\InprocServer32" -Force | Out-Null
 Set-Item -LiteralPath $classKey -Value 'Callayers development camera source'
 Set-Item -LiteralPath "$classKey\InprocServer32" -Value $installedDll
 New-ItemProperty -LiteralPath "$classKey\InprocServer32" -Name ThreadingModel -Value Both -PropertyType String -Force | Out-Null
-Write-Output "Registered $installedDll. Run Callayers as your normal user and click Start camera output."
+Write-Output "Registered $installedDll. Run Callayers as your normal user ; camera output starts automatically."

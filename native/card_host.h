@@ -14,6 +14,7 @@ public:
     // A 480x270 BGRA atlas, available only for the private sidebar renderer.
     std::shared_ptr<const std::vector<BYTE>> ThumbnailPixels() const;
     ~CardHost();
+    void SetActive(bool active);
     void SetScene(const Scene& scene,uint64_t epoch=0);
     void Mouse(UINT message,POINT point,WPARAM buttons);
     void Key(UINT message,WPARAM key,LPARAM flags);
