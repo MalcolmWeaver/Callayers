@@ -53,7 +53,7 @@ private:
     bool nativeControls=true;
     DrawTool drawTool=DrawTool::None;
     bool marking=false,inkPending=false;
-    uint32_t penColor=0xbaf2cd;
+    uint32_t penColor=0xff0000,shapeColor=0xffffff,textColor=0xffffff;
     double penWidth=6;
     size_t inkPointCount=0;
     Scene beforeInk;
@@ -125,8 +125,11 @@ private:
                 // Keep the drag origin separately: an ellipse's first visible point is on its perimeter.
                 stroke.points.clear();for(int i=0;i<=64;++i){double angle=6.283185307179586*i/64;add(cx+rx*std::cos(angle),cy+ry*std::sin(angle));}
             }else{
-                add(point.x,point.y);double angle=std::atan2((point.y-a.y)*Height,(point.x-a.x)*Width),length=std::min(32.,std::hypot((point.x-a.x)*Width,(point.y-a.y)*Height)*.35);
-                add(point.x-length*std::cos(angle-.5)/Width,point.y-length*std::sin(angle-.5)/Height);add(point.x,point.y);add(point.x-length*std::cos(angle+.5)/Width,point.y-length*std::sin(angle+.5)/Height);
+                double dx=(point.x-a.x)*Width,dy=(point.y-a.y)*Height,length=std::hypot(dx,dy);
+                double ux=length>0?dx/length:1,uy=length>0?dy/length:0;
+                double head=std::min(std::max(24.,penWidth*4),length*.45),half=std::min(penWidth/2,length*.1);
+                stroke.points.clear();auto arrowPoint=[&](double along,double across){add(a.x+(ux*along-uy*across)/Width,a.y+(uy*along+ux*across)/Height);};
+                arrowPoint(0,half);arrowPoint(length-head,half);arrowPoint(length-head,head*.5);arrowPoint(length,0);arrowPoint(length-head,-head*.5);arrowPoint(length-head,-half);arrowPoint(0,-half);arrowPoint(0,half);
             }
         }else if(drawTool==DrawTool::Pen){
             auto& stroke=document.scene.ink.back();
@@ -236,7 +239,7 @@ private:
         auto hex=[](uint32_t color){wchar_t buffer[8];swprintf_s(buffer,L"#%06x",color);return std::wstring(buffer);};
         for(const auto& text:scene.texts){card.html+=L"<div class=\"text\" style=\"left:"+std::to_wstring(text.x*100)+L"%;top:"+std::to_wstring(text.y*100)+L"%;width:"+std::to_wstring(text.width*100)+L"%;font-size:"+std::to_wstring(text.size/19.2)+L"vw;color:"+hex(text.color)+L";font-family:"+HtmlEscape(text.family)+L";font-weight:"+(text.bold?L"bold":L"normal")+L";text-align:"+(text.alignment==1?L"center":text.alignment==2?L"right":L"left")+L"\">"+HtmlEscape(text.text)+L"</div>";}
         card.html+=L"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1920 1080\" preserveAspectRatio=\"none\" style=\"position:absolute;inset:0;width:100%;height:100%\">";
-        for(const auto& stroke:scene.ink){if(stroke.points.empty())continue;auto points=stroke.points;if(points.size()==1)points.push_back(points.front());card.html+=L"<polyline fill=\"none\" stroke=\""+hex(stroke.color)+L"\" stroke-width=\""+std::to_wstring(stroke.width)+L"\" stroke-linecap=\"round\" stroke-linejoin=\"round\" points=\"";for(auto point:points)card.html+=std::to_wstring(point.x*Width)+L","+std::to_wstring(point.y*Height)+L" ";card.html+=L"\"/>";}
+        for(const auto& stroke:scene.ink){if(stroke.points.empty())continue;auto points=stroke.points;if(points.size()==1)points.push_back(points.front());card.html+=L"<polyline fill=\""+(stroke.filled?hex(stroke.color):std::wstring(L"none"))+L"\" stroke=\""+hex(stroke.color)+L"\" stroke-width=\""+std::to_wstring(stroke.width)+L"\" stroke-linecap=\"round\" stroke-linejoin=\"round\" points=\"";for(auto point:points)card.html+=std::to_wstring(point.x*Width)+L","+std::to_wstring(point.y*Height)+L" ";card.html+=L"\"/>";}
         card.html+=L"</svg></body></html>";if(card.html.size()>200000)throw std::runtime_error("This older deck has too many annotations to convert into one card. Simplify it in the previous version first. The original file has not changed.");return card;
     }
     void Open(){
@@ -351,11 +354,11 @@ public:
     void HideCard(){if(FlushCardState)FlushCardState();FinishInk();FinishEdit(true);document.ClearAnnotations();laser.clear();playing.clear();textTool=false;drawTool=DrawTool::None;selected=selectedImage=selectedInk=selectedCard=-1;Publish();Sync();}
     void ClearAnnotations(){FinishInk();FinishEdit(true);auto before=document.scene;document.scene.texts.clear();document.scene.ink.clear();laser.clear();selected=selectedImage=selectedInk=-1;document.Commit(before);Publish();Sync();}
     void EnableAnnotationSelection(){annotationMode=true;}
-    uint32_t AnnotationColor(){return Selected()?Selected()->color:SelectedInk()?SelectedInk()->color:penColor;}
+    uint32_t AnnotationColor(){return Selected()?Selected()->color:SelectedInk()?SelectedInk()->color:ShapeTool()?shapeColor:textTool?textColor:penColor;}
     int AnnotationSize(){double value=Selected()?Selected()->size:textTool?textSize:SelectedInk()?SelectedInk()->width:penWidth;return Selected()||textTool?(value<=32?0:value<=56?1:2):(value<=3?0:value<=6?1:2);}
     void MoveSelectedCard(int direction){FinishInk();FinishEdit(true);int next=selectedCard+direction;if(!SelectedCard()||next<0||size_t(next)>=document.scene.cards.size())return;auto before=document.scene;std::swap(document.scene.cards[selectedCard],document.scene.cards[next]);selectedCard=next;document.Commit(before);PublishCards();Sync();}
     void SetAnnotationMode(bool value){annotationMode=value;selectedInk=-1;Command(SelectId);}
-    void SetAnnotationColor(uint32_t color){SetPenColor(color);if(Selected())ChangeStyle([&](auto& t){t.color=color;});if(SelectedInk()){auto before=document.scene;SelectedInk()->color=color;document.Commit(before);Publish();Sync();}}
+    void SetAnnotationColor(uint32_t color){FinishInk();color&=0xffffff;if(Selected()||textTool)textColor=color;else if(ShapeTool()||(SelectedInk()&&SelectedInk()->filled))shapeColor=color;else penColor=color;Sync();if(Selected())ChangeStyle([&](auto& t){t.color=color;});if(SelectedInk()){auto before=document.scene;SelectedInk()->color=color;document.Commit(before);Publish();Sync();}}
     void SetAnnotationSize(int index){textSize=index==0?32:index==1?56:88;SetPenWidth(index==0?3:index==1?6:12);if(Selected())ChangeStyle([&](auto& t){t.size=textSize;});if(SelectedInk()){auto before=document.scene;SelectedInk()->width=penWidth;document.Commit(before);Publish();Sync();}}
     std::wstring CardName(){return FocusedCard()?FocusedCard()->name:L"";}
     void NewCardSelection(){focusedCard.clear();FinishInk();FinishEdit(true);selected=selectedCard=selectedImage=selectedInk=-1;textTool=false;drawTool=DrawTool::None;Sync();}
@@ -517,7 +520,7 @@ public:
                 if(document.scene.ink.size()>=MaxInkStrokes||inkPointCount+(ShapeTool()?65:1)>MaxInkPoints)throw std::runtime_error("Drawing limit reached. Erase some strokes before adding more.");
             }
             beforeInk=document.scene;
-            if(drawTool==DrawTool::Pen||ShapeTool()){shapeOrigin=lastInk;InkStroke stroke;stroke.id=NewId();stroke.color=penColor;stroke.width=penWidth;stroke.points={lastInk};document.scene.ink.push_back(std::move(stroke));++inkPointCount;}
+            if(drawTool==DrawTool::Pen||ShapeTool()){shapeOrigin=lastInk;InkStroke stroke;stroke.id=NewId();stroke.color=ShapeTool()?shapeColor:penColor;stroke.filled=ShapeTool();stroke.width=penWidth;stroke.points={lastInk};document.scene.ink.push_back(std::move(stroke));++inkPointCount;}
             marking=true;SetCapture(window);InkMove(p,true);TickInk();return true;
         }
         if(msg==WM_MOUSEMOVE&&marking){InkMove({GET_X_LPARAM(lp),GET_Y_LPARAM(lp)});return true;}
@@ -526,7 +529,7 @@ public:
             FinishEdit(true);POINT p{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};if(!PtInRect(&stage,p))return false;SetFocus(window);
             if(textTool){
                 if(ElementCount(document.scene)>=100)throw std::runtime_error("This scene has reached the 100-element limit.");
-                selectedCard=selectedImage=selectedInk=-1;Scene before=document.scene;TextElement t;t.id=NewId();t.color=penColor;t.size=textSize;t.order=NextForegroundOrder(document.scene);t.x=std::clamp(double(p.x-stage.left)/(stage.right-stage.left),0.,.5);t.y=std::clamp(double(p.y-stage.top)/(stage.bottom-stage.top),0.,.8);
+                selectedCard=selectedImage=selectedInk=-1;Scene before=document.scene;TextElement t;t.id=NewId();t.color=textColor;t.size=textSize;t.order=NextForegroundOrder(document.scene);t.x=std::clamp(double(p.x-stage.left)/(stage.right-stage.left),0.,.5);t.y=std::clamp(double(p.y-stage.top)/(stage.bottom-stage.top),0.,.8);
                 renderer.FitHeight(t);document.scene.texts.push_back(t);selected=static_cast<int>(document.scene.texts.size())-1;textTool=false;Publish();Sync();BeginEdit(before);return true;
             }
             dragHandle=HitHandle(p);if(dragHandle<0)HitSelection(p);Sync();

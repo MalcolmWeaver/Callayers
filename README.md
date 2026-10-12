@@ -80,7 +80,7 @@ Images retain transparency and orientation normalization. Large images are reduc
 
 ### Optional markup toolbar
 
-**Annotate** shows Select, Pen, Shapes, Text, Color, Size, Undo, Redo, and Clear. Shapes offers Arrow, Rectangle, and Ellipse with transparent interiors. The color swatch opens a floating panel with standard swatches, a spectrum, and hex input; the camera and cards remain visible without a dark backdrop; Apply commits the choice and Cancel leaves it unchanged. Color is shared across annotation tools; Small/Medium/Large means stroke width or text size. There are no separate image, signature, note, eraser, laser, font-family, or fill controls.
+**Annotate** shows Select, Pen, Shapes, Text, Color, Size, Undo, Redo, and Clear. Shapes offers filled Arrow, Rectangle, and Ellipse, defaulting to white. The pen defaults to red; pen, shape, and text color choices are remembered separately during the session. The color swatch opens a floating panel with standard swatches, a spectrum, and hex input; the camera and cards remain visible without a dark backdrop; Apply commits the choice and Cancel leaves it unchanged. Color applies to the selected annotation or active tool; Small/Medium/Large means stroke width or text size. There are no separate image, signature, note, eraser, laser, font-family, or fill controls.
 
 - Pen (**P**): drag to draw; click for a dot.
 - Shapes: choose a shape and drag from one corner/end to the other.

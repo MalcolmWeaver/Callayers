@@ -64,8 +64,9 @@ inline ImageElement ResizeImage(const ImageElement& start,int handle,double dx,d
 struct InkStroke {
     std::wstring id;
     std::vector<InkPoint> points;
-    uint32_t color=0xbaf2cd;
+    uint32_t color=0xff0000;
     double width=6;
+    bool filled=false;
     bool operator==(const InkStroke&)const=default;
 };
 inline constexpr size_t MaxInkStrokes=512,MaxStrokePoints=4096,MaxInkPoints=65536;
@@ -74,6 +75,11 @@ inline double PointSegmentDistance(InkPoint p,InkPoint a,InkPoint b){
     double t=dx*dx+dy*dy>0?std::clamp((px*dx+py*dy)/(dx*dx+dy*dy),0.,1.):0.;return std::hypot(px-t*dx,py-t*dy);
 }
 inline bool InkHit(const InkStroke& stroke,InkPoint from,InkPoint to,double radius){
+    if(stroke.filled&&stroke.points.size()>=3){
+        auto inside=[&](InkPoint p){bool hit=false;for(size_t i=0,j=stroke.points.size()-1;i<stroke.points.size();j=i++){
+            auto a=stroke.points[i],b=stroke.points[j];if((a.y>p.y)!=(b.y>p.y)&&p.x<(b.x-a.x)*(p.y-a.y)/(b.y-a.y)+a.x)hit=!hit;
+        }return hit;};if(inside(from)||inside(to))return true;
+    }
     radius+=stroke.width/2;
     for(size_t i=0;i<stroke.points.size();++i){auto a=stroke.points[i],b=stroke.points[i?i-1:i];
         if(std::min({PointSegmentDistance(a,from,to),PointSegmentDistance(b,from,to),PointSegmentDistance(from,a,b),PointSegmentDistance(to,a,b)})<=radius)return true;
@@ -227,7 +233,7 @@ inline std::string EncodeScene(const Scene& scene){
     }
     for(const auto& stroke:scene.ink){
         JsonObject o;o.SetNamedValue(L"type",JsonValue::CreateStringValue(L"ink"));o.SetNamedValue(L"id",JsonValue::CreateStringValue(stroke.id));
-        o.SetNamedValue(L"color",JsonValue::CreateNumberValue(stroke.color));o.SetNamedValue(L"width",JsonValue::CreateNumberValue(stroke.width));
+        o.SetNamedValue(L"filled",JsonValue::CreateBooleanValue(stroke.filled));o.SetNamedValue(L"color",JsonValue::CreateNumberValue(stroke.color));o.SetNamedValue(L"width",JsonValue::CreateNumberValue(stroke.width));
         JsonArray points;for(auto p:stroke.points){JsonArray pair;pair.Append(JsonValue::CreateNumberValue(p.x));pair.Append(JsonValue::CreateNumberValue(p.y));points.Append(pair);}
         o.SetNamedValue(L"points",points);elements.Append(o);
     }
@@ -257,7 +263,7 @@ inline Scene DecodeScene(const std::string& bytes){
             if(stroke.id.empty()||!ids.insert(stroke.id).second||!std::isfinite(stroke.width)||stroke.width<1||stroke.width>40||
                 !std::isfinite(color)||color<0||color>0xffffff||color!=std::floor(color)||points.Size()==0||points.Size()>MaxStrokePoints||totalPoints>MaxInkPoints||scene.ink.size()>=MaxInkStrokes)
                 throw std::runtime_error("Invalid drawing or drawing limit exceeded.");
-            stroke.color=static_cast<uint32_t>(color);
+            stroke.filled=o.GetNamedBoolean(L"filled",false);stroke.color=static_cast<uint32_t>(color);
             for(const auto& value:points){auto pair=value.GetArray();if(pair.Size()!=2)throw std::runtime_error("Invalid ink point.");InkPoint p{pair.GetNumberAt(0),pair.GetNumberAt(1)};
                 if(!std::isfinite(p.x)||!std::isfinite(p.y)||p.x<0||p.y<0||p.x>1||p.y>1)throw std::runtime_error("Ink is outside the stage.");stroke.points.push_back(p);}
             scene.ink.push_back(std::move(stroke));continue;

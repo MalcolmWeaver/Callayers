@@ -81,7 +81,11 @@ public:
             if(stroke.points.empty())return;ComPtr<ID2D1SolidColorBrush> brush;Check(target->CreateSolidColorBrush(D2D1::ColorF(stroke.color,opacity),&brush));
             auto point=[](InkPoint p){return D2D1::Point2F(static_cast<float>(p.x*Width),static_cast<float>(p.y*Height));};
             auto width=static_cast<float>(stroke.width);
-            if(stroke.points.size()==1)target->FillEllipse(D2D1::Ellipse(point(stroke.points[0]),width/2,width/2),brush.Get());
+            if(stroke.filled&&stroke.points.size()>=3){
+                ComPtr<ID2D1PathGeometry> geometry;Check(d2d->CreatePathGeometry(&geometry));ComPtr<ID2D1GeometrySink> sink;Check(geometry->Open(&sink));
+                sink->BeginFigure(point(stroke.points.front()),D2D1_FIGURE_BEGIN_FILLED);for(size_t i=1;i<stroke.points.size();++i)sink->AddLine(point(stroke.points[i]));
+                sink->EndFigure(D2D1_FIGURE_END_CLOSED);Check(sink->Close());target->FillGeometry(geometry.Get(),brush.Get());target->DrawGeometry(geometry.Get(),brush.Get(),width,round.Get());
+            }else if(stroke.points.size()==1)target->FillEllipse(D2D1::Ellipse(point(stroke.points[0]),width/2,width/2),brush.Get());
             else for(size_t i=1;i<stroke.points.size();++i)target->DrawLine(point(stroke.points[i-1]),point(stroke.points[i]),brush.Get(),width,round.Get());
         };
         for(const auto& stroke:scene.ink)draw(stroke,1);
