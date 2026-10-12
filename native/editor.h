@@ -24,6 +24,7 @@ struct CardElement {
     double x=.1,y=.15,width=.42,height=.45;
     std::vector<CardAsset> assets;
     std::optional<CardUsage> usage;
+    double renderScale=1; // Preview-only scale; never serialized.
     bool operator==(const CardElement&)const=default;
 };
 inline CardElement MoveCard(const CardElement& start,double dx,double dy){
@@ -107,7 +108,13 @@ class Document {
     }
 public:
     Scene scene;
-    bool Dirty()const{return scene!=saved;}
+    bool Dirty()const{auto current=scene,baseline=saved;current.texts.clear();current.ink.clear();baseline.texts.clear();baseline.ink.clear();return current!=baseline;}
+    void ClearAnnotations(){
+        auto clear=[](Scene& value){value.texts.clear();value.ink.clear();};
+        clear(scene);clear(saved);for(auto& value:past)clear(value);for(auto& value:future)clear(value);
+        past.erase(std::unique(past.begin(),past.end()),past.end());future.erase(std::unique(future.begin(),future.end()),future.end());
+        while(!past.empty()&&past.back()==scene)past.pop_back();while(!future.empty()&&future.back()==scene)future.pop_back();
+    }
     bool CanUndo()const{return !past.empty();}
     bool CanRedo()const{return !future.empty();}
     void Commit(const Scene& before){

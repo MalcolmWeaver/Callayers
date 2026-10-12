@@ -24,6 +24,9 @@ struct CardHost::Impl {
     std::atomic<HRESULT> error=S_OK;
     std::atomic<uint64_t> count=0;
     std::atomic<std::shared_ptr<const TextOverlay>> latest;
+    std::atomic<std::shared_ptr<const std::vector<BYTE>>> thumbnailPixels;
+    bool thumbnails=false;
+    Clock::time_point lastThumbnail{};
     std::thread thread;
     HWND window=nullptr;
     ComPtr<ICoreWebView2Controller> controller;
@@ -48,13 +51,13 @@ struct CardHost::Impl {
         using namespace winrt::Windows::Data::Json;
         JsonArray data;
         for(const auto& c:cards){JsonObject o;
-            o.SetNamedValue(L"id",JsonValue::CreateStringValue(c.id));o.SetNamedValue(L"html",JsonValue::CreateStringValue(ResolveCardAssets(c.html,c.assets)));
+            o.SetNamedValue(L"scale",JsonValue::CreateNumberValue(c.renderScale));o.SetNamedValue(L"id",JsonValue::CreateStringValue(c.id));o.SetNamedValue(L"html",JsonValue::CreateStringValue(ResolveCardAssets(c.html,c.assets)));
             o.SetNamedValue(L"x",JsonValue::CreateNumberValue(c.x*Width));o.SetNamedValue(L"y",JsonValue::CreateNumberValue(c.y*Height));
             o.SetNamedValue(L"w",JsonValue::CreateNumberValue(c.width*Width));o.SetNamedValue(L"h",JsonValue::CreateNumberValue(c.height*Height));data.Append(o);}
         std::wstring script=L"window.setCards("+std::wstring(data.Stringify())+L")";
         Check(web->ExecuteScript(script.c_str(),nullptr));
     }
-    Impl(){thread=std::thread([this]{Run();});}
+    Impl(bool preview):thumbnails(preview){thread=std::thread([this]{Run();});}
     ~Impl(){stopping=true;if(thread.joinable())thread.join();}
     void StartCapture(){
         auto item=cap::GraphicsCaptureItem::CreateFromVisual(visual);
@@ -73,7 +76,15 @@ struct CardHost::Impl {
         if(!staging){D3D11_TEXTURE2D_DESC desc;texture->GetDesc(&desc);desc.Usage=D3D11_USAGE_STAGING;desc.BindFlags=0;desc.MiscFlags=0;desc.CPUAccessFlags=D3D11_CPU_ACCESS_READ;Check(device->CreateTexture2D(&desc,nullptr,&staging));}
         context->CopyResource(staging.Get(),texture.Get());D3D11_MAPPED_SUBRESOURCE mapped{};
         Check(context->Map(staging.Get(),0,D3D11_MAP_READ,0,&mapped));
-        try{latest=OverlayFromBgra(static_cast<const BYTE*>(mapped.pData),mapped.RowPitch);++count;}
+        try{
+            if(thumbnails){
+                if(Clock::now()-lastThumbnail>=std::chrono::milliseconds(250)){
+                    auto pixels=std::make_shared<std::vector<BYTE>>(480*270*4);
+                    for(UINT y=0;y<270;++y)for(UINT x=0;x<480;++x)memcpy(pixels->data()+(y*480+x)*4,static_cast<const BYTE*>(mapped.pData)+y*4*mapped.RowPitch+x*16,4);
+                    thumbnailPixels=pixels;lastThumbnail=Clock::now();++count;
+                }
+            }else{latest=OverlayFromBgra(static_cast<const BYTE*>(mapped.pData),mapped.RowPitch);++count;}
+        }
         catch(...){context->Unmap(staging.Get(),0);throw;}
         context->Unmap(staging.Get(),0);
     }
@@ -117,7 +128,7 @@ struct CardHost::Impl {
                     Check(web->NavigateToString(LR"HTML(<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; frame-src about:; connect-src 'none'; base-uri 'none'; form-action 'none'"><style>html,body{margin:0;width:1920px;height:1080px;overflow:hidden;background:transparent}iframe{position:absolute;border:0;background:transparent}</style><script>
 const cards=new Map();
 function makeFrame(){const f=document.createElement('iframe');f.sandbox='allow-scripts';f.setAttribute('allow',"camera 'none'; microphone 'none'; geolocation 'none'; clipboard-read 'none'; clipboard-write 'none'");return f}
-function position(f,c,z){if(f)Object.assign(f.style,{left:c.x+'px',top:c.y+'px',width:c.w+'px',height:c.h+'px',zIndex:z+''})}
+function position(f,c,z){if(f)Object.assign(f.style,{left:c.x+'px',top:c.y+'px',width:(c.w/(c.scale||1))+'px',height:(c.h/(c.scale||1))+'px',transformOrigin:'top left',transform:'scale('+(c.scale||1)+')',zIndex:z+''})}
 window.setCards=list=>{
  const keep=new Set(list.map(c=>c.id));
  for(const [id,e] of cards)if(!keep.has(id)){e.frame?.remove();e.pending?.remove();cards.delete(id)}
@@ -152,7 +163,8 @@ window.setCards=list=>{
         CoUninitialize();
     }
 };
-CardHost::CardHost():impl(std::make_unique<Impl>()){}
+CardHost::CardHost(bool thumbnails):impl(std::make_unique<Impl>(thumbnails)){}
+std::shared_ptr<const std::vector<BYTE>> CardHost::ThumbnailPixels()const{return impl->thumbnailPixels.load();}
 CardHost::~CardHost()=default;
 void CardHost::SetScene(const Scene& scene){std::lock_guard lock(impl->sceneMutex);if(impl->pending==scene.cards)return;impl->pending=scene.cards;impl->changed=true;}
 std::shared_ptr<const TextOverlay> CardHost::Latest()const{return impl->latest.load();}

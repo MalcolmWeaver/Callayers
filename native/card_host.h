@@ -9,7 +9,9 @@ class CardHost {
     struct Impl;
     std::unique_ptr<Impl> impl;
 public:
-    CardHost();
+    explicit CardHost(bool thumbnails=false);
+    // A 480x270 BGRA atlas, available only for the private sidebar renderer.
+    std::shared_ptr<const std::vector<BYTE>> ThumbnailPixels() const;
     ~CardHost();
     void SetScene(const Scene& scene);
     std::shared_ptr<const TextOverlay> Latest() const;

@@ -35,7 +35,7 @@ This copies a versioned development DLL into `%ProgramFiles%\Callayers Developme
 
 Run `build\Release\Callayers.exe` as your normal user. Choose **Test pattern** or a webcam, then click **Start camera**. Select **Callayers (Windows Virtual Camera)** in a meeting app; Windows controls the appended device-name suffix.
 
-The native WinUI 3 shell has a Callayers frame mark, a compact top bar, contextual text properties, and a large stage. File actions are in **File**; save state and camera status remain visible. Only implemented tools are shown.
+The native WinUI 3 shell is organized around a left-hand card library and a camera stage. **Create with AI** opens the sidebar composer; card titles select a card for revision, and independent checkboxes put cards on the stage. Camera controls and file actions stay in the header. **Annotate** reveals a compact, Preview-inspired markup toolbar above the stage.
 Launch with `--webcam --publish` to select the first available webcam and start output immediately.
 
 - Moving bar: active test pattern.
@@ -46,38 +46,50 @@ Launch with `--webcam --publish` to select the first available webcam and start 
 
 Camera creation persists for the current user. Registration of the source DLL is machine-wide. The development producer is single-instance per machine, with local pipe access limited to its user, service identities, and administrators. This is a development build, not a signed release installer.
 
-## Text editor
+## Cards and live annotation
 
-- Click **Text** (or press **T**), then click the stage to place text. Start typing to replace the placeholder.
-- **Ctrl+Enter** commits; **Escape** cancels the editing session. Clicking outside the text box also commits.
-- Double-click text or press **F2** on a selection to edit again. Enter creates a new line.
-- Drag the text box to move it. Corner handles scale the box and font together; left/right middle handles change wrapping width only.
-- Use the toolbar for font, size (1080p reference pixels), bold, color, and alignment. Click away from the size field to apply it.
-- **Delete** removes the selected text. **Ctrl+Z** undoes; **Ctrl+Y** or **Ctrl+Shift+Z** redoes. While typing, native text-field undo works until the session is committed.
-- **Save / Ctrl+S** saves a `.callayers.json` file. **Ctrl+Shift+S** saves under another name. **Open / Ctrl+O** reopens it.
-- **File → New deck** clears the scene after offering to save changes. Closing the window also protects unsaved work.
+- **Create with AI** opens the sidebar composer. Describe a card and click **Generate card** (or Ctrl+Enter). Enter alone adds a new line.
+- Cards appear as compact title rows. Click a title to open its AI editor; double-click to rename it. Enter or clicking away commits the title, Escape cancels. The card menu also offers Rename for keyboard users.
+- Each row has an independent **Show on camera** checkbox. Check multiple cards to show them together; uncheck any card to hide just that one. **Hide all** clears the stage.
+- New cards remain hidden until checked. Revisions to checked cards appear on camera automatically when generation finishes; other checked cards remain visible. Revisions to unchecked cards stay hidden. Undo/Redo also updates checked cards automatically.
+- Drag visible cards on the stage to position them; handles resize them. Card menu actions offer Move up, Move down, and Delete. Sidebar order is also stacking order: later cards appear above earlier cards.
+- **Save / Ctrl+S**, **Save as / Ctrl+Shift+S**, and **Open / Ctrl+O** manage `.callayers.json` decks. A deck holds up to 12 cards. Reopening starts with all cards hidden.
+- AI configuration is available under **File → Settings…**, outside the everyday workspace.
 
-Text appears in the video as it is typed, but its native editing box, caret, selection border, resize handles, and toolbar do not. The file format supports one scene and up to 100 text/card/image elements, including up to 12 cards and 32 images, plus up to 512 ink strokes (65,536 points total). Text-only decks remain version 1; decks containing cards use version 2; decks with ink use version 3; embedded-image decks use version 4. All four reopen in this build. Multi-scene management comes later.
+### Images are cards
 
-## Local images
+Use **Import image**, drop image files onto the stage, or focus the stage and paste with Ctrl+V. Each image becomes an HTML card containing an embedded PNG asset. It stays private until checked, and uses the same selection, AI revision, ordering, deletion, and save flow as other cards.
 
-- Click **Image** to choose a local file, drag image files from Explorer onto the stage, or focus the stage and press **Ctrl+V** to paste a copied image or copied image files. Paste inside text/prompt fields retains normal text behavior.
-- PNG, JPEG, BMP, and GIF are supported through Windows imaging codecs; TIFF/WebP depend on available codecs. Animated files import their first frame. Transparent PNGs retain transparency, and JPEG camera orientation is applied.
-- Click and drag an image to move it. All resize handles preserve its proportions. Use **Delete image** or Delete; import, drag, resize, delete, and layer changes support undo.
-- **To front / To back** arrange images and text within the foreground layer. Cards stay below this layer; drawing and laser remain above it.
-- Images are normalized to embedded PNGs, with their longest dimension limited to 2048 pixels. Saving a deck includes the image data; reopening never needs the original file or a network connection. Local images are not sent to OpenAI.
-- Each source file is limited to 20 MB and 40 million pixels; up to 16 files can be imported together. Embedded image data is capped at 32 MB of encoded text per scene. Invalid batches leave the scene unchanged.
+Ask AI to add a title, arrange text beside the image, crop its presentation, or change the background. This edits the HTML layout, not pixels or text baked into the image. Local image pixels are not uploaded to OpenAI; revision supplies HTML plus asset IDs, filenames/descriptions, and dimensions.
 
-## Pen, eraser, and laser
+Images retain transparency and orientation normalization. Large images are reduced to fit the card's 1 MiB encoded-asset budget. The embedded asset travels with the saved deck; the original source file is not modified. PNG/JPEG/BMP/GIF and installed Windows image codecs remain supported. Importing a batch either adds every image or leaves the deck unchanged.
 
-- Open **Draw** and choose **Pen**, **Eraser**, or **Laser**. With the stage focused, **P**, **E**, and **L** select them directly; prompt/text fields keep their normal typing behavior.
-- Pen: drag on the stage to draw; click for a dot. Choose Mint, White, Periwinkle, Coral, or Yellow and Fine/Medium/Bold thickness. Ink appears above cards and text in the outgoing camera video.
-- Each stroke is one undo action. Save/reopen retains its color, thickness, and normalized stage position. Completed drawings are not selectable or movable objects.
-- Eraser: drag across ink to remove whole strokes. One eraser drag is one undo action and never removes text or cards.
-- Laser: hold the mouse button and drag to point. The coral trail fades over 0.9 seconds, is never saved, and never enters undo history.
-- **Escape** cancels an in-progress stroke/erase, clears the laser, and returns to Select. Switching tools or losing mouse capture finishes the current stroke.
+### Optional markup toolbar
 
-Drawing is sampled in stage coordinates and repainted on the app's frame timer. The initial version uses fixed-width mouse/Windows-promoted pen input; pressure sensitivity is not implemented.
+**Annotate** shows Select, Pen, Shapes, Text, Color, Size, Undo, Redo, and Clear. Shapes offers Arrow, Rectangle, and Ellipse with transparent interiors. The color swatch opens a full-window dialog with standard swatches, a spectrum, and hex input; Apply commits the choice and Cancel leaves it unchanged. Color is shared across annotation tools; Small/Medium/Large means stroke width or text size. There are no separate image, signature, note, eraser, laser, font-family, or fill controls.
+
+- Pen (**P**): drag to draw; click for a dot.
+- Shapes: choose a shape and drag from one corner/end to the other.
+- Text (**T**): click the stage and type. Ctrl+Enter commits; Escape cancels. Double-click existing text or press F2 to edit again.
+- Select: click a stroke/shape outline or text, then drag to move it. Handles resize it. Delete removes the selection. Annotation selection requires the toolbar to be open.
+- Color and Size change the selected annotation, or the default for the next annotation.
+- Undo/Redo support completed annotations, clear, and card edits. Native text fields retain their own typing undo.
+- Hiding the toolbar exits drawing mode and leaves annotations visible. **Clear** removes annotations and can be undone.
+- Changing which cards are shown or hiding all cards clears annotations and removes them from undo history. They cannot reappear on another card through Undo.
+
+Annotations are temporary and are not saved with the deck. They do not modify card HTML. When opening an older deck, standalone images become image cards; saved text/ink becomes an **Imported annotations** HTML card so existing content is retained. Decks whose conversion would exceed 12 cards are left unopened with an explanation; the original file is untouched.
+
+### Manual walkthrough for this redesign
+
+The agent has not built, launched, or tested these changes, at the user's request. Close the app, build with `.\scripts\build.ps1 -SkipTests`, and launch `.\build\Release\Callayers.exe`.
+
+1. Toggle Annotate and resize the window: the Cards heading and Create with AI button should remain fully visible. The size dropdown should align with the toolbar buttons.
+2. Open the color swatch: a full-window dialog should show the palette, spectrum, hex input, and Apply/Cancel without scrolling. Apply a custom color, then reopen and cancel another choice.
+3. Create or import two cards. They should appear as compact title rows without previews or Play buttons. Single-click opens AI editing; double-click renames. Try Enter, Escape, and clicking elsewhere.
+4. Check both cards, then drag them apart on the stage. Confirm both appear in the receiving camera app. Unchecking either should leave the other visible.
+5. Revise a checked card. Its content should update automatically when generation finishes, while other checked cards remain visible. Revise an unchecked card and confirm it stays hidden. Undo/Redo should update a checked card too.
+6. Try annotation tools, move/resize, Undo/Redo, and Clear. Hiding the toolbar retains marks; changing card visibility clears them.
+7. Save/reopen: names and card content should persist, annotations should not, and all checkboxes should start unchecked.
 
 ## AI cards (step 4)
 
@@ -89,10 +101,10 @@ To save the key in a persistent Windows user environment variable and select **G
 
 The command prompts with masked input, saves `OPENAI_API_KEY`, selects `gpt-6-luna`, and reopens Callayers with the webcam/output enabled. The key is not written into the repository or command history. User environment variables are not encrypted like Credential Manager. A key already saved through AI settings takes precedence. Existing terminals may retain their old environment; this command also updates its own process so the app it launches receives the new key immediately.
 
-1. Open **AI settings**, paste your OpenAI API key, and save. The key is stored in Windows Credential Manager for your Windows user; it is never saved in a deck. Alternatively, set `OPENAI_API_KEY` before launching. A saved credential takes precedence over the environment variable.
-2. Describe a card in the bottom prompt and choose **Generate card**. The default model is `gpt-6-luna`; the model is configurable in AI settings.
-3. Select a card, then click the prompt and describe a revision. **Update card** keeps its identity and placement; Undo restores its previous content in one action.
-4. Choose **New card** or deselect on the stage to generate another card.
+1. Open **File → Settings…**, paste your OpenAI API key, and save. The key is stored in Windows Credential Manager for your Windows user; it is never saved in a deck. Alternatively, set `OPENAI_API_KEY` before launching. A saved credential takes precedence over the environment variable.
+2. Click **Create with AI**, describe a card in the sidebar, and choose **Generate card**. The default model is `gpt-6-luna`; the model is configurable in AI settings.
+3. Select a card title, then click the prompt and describe a revision. **Update card** keeps its identity and placement; Undo restores its previous content in one action.
+4. Choose **Create with AI** to generate another card. Check the card to put it on camera.
 
 The app sends the prompt, any retrieved website text, and, for revision, the selected card's HTML/name/size to the OpenAI Responses API with `store:false`. Webcam frames and other cards are not sent. OpenAI API usage has separate billing from ChatGPT. The model setting is stored in `%LOCALAPPDATA%\Callayers\ai.json`.
 
@@ -118,10 +130,10 @@ The request uses the official [Responses structured-output format](https://devel
 
 ## Live card rendering
 
-- Use **+ Card** to focus the new-card composer. The `--demo-cards` development option adds two handcrafted animated samples.
-- Select and drag a card to move it. Corner handles resize freely; side handles change width. The HTML responds to the new size, while its running animation continues.
-- **Delete card**, Delete, Undo/Redo, Save, and Open work with cards. Card HTML is stored inside the deck, so these samples work offline.
-- Native text stays above all cards. Selection borders and handles remain local.
+- **Create with AI** opens the new-card composer. The `--demo-cards` development option adds two handcrafted samples to the sidebar; check cards to show them.
+- Only checked cards are sent to the camera renderer. Revisions to checked cards appear automatically when ready.
+- Native annotations stay above the card. Selection borders and handles remain local.
+- Delete, Undo/Redo, Save, and Open work with cards; HTML and image assets are stored in the deck for offline use.
 
 Requires the Microsoft Edge WebView2 Evergreen Runtime. A missing runtime or failed renderer is reported in the status bar. Card scripts run in isolated iframes without same-origin permission, native host objects, or device permissions. The page policy blocks external resources and network requests; embedded data/blob images are allowed. Moving/resizing changes iframe geometry without recreating its document.
 

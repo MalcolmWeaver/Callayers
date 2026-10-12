@@ -248,12 +248,12 @@ struct App {
         if(FAILED(hr))frames->error=hr;
     }
     void Layout(){
-        RECT r;GetClientRect(window,&r);const double dpi=GetDpiForWindow(window)/96.;const int margin=static_cast<int>(32*dpi),top=static_cast<int>(152*dpi),bottom=static_cast<int>(174*dpi);
+        RECT r;GetClientRect(window,&r);const double dpi=GetDpiForWindow(window)/96.;const int margin=static_cast<int>(24*dpi),left=static_cast<int>(300*dpi),top=static_cast<int>(((shell?shell->HeaderHeight():72)+24)*dpi),bottom=static_cast<int>(24*dpi);
         if(shell)shell->Layout(r.right,r.bottom,dpi);
-        const int availableW=std::max(1L,r.right-2*margin),availableH=std::max(1L,r.bottom-top-bottom);
+        const int availableW=std::max(1L,r.right-left-2*margin),availableH=std::max(1L,r.bottom-top-bottom);
         const double scale=std::min(double(availableW)/Width,double(availableH)/Height);
         int w=static_cast<int>(Width*scale),h=static_cast<int>(Height*scale);
-        int y=top+(availableH-h)/2;stage={(r.right-w)/2,y,(r.right+w)/2,y+h};
+        int y=top+(availableH-h)/2;stage={left+(r.right-left-w)/2,y,left+(r.right-left+w)/2,y+h};
         if(editor)editor->SetStage(stage);
         InvalidateRect(window,nullptr,FALSE);
     }

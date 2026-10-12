@@ -1,6 +1,10 @@
 #pragma once
 #include "text_editor_ui.h"
 #include "ai_client.h"
+#include "card_host.h"
+#include <winrt/Microsoft.UI.Xaml.Media.Imaging.h>
+#include <winrt/Windows.Storage.Streams.h>
+#include <robuffer.h>
 #include <MddBootstrap.h>
 #include <winrt/Microsoft.UI.Interop.h>
 #include <Microsoft.UI.Dispatching.Interop.h>
@@ -16,6 +20,8 @@
 #include <winrt/Microsoft.UI.Xaml.Markup.h>
 #include <winrt/Microsoft.UI.Xaml.Media.h>
 #include <winrt/Microsoft.UI.Xaml.Input.h>
+#include <winrt/Microsoft.UI.Xaml.Automation.h>
+#include <winrt/Windows.UI.Text.h>
 #include <winrt/Microsoft.UI.Xaml.XamlTypeInfo.h>
 #include <winrt/Windows.UI.Xaml.Interop.h>
 #include <dwmapi.h>
@@ -40,13 +46,17 @@ class WinUIShell {
     controls::ContentDialog settingsDialog{nullptr};
     std::shared_ptr<int> lifetime=std::make_shared<int>(0);
     ux::FrameworkElement header{nullptr},footer{nullptr};
-    bool syncing=false,generating=false;
+    bool syncing=false,generating=false,annotating=false,composerOpen=false;
+    std::vector<CardElement> listedCards;
+    std::vector<controls::Border> cardRows;
+    std::vector<controls::CheckBox> showChecks;
     AiJob job;
     std::optional<CardRequestTarget> lastTarget;
     std::wstring lastPrompt;
     template<class T> T Bottom(const wchar_t* name){return footer.FindName(name).as<T>();}
     void AiMessage(const std::wstring& message){Bottom<controls::TextBlock>(L"AiStatus").Text(message);}
     void RefreshComposer(){
+        Bottom<controls::StackPanel>(L"Composer").Visibility(composerOpen?ux::Visibility::Visible:ux::Visibility::Collapsed);
         Bottom<controls::TextBlock>(L"PromptTarget").Text(editor.CardSelected()?L"Edit “"+editor.CardName()+L"”":L"New card");
         Bottom<controls::Button>(L"Generate").Content(winrt::box_value(generating?L"Working…":editor.CardSelected()?L"Update card":L"Generate card"));
         Bottom<controls::Button>(L"Generate").IsEnabled(!generating);
@@ -70,7 +80,7 @@ class WinUIShell {
         generating=false;
         try{
         if(result->card){
-            if(lastTarget&&editor.AcceptGenerated(*lastTarget,result->card->html,result->card->name,result->card->assets,result->card->usage)){AiMessage(L"Card ready. "+UsageSummary(result->usage)+(result->notice.empty()?L"":L" · "+result->notice));if(Bottom<controls::TextBox>(L"Prompt").Text()==lastPrompt)Bottom<controls::TextBox>(L"Prompt").Text(L"");}
+            if(lastTarget&&editor.AcceptGenerated(*lastTarget,result->card->html,result->card->name,result->card->assets,result->card->usage)){composerOpen=true;AiMessage(std::wstring(editor.IsCardShown(lastTarget->card.id)?L"Card updated on camera. ":lastTarget->creating?L"Card ready. Check it to show on camera. ":L"Card updated. ")+UsageSummary(result->usage)+(result->notice.empty()?L"":L" · "+result->notice));if(Bottom<controls::TextBox>(L"Prompt").Text()==lastPrompt)Bottom<controls::TextBox>(L"Prompt").Text(L"");}
             else AiMessage(L"The original card or scene changed. The late result was not applied.");
         }else{AiMessage(result->error+L" "+UsageSummary(result->usage));Bottom<controls::Button>(L"RetryGeneration").Visibility(ux::Visibility::Visible);}
         }catch(const std::exception& e){AiMessage(std::wstring(winrt::to_hstring(e.what())));Bottom<controls::Button>(L"RetryGeneration").Visibility(ux::Visibility::Visible);}
@@ -107,9 +117,66 @@ class WinUIShell {
     void Action(const wchar_t* name,std::function<void()> action){
         Find<controls::Button>(name).Click([this,action](auto&&,auto&&){try{action();}catch(...){EditorError(window);}});
     }
-    void CommitSize(){
-        if(syncing)return;auto number=Find<controls::NumberBox>(L"FontSize").Value();if(!std::isfinite(number))return;
-        editor.ChangeStyle([number](auto& t){t.size=std::clamp(number,8.,300.);});
+    void ChooseAnnotationColor(){
+        if(settingsIsland)return;
+        // The header island is only toolbar-height. A full-window island gives the
+        // picker its own unobstructed overlay instead of clipping it to that header.
+        settingsIsland=hosting::DesktopWindowXamlSource();settingsIsland.Initialize(winrt::Microsoft::UI::GetWindowIdFromWindow(window));
+        controls::Grid root;root.Background(ux::Media::SolidColorBrush(winrt::Windows::UI::Color{255,28,28,32}));settingsIsland.Content(root);
+        RECT bounds;GetClientRect(window,&bounds);settingsIsland.SiteBridge().MoveAndResize({0,0,bounds.right,bounds.bottom});
+        SetWindowPos(winrt::Microsoft::UI::GetWindowFromWindowId(settingsIsland.SiteBridge().WindowId()),HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
+        auto current=editor.AnnotationColor();controls::ColorPicker picker;picker.Color(winrt::Windows::UI::Color{255,BYTE(current>>16),BYTE(current>>8),BYTE(current)});
+        picker.IsAlphaEnabled(false);picker.IsMoreButtonVisible(false);picker.IsColorChannelTextInputVisible(false);picker.IsHexInputVisible(true);picker.Width(240);picker.HorizontalAlignment(ux::HorizontalAlignment::Center);picker.ColorSpectrumShape(controls::ColorSpectrumShape::Box);
+        controls::StackPanel panel;panel.Spacing(10);panel.Width(280);
+        const uint32_t colors[]{0x000000,0x808080,0xffffff,0xff0000,0xff8000,0xffff00,0x00a000,0x00bfff,0x0000ff,0x8000ff,0xff00ff,0x804000};
+        for(int row=0;row<2;++row){controls::StackPanel swatches;swatches.Orientation(controls::Orientation::Horizontal);swatches.Spacing(8);
+            for(int column=0;column<6;++column){auto rgb=colors[row*6+column];auto color=winrt::Windows::UI::Color{255,BYTE(rgb>>16),BYTE(rgb>>8),BYTE(rgb)};
+                controls::Button swatch;swatch.Width(40);swatch.Height(28);swatch.MinHeight(28);swatch.Padding({0,0,0,0});swatch.Background(ux::Media::SolidColorBrush(color));swatch.BorderBrush(ux::Media::SolidColorBrush(winrt::Windows::UI::Color{255,160,160,160}));swatch.BorderThickness({1,1,1,1});
+                wchar_t label[8];swprintf_s(label,L"#%06X",rgb);controls::ToolTipService::SetToolTip(swatch,winrt::box_value(label));ux::Automation::AutomationProperties::SetName(swatch,label);
+                swatch.Click([picker,color](auto&&,auto&&){picker.Color(color);});swatches.Children().Append(swatch);
+            }panel.Children().Append(swatches);
+        }
+        panel.Children().Append(picker);
+        controls::ContentDialog dialog;settingsDialog=dialog;dialog.XamlRoot(root.XamlRoot());dialog.RequestedTheme(ux::ElementTheme::Dark);dialog.Title(winrt::box_value(L"Annotation color"));dialog.PrimaryButtonText(L"Apply");dialog.CloseButtonText(L"Cancel");dialog.Content(panel);
+        dialog.PrimaryButtonClick([this,picker](auto&&,controls::ContentDialogButtonClickEventArgs const& args){try{auto color=picker.Color();editor.SetAnnotationColor((uint32_t(color.R)<<16)|(uint32_t(color.G)<<8)|color.B);}catch(...){args.Cancel(true);EditorError(window);}});
+        dialog.Closed([this,weak=std::weak_ptr<int>(lifetime)](auto&&,auto&&){if(weak.expired())return;header.DispatcherQueue().TryEnqueue([this,weak]{if(weak.expired())return;settingsDialog=nullptr;if(settingsIsland)settingsIsland.Close();settingsIsland=nullptr;SetFocus(window);});});
+        dialog.ShowAsync();
+    }
+    void Relayout(){RECT r;GetClientRect(window,&r);SendMessageW(window,WM_SIZE,0,MAKELPARAM(r.right,r.bottom));}
+    void OpenComposer(bool fresh){if(fresh)editor.NewCardSelection();composerOpen=true;RefreshComposer();Bottom<controls::TextBox>(L"Prompt").Focus(ux::FocusState::Programmatic);}
+    void RefreshCards(){
+        const auto& cards=editor.CurrentScene().cards;
+        if(cards!=listedCards){
+            listedCards=cards;auto list=Bottom<controls::StackPanel>(L"Cards");list.Children().Clear();cardRows.clear();showChecks.clear();
+            for(size_t i=0;i<cards.size();++i){
+                controls::Border row;row.CornerRadius({6,6,6,6});row.BorderThickness({1,1,1,1});row.Padding({8,6,8,6});
+                controls::Grid content;content.ColumnSpacing(6);
+                for(auto width:{ux::GridLength{1,ux::GridUnitType::Auto},ux::GridLength{1,ux::GridUnitType::Star},ux::GridLength{1,ux::GridUnitType::Auto}}){controls::ColumnDefinition column;column.Width(width);content.ColumnDefinitions().Append(column);}
+                controls::CheckBox show;show.MinWidth(0);show.VerticalAlignment(ux::VerticalAlignment::Center);show.IsChecked(editor.IsCardShown(cards[i].id));ux::Automation::AutomationProperties::SetName(show,L"Show "+cards[i].name+L" on camera");controls::ToolTipService::SetToolTip(show,winrt::box_value(L"Show on camera. Check multiple cards to show them together."));
+                show.Click([this,index=int(i)](winrt::Windows::Foundation::IInspectable const& sender,auto&&){if(syncing)return;try{editor.SetCardShown(index,sender.as<controls::CheckBox>().IsChecked().Value());}catch(...){EditorError(window);}});content.Children().Append(show);showChecks.push_back(show);
+                controls::Grid titleArea;controls::Grid::SetColumn(titleArea,1);titleArea.Background(ux::Media::SolidColorBrush(winrt::Windows::UI::Color{0,0,0,0}));
+                controls::TextBlock title;title.Text(cards[i].name);title.TextTrimming(ux::TextTrimming::CharacterEllipsis);title.VerticalAlignment(ux::VerticalAlignment::Center);title.Padding({0,6,0,6});titleArea.Children().Append(title);
+                controls::TextBox rename;rename.Text(cards[i].name);rename.MaxLength(100);rename.MinWidth(0);rename.Padding({4,4,4,4});rename.Visibility(ux::Visibility::Collapsed);ux::Automation::AutomationProperties::SetName(rename,L"Card title");titleArea.Children().Append(rename);
+                auto editing=std::make_shared<bool>(false);auto id=cards[i].id;auto weakRename=winrt::make_weak(rename);auto weakTitle=winrt::make_weak(title);
+                auto finish=[this,weakRename,weakTitle,editing,id](bool save){if(!*editing)return;*editing=false;auto field=weakRename.get();auto label=weakTitle.get();if(!field||!label)return;auto value=std::wstring(field.Text());field.Visibility(ux::Visibility::Collapsed);label.Visibility(ux::Visibility::Visible);if(save)try{editor.RenameCard(id,value);}catch(...){EditorError(window);}};
+                auto beginRename=[weakRename,weakTitle,editing]{auto field=weakRename.get();auto label=weakTitle.get();if(!field||!label)return;*editing=true;field.Text(label.Text());label.Visibility(ux::Visibility::Collapsed);field.Visibility(ux::Visibility::Visible);field.Focus(ux::FocusState::Programmatic);field.SelectAll();};
+                titleArea.Tapped([this,index=int(i),editing](auto&&,ux::Input::TappedRoutedEventArgs const& args){if(*editing)return;try{editor.SelectCard(index);composerOpen=true;RefreshComposer();args.Handled(true);}catch(...){EditorError(window);}});
+                title.DoubleTapped([beginRename](auto&&,ux::Input::DoubleTappedRoutedEventArgs const& args){beginRename();args.Handled(true);});
+                rename.KeyDown([finish](auto&&,ux::Input::KeyRoutedEventArgs const& args){if(args.Key()==winrt::Windows::System::VirtualKey::Enter||args.Key()==winrt::Windows::System::VirtualKey::Escape){finish(args.Key()==winrt::Windows::System::VirtualKey::Enter);args.Handled(true);}});
+                rename.LostFocus([finish](auto&&,auto&&){finish(true);});content.Children().Append(titleArea);
+                controls::Button more;more.Content(winrt::box_value(L"···"));more.Padding({6,4,6,4});controls::Grid::SetColumn(more,2);controls::ToolTipService::SetToolTip(more,winrt::box_value(L"Card actions"));controls::MenuFlyout menu;
+                controls::MenuFlyoutItem renameItem;renameItem.Text(L"Rename");renameItem.Click([beginRename](auto&&,auto&&){beginRename();});menu.Items().Append(renameItem);
+                for(auto entry:{std::pair{L"Move up",-1},std::pair{L"Move down",1},std::pair{L"Delete card",0}}){controls::MenuFlyoutItem item;item.Text(entry.first);item.Click([this,index=int(i),direction=entry.second](auto&&,auto&&){try{editor.SelectCard(index);if(direction)editor.MoveSelectedCard(direction);else editor.Command(TextEditorUI::DeleteId);}catch(...){EditorError(window);}});menu.Items().Append(item);}more.Flyout(menu);content.Children().Append(more);
+                row.Child(content);list.Children().Append(row);cardRows.push_back(row);
+            }
+        }
+        Bottom<controls::TextBlock>(L"EmptyCards").Visibility(cards.empty()?ux::Visibility::Visible:ux::Visibility::Collapsed);
+        for(size_t i=0;i<cardRows.size();++i){bool live=editor.IsCardShown(cards[i].id),selected=int(i)==editor.SelectedCardIndex();
+            cardRows[i].BorderBrush(ux::Media::SolidColorBrush(selected?winrt::Windows::UI::Color{255,163,155,250}:winrt::Windows::UI::Color{255,57,56,63}));
+            cardRows[i].Background(ux::Media::SolidColorBrush(live?winrt::Windows::UI::Color{255,41,60,51}:winrt::Windows::UI::Color{255,36,36,40}));
+            showChecks[i].IsChecked(live);
+        }
+        Bottom<controls::Button>(L"HideCard").IsEnabled(editor.HasShownCards());
     }
 public:
     WinUIShell(HWND owner,TextEditorUI& text,const std::vector<Device>& devices,std::function<void(int)> camera,std::function<void()> output):window(owner),editor(text){
@@ -120,7 +187,7 @@ public:
 <Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" RequestedTheme="Dark" Background="#242428">
  <Grid.Resources>
   <SolidColorBrush x:Key="SystemControlHighlightAccentBrush" Color="#A39BFA"/>
-  <Style TargetType="Button"><Setter Property="CornerRadius" Value="6"/><Setter Property="Padding" Value="12,7"/><Setter Property="MinHeight" Value="34"/></Style>
+  <Style TargetType="Button"><Setter Property="CornerRadius" Value="6"/><Setter Property="Padding" Value="12,7"/><Setter Property="MinHeight" Value="36"/><Setter Property="Height" Value="36"/><Setter Property="VerticalAlignment" Value="Center"/></Style>
  </Grid.Resources>
  <Grid.RowDefinitions><RowDefinition Height="72"/><RowDefinition Height="56"/></Grid.RowDefinitions>
  <Grid Padding="24,0" ColumnSpacing="18">
@@ -134,7 +201,8 @@ public:
    <TextBlock x:Name="SaveState" Text="No unsaved changes" Foreground="#AAA8B2" FontSize="11"/>
   </StackPanel>
   <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-   <Button x:Name="FileButton" Content="File"><Button.Flyout><MenuFlyout><MenuFlyoutItem x:Name="NewDeck" Text="New deck"/><MenuFlyoutItem x:Name="OpenDeck" Text="Open…"/><MenuFlyoutSeparator/><MenuFlyoutItem x:Name="SaveDeck" Text="Save"/><MenuFlyoutItem x:Name="SaveAsDeck" Text="Save as…"/></MenuFlyout></Button.Flyout></Button>
+   <Button x:Name="FileButton" Content="File"><Button.Flyout><MenuFlyout><MenuFlyoutItem x:Name="NewDeck" Text="New deck"/><MenuFlyoutItem x:Name="OpenDeck" Text="Open…"/><MenuFlyoutSeparator/><MenuFlyoutItem x:Name="SaveDeck" Text="Save"/><MenuFlyoutItem x:Name="SaveAsDeck" Text="Save as…"/><MenuFlyoutSeparator/><MenuFlyoutItem x:Name="AiSettings" Text="Settings…"/></MenuFlyout></Button.Flyout></Button>
+   <Button x:Name="Annotate" Content="✎  Annotate" ToolTipService.ToolTip="Show or hide the annotation toolbar"/>
    <Button x:Name="Save" Content="Save" ToolTipService.ToolTip="Save deck (Ctrl+S)"/>
   </StackPanel>
   <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
@@ -142,65 +210,50 @@ public:
    <Button x:Name="Output" Content="Start camera" Background="#A39BFA" Foreground="#201D33" BorderThickness="0" MinWidth="118" ToolTipService.ToolTip="Make Callayers available as a camera in your meeting app"/>
   </StackPanel>
  </Grid>
- <Border Grid.Row="1" BorderBrush="#39383F" BorderThickness="0,1,0,1" Padding="24,0">
+ <Border x:Name="MarkupBar" Grid.Row="1" BorderBrush="#39383F" BorderThickness="0,1,0,1" Padding="12,0" Margin="300,0,0,0" Visibility="Collapsed">
   <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" HorizontalScrollMode="Enabled">
-   <StackPanel Orientation="Horizontal" Spacing="7" VerticalAlignment="Center">
-    <Button x:Name="Select" Content="↖  Select" ToolTipService.ToolTip="Select and move elements"/>
-    <Button x:Name="Text" Content="T  Text" ToolTipService.ToolTip="Place text (T)"/>
-    <Button x:Name="Card" Content="+  Card" ToolTipService.ToolTip="Create a new card with AI"/>
-    <Button x:Name="Image" Content="Image" ToolTipService.ToolTip="Import a local image; paste with Ctrl+V on the stage"/>
-    <Button x:Name="Draw" Content="Draw" ToolTipService.ToolTip="Pen (P), eraser (E), or laser (L)"><Button.Flyout><MenuFlyout><MenuFlyoutItem x:Name="PenTool" Text="Pen"/><MenuFlyoutItem x:Name="EraserTool" Text="Eraser — whole strokes"/><MenuFlyoutItem x:Name="LaserTool" Text="Laser — fades away"/></MenuFlyout></Button.Flyout></Button>
-    <Button x:Name="DeleteCard" Content="Delete card" Visibility="Collapsed"/>
-    <Button x:Name="DeleteImage" Content="Delete image" Visibility="Collapsed"/>
-    <Border Width="1" Height="23" Background="#49474F" Margin="8,0"/>
-    <Button x:Name="Undo" Content="↶" ToolTipService.ToolTip="Undo (Ctrl+Z)" AutomationProperties.Name="Undo"/>
-    <Button x:Name="Redo" Content="↷" ToolTipService.ToolTip="Redo (Ctrl+Y)" AutomationProperties.Name="Redo"/>
-    <TextBlock x:Name="ToolHint" Text="Choose Text, then click the stage" Foreground="#AAA8B2" VerticalAlignment="Center" Margin="14,0"/>
-    <StackPanel x:Name="LayerProperties" Orientation="Horizontal" Spacing="7" Visibility="Collapsed">
-     <Button x:Name="BringFront" Content="To front" ToolTipService.ToolTip="Bring in front of text and images"/>
-     <Button x:Name="SendBack" Content="To back" ToolTipService.ToolTip="Send behind text and images; above cards"/>
-    </StackPanel>
-    <StackPanel x:Name="InkProperties" Orientation="Horizontal" Spacing="7" Visibility="Collapsed">
-     <ComboBox x:Name="InkColor" Width="128" AutomationProperties.Name="Pen color"><x:String>Mint</x:String><x:String>White</x:String><x:String>Periwinkle</x:String><x:String>Coral</x:String><x:String>Yellow</x:String></ComboBox>
-     <ComboBox x:Name="InkWidth" Width="104" AutomationProperties.Name="Pen thickness"><x:String>Fine</x:String><x:String>Medium</x:String><x:String>Bold</x:String></ComboBox>
-    </StackPanel>
-    <StackPanel x:Name="TextProperties" Orientation="Horizontal" Spacing="7" Visibility="Collapsed">
-     <Border Width="1" Height="23" Background="#49474F" Margin="8,0"/>
-     <ComboBox x:Name="Font" Width="142" AutomationProperties.Name="Font family"><x:String>Segoe UI</x:String><x:String>Arial</x:String><x:String>Georgia</x:String><x:String>Consolas</x:String></ComboBox>
-     <NumberBox x:Name="FontSize" Width="80" Minimum="8" Maximum="300" SmallChange="1" LargeChange="8" SpinButtonPlacementMode="Hidden" AutomationProperties.Name="Text size"/>
-     <ToggleButton x:Name="Bold" Content="B" FontWeight="Bold" Width="36" AutomationProperties.Name="Bold"/>
-     <Button x:Name="Color" Content="Color" ToolTipService.ToolTip="Text color"/>
-     <ComboBox x:Name="Alignment" Width="104" AutomationProperties.Name="Text alignment"><x:String>Left</x:String><x:String>Center</x:String><x:String>Right</x:String></ComboBox>
-     <Button x:Name="Delete" Content="Delete" ToolTipService.ToolTip="Delete selected text"/>
-    </StackPanel>
+   <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
+    <Button x:Name="Select" Content="↖" ToolTipService.ToolTip="Select, move, and resize annotations" AutomationProperties.Name="Select"/>
+    <Button x:Name="Pen" Content="✎" ToolTipService.ToolTip="Pen (P)" AutomationProperties.Name="Pen"/>
+    <Button x:Name="Shapes" Content="□  ▾" ToolTipService.ToolTip="Shapes" AutomationProperties.Name="Shapes"><Button.Flyout><MenuFlyout><MenuFlyoutItem x:Name="ArrowTool" Text="Arrow"/><MenuFlyoutItem x:Name="RectangleTool" Text="Rectangle"/><MenuFlyoutItem x:Name="EllipseTool" Text="Ellipse"/></MenuFlyout></Button.Flyout></Button>
+    <Button x:Name="Text" Content="T" ToolTipService.ToolTip="Text (T)" AutomationProperties.Name="Text"/>
+    <Border Width="1" Height="22" Background="#49474F" Margin="6,0"/>
+    <Button x:Name="InkColor" ToolTipService.ToolTip="Annotation color" AutomationProperties.Name="Annotation color"><StackPanel Orientation="Horizontal" Spacing="8"><Border x:Name="ColorSwatch" Width="22" Height="22" CornerRadius="3" BorderThickness="1" BorderBrush="#AAAAAA" Background="White"/><FontIcon Glyph="&#xE70D;" FontSize="10"/></StackPanel></Button>
+    <ComboBox x:Name="InkWidth" Height="36" MinHeight="36" VerticalAlignment="Center" Width="110" ToolTipService.ToolTip="Stroke width or text size" AutomationProperties.Name="Size"><x:String>Small</x:String><x:String>Medium</x:String><x:String>Large</x:String></ComboBox>
+    <Border Width="1" Height="22" Background="#49474F" Margin="6,0"/>
+    <Button x:Name="Undo" ToolTipService.ToolTip="Undo (Ctrl+Z)" AutomationProperties.Name="Undo"><SymbolIcon Symbol="Undo"/></Button>
+    <Button x:Name="Redo" ToolTipService.ToolTip="Redo (Ctrl+Y)" AutomationProperties.Name="Redo"><SymbolIcon Symbol="Redo"/></Button>
+    <Button x:Name="Clear" Content="Clear" ToolTipService.ToolTip="Clear all temporary annotations"/>
    </StackPanel>
   </ScrollViewer>
  </Border>
 </Grid>)XAML").as<ux::FrameworkElement>();
         footer=ux::Markup::XamlReader::Load(LR"XAML(
-<Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" RequestedTheme="Dark" Background="#242428" Padding="24,10,24,0" RowSpacing="5">
- <Grid.RowDefinitions><RowDefinition Height="28"/><RowDefinition Height="40"/><RowDefinition Height="24"/><RowDefinition Height="28"/></Grid.RowDefinitions>
- <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-  <TextBlock x:Name="PromptTarget" Text="New card" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-  <Button x:Name="NewCard" Grid.Column="1" Content="New card" Padding="10,2" Margin="0,0,8,0"/>
-  <Button x:Name="AiSettings" Grid.Column="2" Content="AI settings" Padding="10,2"/>
- </Grid>
- <Grid Grid.Row="1" ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-  <TextBox x:Name="Prompt" PlaceholderText="Describe a card, or use a website’s text, logo, colors, and typography…" MaxLength="4000" AutomationProperties.Name="Card prompt"/>
-  <Button x:Name="Generate" Grid.Column="1" Content="Generate card" MinWidth="120" Background="#A39BFA" Foreground="#201D33"/>
-  <Button x:Name="CancelGeneration" Grid.Column="2" Content="Cancel" Visibility="Collapsed"/>
- </Grid>
- <Grid Grid.Row="2" ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-  <ProgressRing x:Name="AiProgress" Width="18" Height="18" IsActive="False" Visibility="Collapsed"/>
-  <TextBlock x:Name="AiStatus" Grid.Column="1" Text="Transparent cards, readable text. Select a card to revise it." FontSize="12" Foreground="#C4C0D2" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-  <Button x:Name="RetryGeneration" Grid.Column="2" Content="Retry" Padding="8,0" Visibility="Collapsed"/>
- </Grid>
- <TextBlock x:Name="Status" Grid.Row="3" Text="Camera output is off" FontSize="11" Foreground="#9692A4" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+<Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" RequestedTheme="Dark" Background="#242428" Padding="16,16,16,10" RowSpacing="10">
+ <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+ <StackPanel Spacing="8">
+  <TextBlock Text="Cards" FontSize="20" FontWeight="SemiBold"/>
+  <Button x:Name="NewCard" Height="40" MinHeight="40" Padding="12,8" VerticalContentAlignment="Center" Content="＋ Create with AI" HorizontalAlignment="Stretch" Background="#A39BFA" Foreground="#201D33"/>
+  <StackPanel Orientation="Horizontal" Spacing="8"><Button x:Name="ImportImage" Content="Import image" Padding="10,5"/><Button x:Name="HideCard" Content="Hide all" Padding="10,5"/></StackPanel>
+ </StackPanel>
+ <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+  <StackPanel Spacing="8"><TextBlock x:Name="EmptyCards" Text="Make a card with AI, or drop an image onto the stage. Check cards to show them together on camera." TextWrapping="Wrap" Foreground="#AAA8B2" Margin="0,12"/><StackPanel x:Name="Cards" Spacing="10"/></StackPanel>
+ </ScrollViewer>
+ <StackPanel Grid.Row="2" x:Name="Composer" Spacing="8" Visibility="Collapsed">
+  <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="PromptTarget" Text="Create with AI" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/><Button x:Name="CloseComposer" Grid.Column="1" Content="×" Padding="8,2" ToolTipService.ToolTip="Close composer" AutomationProperties.Name="Close composer"/></Grid>
+  <TextBox x:Name="Prompt" PlaceholderText="Describe your card, paste a website, or describe a change…" MaxLength="4000" AcceptsReturn="True" TextWrapping="Wrap" Height="90" AutomationProperties.Name="Card prompt"/>
+  <StackPanel Orientation="Horizontal" Spacing="6"><Button x:Name="Generate" Content="Generate card" Background="#A39BFA" Foreground="#201D33"/><Button x:Name="CancelGeneration" Content="Cancel" Visibility="Collapsed"/></StackPanel>
+ </StackPanel>
+ <StackPanel Grid.Row="3" Spacing="6">
+  <StackPanel Orientation="Horizontal" Spacing="6"><ProgressRing x:Name="AiProgress" Width="18" Height="18" IsActive="False" Visibility="Collapsed"/><Button x:Name="RetryGeneration" Content="Retry" Padding="8,2" Visibility="Collapsed"/></StackPanel>
+  <TextBlock x:Name="AiStatus" Text="Check cards to show them. Click a title to edit; double-click to rename." FontSize="11" Foreground="#C4C0D2" TextWrapping="Wrap" MaxHeight="68" IsTextSelectionEnabled="True"/>
+  <TextBlock x:Name="Status" Text="Camera output is off" FontSize="11" Foreground="#9692A4" TextWrapping="Wrap" MaxHeight="48"/>
+ </StackPanel>
 </Grid>)XAML").as<ux::FrameworkElement>();
         top.Content(header);bottom.Content(footer);
         top.TakeFocusRequested([this](auto&&,auto&&){SetFocus(window);});
         bottom.TakeFocusRequested([this](auto&&,auto&&){SetFocus(window);});
-        for(auto pair:{std::pair{L"Select",TextEditorUI::SelectId},{L"Text",TextEditorUI::TextId},{L"Undo",TextEditorUI::UndoId},{L"Redo",TextEditorUI::RedoId},{L"Delete",TextEditorUI::DeleteId},{L"Save",TextEditorUI::SaveId}})
+        for(auto pair:{std::pair{L"Select",TextEditorUI::SelectId},{L"Text",TextEditorUI::TextId},{L"Undo",TextEditorUI::UndoId},{L"Redo",TextEditorUI::RedoId},{L"Save",TextEditorUI::SaveId}})
             Action(pair.first,[this,id=pair.second]{editor.Command(id);});
         for(auto pair:{std::pair{L"NewDeck",TextEditorUI::NewIdControl},{L"OpenDeck",TextEditorUI::OpenId},{L"SaveDeck",TextEditorUI::SaveId}})
             Find<controls::MenuFlyoutItem>(pair.first).Click([this,id=pair.second](auto&&,auto&&){try{editor.Command(id);}catch(...){EditorError(window);}});
@@ -208,33 +261,38 @@ public:
         auto sources=Find<controls::ComboBox>(L"Camera");sources.Items().Append(winrt::box_value(L"Test pattern"));
         for(auto& device:devices)sources.Items().Append(winrt::box_value(device.name));sources.SelectedIndex(0);
         sources.SelectionChanged([this,camera](auto&&,auto&&){if(!syncing)try{camera(Find<controls::ComboBox>(L"Camera").SelectedIndex());}catch(...){EditorError(window);}});
-        Action(L"Card",[this]{editor.NewCardSelection();Bottom<controls::TextBox>(L"Prompt").Focus(ux::FocusState::Programmatic);});Action(L"DeleteCard",[this]{editor.Command(TextEditorUI::DeleteId);});
-        Action(L"Output",output);Action(L"Color",[this]{editor.ChooseTextColor();});
-        Action(L"Image",[this]{editor.ChooseImage();});Action(L"DeleteImage",[this]{editor.Command(TextEditorUI::DeleteId);});
-        Action(L"BringFront",[this]{editor.OrderForeground(true);});Action(L"SendBack",[this]{editor.OrderForeground(false);});
-        for(auto pair:{std::pair{L"PenTool",TextEditorUI::DrawTool::Pen},{L"EraserTool",TextEditorUI::DrawTool::Eraser},{L"LaserTool",TextEditorUI::DrawTool::Laser}})
+        Action(L"Output",output);
+        Action(L"Annotate",[this]{annotating=!annotating;editor.SetAnnotationMode(annotating);Refresh();Relayout();});
+        Action(L"Pen",[this]{editor.SetDrawingTool(TextEditorUI::DrawTool::Pen);});
+        Action(L"Clear",[this]{editor.ClearAnnotations();});
+        for(auto pair:{std::pair{L"ArrowTool",TextEditorUI::DrawTool::Arrow},{L"RectangleTool",TextEditorUI::DrawTool::Rectangle},{L"EllipseTool",TextEditorUI::DrawTool::Ellipse}})
             Find<controls::MenuFlyoutItem>(pair.first).Click([this,tool=pair.second](auto&&,auto&&){try{editor.SetDrawingTool(tool);}catch(...){EditorError(window);}});
-        Find<controls::ComboBox>(L"InkColor").SelectionChanged([this](auto&&,auto&&){if(syncing)return;constexpr uint32_t colors[]{0xbaf2cd,0xffffff,0xa39bfa,0xff647c,0xffdc64};auto index=Find<controls::ComboBox>(L"InkColor").SelectedIndex();if(index>=0&&index<5)editor.SetPenColor(colors[index]);});
-        Find<controls::ComboBox>(L"InkWidth").SelectionChanged([this](auto&&,auto&&){if(syncing)return;auto index=Find<controls::ComboBox>(L"InkWidth").SelectedIndex();if(index>=0)editor.SetPenWidth(index==0?3:index==1?6:12);});
-        Find<controls::ComboBox>(L"Font").SelectionChanged([this](auto&&,auto&&){if(syncing)return;try{auto value=winrt::unbox_value<winrt::hstring>(Find<controls::ComboBox>(L"Font").SelectedItem());editor.ChangeStyle([&](auto& t){t.family=value;});}catch(...){EditorError(window);}});
-        Find<controls::ComboBox>(L"Alignment").SelectionChanged([this](auto&&,auto&&){if(syncing)return;try{auto index=Find<controls::ComboBox>(L"Alignment").SelectedIndex();editor.ChangeStyle([index](auto& t){t.alignment=index;});}catch(...){EditorError(window);}});
-        Find<controls::Primitives::ToggleButton>(L"Bold").Click([this](auto&&,auto&&){if(syncing)return;try{auto bold=Find<controls::Primitives::ToggleButton>(L"Bold").IsChecked().Value();editor.ChangeStyle([bold](auto& t){t.bold=bold;});}catch(...){EditorError(window);}});
-        Find<controls::NumberBox>(L"FontSize").ValueChanged([this](auto&&,auto&&){try{CommitSize();}catch(...){EditorError(window);}});
-        Bottom<controls::Button>(L"NewCard").Click([this](auto&&,auto&&){editor.NewCardSelection();Bottom<controls::TextBox>(L"Prompt").Focus(ux::FocusState::Programmatic);});
+        Action(L"InkColor",[this]{ChooseAnnotationColor();});
+        Find<controls::ComboBox>(L"InkWidth").SelectionChanged([this](auto&&,auto&&){if(syncing)return;try{auto index=Find<controls::ComboBox>(L"InkWidth").SelectedIndex();if(index>=0)editor.SetAnnotationSize(index);}catch(...){EditorError(window);}});
+        Bottom<controls::Button>(L"NewCard").Click([this](auto&&,auto&&){try{OpenComposer(true);}catch(...){EditorError(window);}});
+        Bottom<controls::Button>(L"CloseComposer").Click([this](auto&&,auto&&){composerOpen=false;RefreshComposer();});
+        Bottom<controls::Button>(L"ImportImage").Click([this](auto&&,auto&&){try{editor.ChooseImage();if(editor.CardSelected())OpenComposer(false);}catch(...){EditorError(window);}});
+        Bottom<controls::Button>(L"HideCard").Click([this](auto&&,auto&&){try{editor.HideCard();}catch(...){EditorError(window);}});
         Bottom<controls::Button>(L"Generate").Click([this](auto&&,auto&&){Generate();});
         Bottom<controls::Button>(L"RetryGeneration").Click([this](auto&&,auto&&){Generate(true);});
         Bottom<controls::Button>(L"CancelGeneration").Click([this](auto&&,auto&&){job.Cancel();generating=false;AiMessage(L"Canceled. Your cards are unchanged.");RefreshComposer();});
-        Bottom<controls::Button>(L"AiSettings").Click([this](auto&&,auto&&){try{ShowAiSettings();}catch(...){EditorError(window);}});
-        Bottom<controls::TextBox>(L"Prompt").KeyDown([this](auto&&,ux::Input::KeyRoutedEventArgs const& args){if(args.Key()==winrt::Windows::System::VirtualKey::Enter){Generate();args.Handled(true);}});
+        Find<controls::MenuFlyoutItem>(L"AiSettings").Click([this](auto&&,auto&&){try{ShowAiSettings();}catch(...){EditorError(window);}});
+        Bottom<controls::TextBox>(L"Prompt").KeyDown([this](auto&&,ux::Input::KeyRoutedEventArgs const& args){if(args.Key()==winrt::Windows::System::VirtualKey::Enter&&(GetKeyState(VK_CONTROL)&0x8000)){Generate();args.Handled(true);}});
         editor.StateChanged=[this]{Refresh();};Refresh();
         BOOL dark=TRUE;DwmSetWindowAttribute(window,DWMWA_USE_IMMERSIVE_DARK_MODE,&dark,sizeof(dark));
     }
     ~WinUIShell(){lifetime.reset();job.Cancel();editor.StateChanged={};if(settingsDialog)settingsDialog.Hide();if(settingsIsland)settingsIsland.Close();if(top)top.Close();if(bottom)bottom.Close();}
     void Layout(int width,int height,double scale){
         if(settingsIsland)settingsIsland.SiteBridge().MoveAndResize({0,0,width,height});
-        int topHeight=static_cast<int>(128*scale),bottomHeight=static_cast<int>(150*scale);
-        top.SiteBridge().MoveAndResize({0,0,width,topHeight});bottom.SiteBridge().MoveAndResize({0,std::max(topHeight,height-bottomHeight),width,bottomHeight});
+        int topHeight=static_cast<int>(HeaderHeight()*scale),sidebar=static_cast<int>(300*scale),headerHeight=static_cast<int>(72*scale);
+        top.SiteBridge().MoveAndResize({0,0,width,topHeight});
+        // Exclude the sidebar from the lower header row; sibling islands otherwise
+        // cover its heading and Create button with the header's opaque background.
+        auto region=CreateRectRgn(0,0,width,headerHeight);if(annotating){auto toolbar=CreateRectRgn(sidebar,headerHeight,width,topHeight);CombineRgn(region,region,toolbar,RGN_OR);DeleteObject(toolbar);}
+        if(!SetWindowRgn(winrt::Microsoft::UI::GetWindowFromWindowId(top.SiteBridge().WindowId()),region,TRUE))DeleteObject(region);
+        bottom.SiteBridge().MoveAndResize({0,headerHeight,sidebar,std::max(1,height-headerHeight)});
     }
+    int HeaderHeight()const{return annotating?128:72;}
     void CameraIndex(int index){syncing=true;Find<controls::ComboBox>(L"Camera").SelectedIndex(index);syncing=false;}
     void Status(const std::wstring& message,bool busy,bool running){
         PollGeneration();
@@ -246,29 +304,22 @@ public:
         auto save=Find<controls::TextBlock>(L"SaveState");winrt::hstring saved=editor.Dirty()?L"Unsaved changes":L"No unsaved changes";if(save.Text()!=saved)save.Text(saved);
     }
     void Refresh(){
-        syncing=true;auto selection=editor.Selection();
-        auto tool=editor.DrawingTool();bool drawing=tool!=TextEditorUI::DrawTool::None,pen=tool==TextEditorUI::DrawTool::Pen;
-        Find<controls::Button>(L"Draw").Content(winrt::box_value(pen?L"Pen":tool==TextEditorUI::DrawTool::Eraser?L"Eraser":tool==TextEditorUI::DrawTool::Laser?L"Laser":L"Draw"));
-        Find<controls::Button>(L"Draw").Background(ux::Media::SolidColorBrush(drawing?winrt::Windows::UI::Color{255,76,69,116}:winrt::Windows::UI::Color{255,48,47,53}));
-        Find<controls::StackPanel>(L"InkProperties").Visibility(pen?ux::Visibility::Visible:ux::Visibility::Collapsed);
-        constexpr uint32_t colors[]{0xbaf2cd,0xffffff,0xa39bfa,0xff647c,0xffdc64};for(int i=0;i<5;++i)if(editor.PenColor()==colors[i])Find<controls::ComboBox>(L"InkColor").SelectedIndex(i);
-        Find<controls::ComboBox>(L"InkWidth").SelectedIndex(editor.PenWidth()<=3?0:editor.PenWidth()<=6?1:2);
-        Find<controls::Button>(L"DeleteCard").Visibility(editor.CardSelected()?ux::Visibility::Visible:ux::Visibility::Collapsed);
-        Find<controls::Button>(L"DeleteImage").Visibility(editor.ImageSelected()?ux::Visibility::Visible:ux::Visibility::Collapsed);
-        Find<controls::StackPanel>(L"LayerProperties").Visibility(selection||editor.ImageSelected()?ux::Visibility::Visible:ux::Visibility::Collapsed);
-        Find<controls::StackPanel>(L"TextProperties").Visibility(selection?ux::Visibility::Visible:ux::Visibility::Collapsed);
-        Find<controls::TextBlock>(L"ToolHint").Visibility(selection||pen||editor.ImageSelected()?ux::Visibility::Collapsed:ux::Visibility::Visible);
-        Find<controls::TextBlock>(L"ToolHint").Text(tool==TextEditorUI::DrawTool::Eraser?L"Drag across strokes to erase":tool==TextEditorUI::DrawTool::Laser?L"Drag to point; trails fade":editor.TextTool()?L"Click the stage to place text":editor.CardSelected()?L"Drag to move; handles resize":L"Add text, cards, or drawing");
+        syncing=true;auto tool=editor.DrawingTool();
+        if(!annotating&&(editor.TextTool()||tool!=TextEditorUI::DrawTool::None)){annotating=true;editor.EnableAnnotationSelection();Relayout();}
+        Find<controls::Border>(L"MarkupBar").Visibility(annotating?ux::Visibility::Visible:ux::Visibility::Collapsed);
+        auto activeBrush=ux::Media::SolidColorBrush(winrt::Windows::UI::Color{255,76,69,116}),idleBrush=ux::Media::SolidColorBrush(winrt::Windows::UI::Color{255,48,47,53});
+        Find<controls::Button>(L"Annotate").Background(annotating?activeBrush:idleBrush);
+        Find<controls::Button>(L"Select").Background(tool==TextEditorUI::DrawTool::None&&!editor.TextTool()?activeBrush:idleBrush);
+        Find<controls::Button>(L"Text").Background(editor.TextTool()?activeBrush:idleBrush);
+        Find<controls::Button>(L"Pen").Background(tool==TextEditorUI::DrawTool::Pen?activeBrush:idleBrush);
+        bool shape=tool==TextEditorUI::DrawTool::Arrow||tool==TextEditorUI::DrawTool::Rectangle||tool==TextEditorUI::DrawTool::Ellipse;
+        Find<controls::Button>(L"Shapes").Background(shape?activeBrush:idleBrush);
+        Find<controls::Button>(L"Shapes").Content(winrt::box_value(tool==TextEditorUI::DrawTool::Arrow?L"↗  ▾":tool==TextEditorUI::DrawTool::Ellipse?L"○  ▾":L"□  ▾"));
+        auto color=editor.AnnotationColor();
+        Find<controls::Border>(L"ColorSwatch").Background(ux::Media::SolidColorBrush(winrt::Windows::UI::Color{255,BYTE(color>>16),BYTE(color>>8),BYTE(color)}));
+        Find<controls::ComboBox>(L"InkWidth").SelectedIndex(editor.AnnotationSize());
         Find<controls::Button>(L"Undo").IsEnabled(editor.CanUndo());Find<controls::Button>(L"Redo").IsEnabled(editor.CanRedo());
-        for(auto name:{L"Text",L"Select"}){
-            bool active=!drawing&&editor.TextTool()==(std::wstring_view(name)==L"Text");
-            Find<controls::Button>(name).Background(ux::Media::SolidColorBrush(active?winrt::Windows::UI::Color{255,76,69,116}:winrt::Windows::UI::Color{255,48,47,53}));
-        }
-        if(selection){auto& t=*selection;
-            Find<controls::ComboBox>(L"Font").SelectedItem(winrt::box_value(t.family));Find<controls::NumberBox>(L"FontSize").Value(t.size);
-            Find<controls::Primitives::ToggleButton>(L"Bold").IsChecked(t.bold);Find<controls::ComboBox>(L"Alignment").SelectedIndex(t.alignment);
-        }
-        syncing=false;RefreshComposer();
+        RefreshCards();syncing=false;RefreshComposer();
     }
     bool Key(const MSG& message){
         if(message.message!=WM_KEYDOWN)return false;
