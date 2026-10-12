@@ -30,6 +30,7 @@ struct Frames {
     std::atomic<uint64_t> sequence{0};
     std::shared_ptr<Frame> idle=Pattern(0,true);
     std::shared_ptr<Frame> Current() {
+        if(!demanded)return idle;
         auto f=composed.load();
         return GetTickCount64()-f->header.capturedMs>750?idle:f;
     }
@@ -241,11 +242,12 @@ struct App {
     std::wstring cameraStatus=L"Camera output is off";
     size_t consumerCount=0;
     std::vector<std::wstring> shownCards;
-    ULONGLONG lastObservation=0;
+    ULONGLONG lastObservation=0,lastAccountRefresh=GetTickCount64();
+    bool accessWasLocked=true;
     RECT stage{};
     ~App(){if(capture)capture->Close();if(activation.joinable())activation.join();publisher.reset();}
     void StartOutput(){
-        if(activating)return;
+        if(!CloudAccessAllowed()||activating)return;
         if(activation.joinable())activation.join();
         if(virtualCamera)return;
         activating=true;activationResult=S_FALSE;outputError=S_OK;cameraStatus=L"Starting virtual camera…";
@@ -259,7 +261,7 @@ struct App {
     bool PreviewVisible()const{return window&&IsWindowVisible(window)&&!IsIconic(window);}
     void UpdateDemand(){
         consumerCount=demand?demand->Poll():0;
-        const bool needed=NeedsCameraFrames(PreviewVisible(),consumerCount,frames->lastFrameRequest.load());
+        const bool needed=CloudAccessAllowed()&&NeedsCameraFrames(PreviewVisible(),consumerCount,frames->lastFrameRequest.load());
         frames->demanded=needed;
         if(!needed||cameraIndex<=0){
             if(capture){capture->Close();capture.Reset();}
@@ -290,8 +292,16 @@ struct App {
         InvalidateRect(window,nullptr,FALSE);
     }
     void Tick(){
+        if(shell)shell->SyncAccess();
+        const bool locked=!CloudAccessAllowed();
+        if(locked){
+            if(!activating&&virtualCamera){if(activation.joinable())activation.join();virtualCamera->Stop();virtualCamera.Reset();}
+            preview.clear();
+        }else if(accessWasLocked&&!shellOnly)StartOutput();
+        accessWasLocked=locked;
+        if(CloudEnabled()&&GetTickCount64()-lastAccountRefresh>=60000){lastAccountRefresh=GetTickCount64();CloudRefresh();}
         UpdateDemand();
-        if(editor)editor->TickInk();
+        if(editor&&!locked)editor->TickInk();
         if(shellOnly&&frames->demanded){
             if(frames->mode==1)frames->latest=Pattern(++frames->sequence);
             auto background=frames->latest.load();if(GetTickCount64()-background->header.capturedMs>750)background=frames->idle;
@@ -331,7 +341,7 @@ struct App {
                 !activating&&virtualCamera!=nullptr,LiveDeliveryRecent(GetTickCount64(),frames->lastLiveDelivery.load()),
                 FAILED(error)?error:outputError,message);
         }
-        if(PreviewVisible()){
+        if(PreviewVisible()&&!locked){
             if(editor&&editor->IsEditing()){
                 auto background=frames->latest.load();
                 if(GetTickCount64()-background->header.capturedMs>750)background=frames->idle;
@@ -350,7 +360,7 @@ LRESULT CALLBACK WindowProc(HWND window,UINT msg,WPARAM wp,LPARAM lp){
     try{
     static const UINT taskbarCreated=RegisterWindowMessageW(L"TaskbarCreated");
     if(msg==taskbarCreated){if(!app->tray.Recreate(window))TrayIcon::Open(window);return 0;}
-    if(app->editor){for(const auto& change:app->frames->cards->TakeStates())app->editor->ApplyCardState(change.id,change.epoch,change.html,change.state);LRESULT result;if(app->editor->Message(msg,wp,lp,result))return result;}
+    if(app->editor&&CloudAccessAllowed()){for(const auto& change:app->frames->cards->TakeStates())app->editor->ApplyCardState(change.id,change.epoch,change.html,change.state);LRESULT result;if(app->editor->Message(msg,wp,lp,result))return result;}
     switch(msg){
     case WM_CREATE:{
         app->editor=std::make_unique<TextEditorUI>(window,[app](auto overlay){app->frames->overlay=std::move(overlay);},false);
@@ -375,17 +385,17 @@ LRESULT CALLBACK WindowProc(HWND window,UINT msg,WPARAM wp,LPARAM lp){
         if(dc){
             HBRUSH background=CreateSolidBrush(RGB(28,28,32));FillRect(dc,&client,background);DeleteObject(background);
             FillRect(dc,&app->stage,static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));
-            if(!app->preview.empty()){
+            if(CloudAccessAllowed()&&!app->preview.empty()){
             BITMAPINFO info{};info.bmiHeader.biSize=sizeof(BITMAPINFOHEADER);info.bmiHeader.biWidth=Width;info.bmiHeader.biHeight=-static_cast<LONG>(Height);
             info.bmiHeader.biPlanes=1;info.bmiHeader.biBitCount=32;info.bmiHeader.biCompression=BI_RGB;
             SetStretchBltMode(dc,HALFTONE);SetBrushOrgEx(dc,0,0,nullptr);
             auto r=app->stage;StretchDIBits(dc,r.left,r.top,r.right-r.left,r.bottom-r.top,0,0,Width,Height,app->preview.data(),&info,DIB_RGB_COLORS,SRCCOPY);
             }
-            if(app->editor)app->editor->PaintAdorners(dc);
+            if(app->editor&&CloudAccessAllowed())app->editor->PaintAdorners(dc);
             const auto& r=ps.rcPaint;
             BitBlt(target,r.left,r.top,r.right-r.left,r.bottom-r.top,dc,r.left,r.top,SRCCOPY);
         }
-        EndPaint(window,&ps);if(app->editor)app->editor->RefreshEdit();return 0;}
+        EndPaint(window,&ps);if(app->editor&&CloudAccessAllowed())app->editor->RefreshEdit();return 0;}
     case WM_CLOSE:
         if(app->tray.Add(window)){ShowWindow(window,SW_HIDE);app->UpdateDemand();}
         else MessageBoxW(window,L"Could not add the tray icon. Callayers will stay open so you can reach it.",L"Callayers",MB_OK|MB_ICONERROR);

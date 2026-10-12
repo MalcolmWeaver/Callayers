@@ -21,12 +21,13 @@ export async function desktopUser(req: FastifyRequest) {
   return session.uid as string;
 }
 export async function adminUser(req: FastifyRequest) {
-  const user = await googleUser(req);
-  if (!(await db.collection('admins').doc(user.uid).get()).exists) throw new ApiError(403, 'admin_required', 'This Google account is not an administrator.');
-  return user.uid;
+  const uid = await desktopUser(req);
+  if (!(await db.collection('admins').doc(uid).get()).exists) throw new ApiError(403, 'admin_required', 'This Google account is not an administrator.');
+  return uid;
 }
 
 export async function startLogin(req: FastifyRequest) {
+  if (!config.PUBLIC_ORIGIN || !config.FIREBASE_WEB_API_KEY) throw new ApiError(503, 'login_unconfigured', 'Sign-in configuration is not complete yet.');
   await rateLimit('login:' + req.ip, 12, 60000);
   const { challenge } = z.object({ challenge: z.string().regex(/^[a-f0-9]{64}$/) }).strict().parse(req.body);
   const id = secret();

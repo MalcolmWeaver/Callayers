@@ -10,7 +10,7 @@ function Invoke-Cloud {
 }
 # Run after creating this project, linking billing, and enabling Firebase in its console.
 Invoke-Cloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com `
-    firestore.googleapis.com identitytoolkit.googleapis.com secretmanager.googleapis.com firebasehosting.googleapis.com --project $ProjectId
+    firestore.googleapis.com identitytoolkit.googleapis.com secretmanager.googleapis.com  --project $ProjectId
 $identity = "callayers-api@$ProjectId.iam.gserviceaccount.com"
 $existingIdentities = @(Invoke-Cloud iam service-accounts list --project $ProjectId --format 'value(email)')
 if ($existingIdentities -notcontains $identity) { Invoke-Cloud iam service-accounts create callayers-api --display-name 'Callayers backend' --project $ProjectId }

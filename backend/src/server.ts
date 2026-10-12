@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import { config, db, hash, ApiError, rateLimit, accountRef, month } from './core.js';
 import { startLogin, approveLogin, exchangeLogin, desktopUser, adminUser, googleUser } from './auth.js';
@@ -8,7 +9,7 @@ import { capture } from './telemetry.js';
 const app = Fastify({ bodyLimit: 350000, logger: true, disableRequestLogging: true, trustProxy: false });
 app.addHook('onRequest', async (req, reply) => {
   reply.header('Cache-Control', 'no-store').header('X-Content-Type-Options','nosniff');
-  // Browser UI is served through Firebase Hosting's same-origin /v1 rewrite. No wildcard CORS.
+  // The browser sign-in page and API share this Cloud Run origin. No wildcard CORS.
   if (req.headers.origin && req.headers.origin !== config.PUBLIC_ORIGIN) throw new ApiError(403, 'origin_rejected', 'Unrecognized website.');
 });
 app.setErrorHandler((error, req, reply) => {
@@ -19,12 +20,32 @@ app.setErrorHandler((error, req, reply) => {
   if (status >= 500) app.log.error({ code, requestId: req.id }, 'Request failed');
   reply.code(status).send({ code, message: error instanceof ApiError ? error.message : 'The service is temporarily unavailable. Please try later.' });
 });
+// Serve only these bundled files; arbitrary paths never reach the filesystem.
+for (const [route, file, type] of [
+  ['/', 'login.html', 'text/html; charset=utf-8'],
+  ['/login.html', 'login.html', 'text/html; charset=utf-8'],
+  ['/app.js', 'app.js', 'text/javascript; charset=utf-8'],
+  ['/style.css', 'style.css', 'text/css; charset=utf-8']
+] as const) {
+  const bytes = readFileSync(new URL('../web-dist/' + file, import.meta.url));
+  app.get(route, async (_req, reply) => reply.type(type)
+    .header('Referrer-Policy', 'no-referrer').header('X-Frame-Options', 'DENY')
+    .header('Content-Security-Policy', "default-src 'self'; script-src 'self' https://apis.google.com; connect-src 'self' https://*.googleapis.com https://*.firebaseapp.com; frame-src https://*.firebaseapp.com https://accounts.google.com; img-src 'self' https://*.googleusercontent.com; style-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
+    .send(bytes));
+}
+app.get('/v1/client-config', async () => {
+  if (!config.FIREBASE_WEB_API_KEY) throw new ApiError(503, 'login_unconfigured', 'Sign-in configuration is not complete yet.');
+  return { apiKey: config.FIREBASE_WEB_API_KEY, projectId: config.GOOGLE_CLOUD_PROJECT, authDomain: config.GOOGLE_CLOUD_PROJECT + '.firebaseapp.com' };
+});
 app.get('/health', async () => ({ ok: true }));
 app.post('/v1/login/start', startLogin);
 app.post('/v1/login/approve', approveLogin);
 app.post('/v1/login/exchange', exchangeLogin);
-app.get('/v1/browser/me', async req => { const u = await googleUser(req); return { uid: u.uid, email: u.email, admin: (await db.collection('admins').doc(u.uid).get()).exists }; });
-app.get('/v1/account', async req => accountStatus(await desktopUser(req)));
+app.get('/v1/browser/me', async req => { const u = await googleUser(req); return { uid: u.uid, email: u.email }; });
+app.get('/v1/account', async req => {
+  const uid = await desktopUser(req);
+  return { ...await accountStatus(uid), administrator: (await db.collection('admins').doc(uid).get()).exists };
+});
 app.post('/v1/logout', async req => {
   await desktopUser(req); const token = req.headers.authorization!.slice(7);
   await db.collection('sessions').doc(hash(token)).delete(); return { signedOut: true };
@@ -40,7 +61,7 @@ app.get('/v1/admin/accounts', async req => {
   let query = email ? db.collection('accounts').where('email','==',email) : db.collection('accounts').orderBy('createdAt','desc');
   if (!email && cursor) query = query.startAfter(cursor);
   const rows = await query.limit(50).get();
-  return { accounts: rows.docs.map(d => ({ uid: d.id, ...d.data() })), nextCursor: rows.size === 50 ? rows.docs.at(-1)!.data().createdAt : null };
+  return { accounts: rows.docs.map(d => ({ uid: d.id, ...d.data() })), nextCursor: !email && rows.size === 50 ? rows.docs.at(-1)!.data().createdAt : null };
 });
 app.get<{ Params: { uid: string } }>('/v1/admin/accounts/:uid', async req => {
   await adminUser(req); const uid = z.string().min(1).max(128).regex(/^[^/]+$/).parse(req.params.uid);
@@ -50,6 +71,7 @@ app.get<{ Params: { uid: string } }>('/v1/admin/accounts/:uid', async req => {
 app.patch<{ Params: { uid: string } }>('/v1/admin/accounts/:uid', async req => {
   const actor = await adminUser(req); const uid = z.string().min(1).max(128).regex(/^[^/]+$/).parse(req.params.uid);
   const change = z.object({ approved: z.boolean(), paid: z.boolean(), disabled: z.boolean() }).strict().parse(req.body);
+  if (actor === uid && change.disabled) throw new ApiError(400, 'self_disable', 'Use another administrator to disable your own account.');
   await db.runTransaction(async tx => {
     const ref = accountRef(uid); const old = await tx.get(ref);
     if (!old.exists) throw new ApiError(404, 'account_not_found', 'Account not found.');

@@ -7,7 +7,8 @@ import { z } from 'zod';
 const positive = (fallback: number) => z.coerce.number().finite().positive().default(fallback);
 const env = z.object({
   GOOGLE_CLOUD_PROJECT: z.string().min(1),
-  PUBLIC_ORIGIN: z.url().refine(v => v.startsWith('https://') && new URL(v).pathname === '/'),
+  PUBLIC_ORIGIN: z.url().refine(v => v.startsWith('https://') && new URL(v).pathname === '/').optional(),
+  FIREBASE_WEB_API_KEY: z.string().min(1).optional(),
   TRIAL_DAYS: positive(7), TRIAL_USD: positive(1), PAID_MONTHLY_USD: positive(10), GLOBAL_MONTHLY_USD: positive(25),
   MAX_INPUT_BYTES: z.coerce.number().int().min(1024).max(250000).default(120000),
   MAX_OUTPUT_TOKENS: z.coerce.number().int().min(100).max(16000).default(12000),
@@ -21,7 +22,7 @@ const env = z.object({
   POSTHOG_HOST: z.enum(['https://us.i.posthog.com', 'https://eu.i.posthog.com']).default('https://us.i.posthog.com'),
   PORT: z.coerce.number().default(8080)
 }).parse(process.env);
-export const config = { ...env, PUBLIC_ORIGIN: new URL(env.PUBLIC_ORIGIN).origin };
+export const config = { ...env, PUBLIC_ORIGIN: env.PUBLIC_ORIGIN ? new URL(env.PUBLIC_ORIGIN).origin : undefined };
 initializeApp({ credential: applicationDefault(), projectId: config.GOOGLE_CLOUD_PROJECT });
 export const db = getFirestore();
 export const auth = getAuth();

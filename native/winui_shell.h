@@ -3,15 +3,15 @@
 #include "ai_client.h"
 #include "cloud_client.h"
 #include "card_host.h"
+#ifdef GetCurrentTime
+#undef GetCurrentTime
+#endif
 #include <winrt/Microsoft.UI.Xaml.Media.Imaging.h>
 #include <winrt/Windows.Storage.Streams.h>
 #include <robuffer.h>
 #include <MddBootstrap.h>
 #include <winrt/Microsoft.UI.Interop.h>
 #include <Microsoft.UI.Dispatching.Interop.h>
-#ifdef GetCurrentTime
-#undef GetCurrentTime
-#endif
 #include <winrt/Microsoft.UI.Dispatching.h>
 #include <winrt/Microsoft.UI.Content.h>
 #include <winrt/Microsoft.UI.Xaml.h>
@@ -27,6 +27,7 @@
 #include <winrt/Windows.UI.Xaml.Interop.h>
 #include <dwmapi.h>
 #include "setup_panel.h"
+#include "admin_panel.h"
 
 namespace callayers {
 namespace ux=winrt::Microsoft::UI::Xaml;
@@ -47,6 +48,9 @@ class WinUIShell {
     hosting::DesktopWindowXamlSource top{nullptr},bottom{nullptr},settingsIsland{nullptr};
     controls::ContentDialog settingsDialog{nullptr};
     controls::TextBlock accountStatus{nullptr};
+    controls::Button adminButton{nullptr};
+    bool openAdminAfterAccount=false,accountGate=false;
+    std::unique_ptr<AdminPanel> adminPanel;
     controls::Border colorPanel{nullptr};
     RECT colorPanelRegion{};
     std::shared_ptr<int> lifetime=std::make_shared<int>(0);
@@ -143,14 +147,31 @@ class WinUIShell {
         controls::Grid root;root.Background(ux::Media::SolidColorBrush(winrt::Windows::UI::Color{255,28,28,32}));settingsIsland.Content(root);
         RECT bounds;GetClientRect(window,&bounds);settingsIsland.SiteBridge().MoveAndResize({0,0,bounds.right,bounds.bottom});
         SetWindowPos(winrt::Microsoft::UI::GetWindowFromWindowId(settingsIsland.SiteBridge().WindowId()),HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
-        controls::ContentDialog dialog;settingsDialog=dialog;dialog.XamlRoot(root.XamlRoot());dialog.RequestedTheme(ux::ElementTheme::Dark);dialog.Title(winrt::box_value(L"Callayers account"));dialog.CloseButtonText(L"Close");
+        controls::ContentDialog dialog;settingsDialog=dialog;dialog.XamlRoot(root.XamlRoot());dialog.RequestedTheme(ux::ElementTheme::Dark);dialog.Title(winrt::box_value(L"Callayers account"));accountGate=!CloudAccessAllowed();dialog.CloseButtonText(accountGate?L"":L"Close");
+        dialog.Closing([weak=std::weak_ptr<int>(lifetime)](auto&&,controls::ContentDialogClosingEventArgs const& args){if(!weak.expired()&&!CloudAccessAllowed())args.Cancel(true);});
         controls::StackPanel panel;panel.Spacing(12);panel.MinWidth(400);accountStatus=controls::TextBlock();accountStatus.TextWrapping(ux::TextWrapping::Wrap);panel.Children().Append(accountStatus);
-        controls::TextBlock privacy;privacy.Text(L"AI requests send your prompt and selected card context to Callayers and its AI provider. Webcam frames and image files stay local. Content-free usage and error events help improve Callayers. Local cards and camera work without signing in.");privacy.TextWrapping(ux::TextWrapping::Wrap);panel.Children().Append(privacy);
+        controls::TextBlock privacy;privacy.Text(L"AI requests send your prompt and selected card context to Callayers and its AI provider. Webcam frames and image files stay local. Content-free usage and error events help improve Callayers. Sign in with Google to use Callayers.");privacy.TextWrapping(ux::TextWrapping::Wrap);panel.Children().Append(privacy);
         controls::Button signin;signin.Content(winrt::box_value(L"Sign in with Google"));signin.IsEnabled(CloudEnabled());signin.Click([](auto&&,auto&&){CloudSignIn();});panel.Children().Append(signin);
         controls::Button refresh;refresh.Content(winrt::box_value(L"Refresh account"));refresh.Click([](auto&&,auto&&){CloudRefresh();});panel.Children().Append(refresh);
         controls::Button signout;signout.Content(winrt::box_value(L"Sign out / cancel sign-in"));signout.Click([](auto&&,auto&&){CloudSignOut();});panel.Children().Append(signout);
-        dialog.Content(panel);dialog.Closed([this,weak=std::weak_ptr<int>(lifetime)](auto&&,auto&&){if(weak.expired())return;header.DispatcherQueue().TryEnqueue([this,weak]{if(weak.expired())return;accountStatus=nullptr;settingsDialog=nullptr;if(settingsIsland)settingsIsland.Close();settingsIsland=nullptr;SetFocus(window);});});
-        CloudRefresh();auto a=CloudGetAccount();accountStatus.Text(a.email+L"\n"+a.message);dialog.ShowAsync();
+        adminButton=controls::Button();adminButton.Content(winrt::box_value(L"Administration"));adminButton.Visibility(ux::Visibility::Collapsed);
+        adminButton.Click([this](auto&&,auto&&){openAdminAfterAccount=true;settingsDialog.Hide();});panel.Children().Append(adminButton);
+        dialog.Content(panel);dialog.Closed([this,weak=std::weak_ptr<int>(lifetime)](auto&&,auto&&){if(weak.expired())return;header.DispatcherQueue().TryEnqueue([this,weak]{if(weak.expired())return;accountStatus=nullptr;adminButton=nullptr;settingsDialog=nullptr;if(settingsIsland)settingsIsland.Close();settingsIsland=nullptr;SetFocus(window);bool open=openAdminAfterAccount;openAdminAfterAccount=false;if(open)try{ShowAdmin();}catch(...){EditorError(window);}});});
+        auto a=CloudGetAccount();accountStatus.Text(a.email+L"\n"+a.message);dialog.ShowAsync();
+    }
+
+    void ShowAdmin(){
+        auto account=CloudGetAccount();if(settingsIsland||!account.signedIn||!account.administrator)return;
+        // Construct before creating the island so a request startup error leaves no modal behind.
+        auto panel=std::make_unique<AdminPanel>();
+        settingsIsland=hosting::DesktopWindowXamlSource();settingsIsland.Initialize(winrt::Microsoft::UI::GetWindowIdFromWindow(window));
+        controls::Grid root;root.Background(ux::Media::SolidColorBrush(winrt::Windows::UI::Color{255,28,28,32}));settingsIsland.Content(root);
+        RECT bounds;GetClientRect(window,&bounds);settingsIsland.SiteBridge().MoveAndResize({0,0,bounds.right,bounds.bottom});
+        SetWindowPos(winrt::Microsoft::UI::GetWindowFromWindowId(settingsIsland.SiteBridge().WindowId()),HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
+        controls::ContentDialog dialog;settingsDialog=dialog;dialog.XamlRoot(root.XamlRoot());dialog.RequestedTheme(ux::ElementTheme::Dark);
+        dialog.Title(winrt::box_value(L"Callayers administration"));dialog.CloseButtonText(L"Close");dialog.Content(panel->Root);adminPanel=std::move(panel);
+        dialog.Closed([this,weak=std::weak_ptr<int>(lifetime)](auto&&,auto&&){if(weak.expired())return;header.DispatcherQueue().TryEnqueue([this,weak]{if(weak.expired())return;adminPanel.reset();settingsDialog=nullptr;if(settingsIsland)settingsIsland.Close();settingsIsland=nullptr;SetFocus(window);});});
+        dialog.ShowAsync();
     }
 
     template<class T> T Find(const wchar_t* name){return header.FindName(name).as<T>();}
@@ -348,6 +369,7 @@ public:
         Bottom<controls::Button>(L"UseInCall").Click([this](auto&&,auto&&){ShowSetup(2);});
         editor.StateChanged=[this]{Refresh();};Refresh();
         if(!SetupFinished())ShowSetup(0);
+        SyncAccess();
         BOOL dark=TRUE;DwmSetWindowAttribute(window,DWMWA_USE_IMMERSIVE_DARK_MODE,&dark,sizeof(dark));
     }
     ~WinUIShell(){lifetime.reset();job.Cancel();editor.StateChanged={};if(settingsDialog)settingsDialog.Hide();if(settingsIsland)settingsIsland.Close();if(top)top.Close();if(bottom)bottom.Close();}
@@ -371,8 +393,19 @@ public:
         if(FAILED(failure))text=L"Camera needs attention";
         if(label.Text()!=text)label.Text(text);
     }
+    void SyncAccess(){
+        const bool allowed=CloudAccessAllowed();header.IsEnabled(allowed);footer.IsEnabled(allowed);
+        if(!allowed){
+            if(generating){job.Cancel();generating=false;RefreshComposer();}
+            if(accountStatus){accountGate=true;settingsDialog.CloseButtonText(L"");}
+            else if(settingsDialog)settingsDialog.Hide();
+            else if(colorPanel)CloseColorPicker();
+            else if(!settingsIsland)ShowAccount();
+        }else if(accountStatus&&accountGate){accountGate=false;settingsDialog.CloseButtonText(L"Close");settingsDialog.Hide();}
+    }
     void Status(const std::wstring& message,bool busy,bool running){
-        if(accountStatus){auto a=CloudGetAccount();auto text=a.email+L"\n"+a.message;if(accountStatus.Text()!=text)accountStatus.Text(text);}
+        if(accountStatus){auto a=CloudGetAccount();auto text=a.email+L"\n"+a.message;if(accountStatus.Text()!=text)accountStatus.Text(text);if(adminButton)adminButton.Visibility(a.signedIn&&a.administrator?ux::Visibility::Visible:ux::Visibility::Collapsed);}
+        if(adminPanel)adminPanel->Poll();
         PollGeneration();
         auto status=footer.FindName(L"Status").as<controls::TextBlock>();if(status.Text()!=message)status.Text(message);
         auto button=Find<controls::Button>(L"Output");button.IsEnabled(!busy&&!running);
@@ -400,6 +433,7 @@ public:
         RefreshCards();syncing=false;RefreshComposer();
     }
     bool Key(const MSG& message){
+        if(!CloudAccessAllowed())return false;
         if(message.message!=WM_KEYDOWN)return false;
         if(editor.Interacting()&&GetFocus()==window){
             if(message.wParam==VK_ESCAPE){editor.SetInteract(false);return true;}

@@ -3,10 +3,22 @@
 
 namespace callayers {
 struct CloudAccount {
-    bool configured=false,signedIn=false,busy=false;
+    bool configured=false,signedIn=false,busy=false,administrator=false;
     std::wstring message=L"Online service is not configured for this build.",email,uid;
 };
+struct CloudAdminResult { std::string json; std::wstring error; };
+// Workers return plain data; UI polling owns all XAML controls.
+class CloudAdminJob {
+    struct State;
+    std::shared_ptr<State> state;
+public:
+    void Start(const std::wstring& method,const std::wstring& path,const std::string& body={});
+    std::optional<CloudAdminResult> TakeResult();
+    void Cancel(){state.reset();}
+    ~CloudAdminJob(){Cancel();}
+};
 bool CloudEnabled();
+bool CloudAccessAllowed();
 void CloudStart();
 void CloudStop();
 CloudAccount CloudGetAccount();
