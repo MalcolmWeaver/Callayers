@@ -24,6 +24,7 @@ struct Frames {
     std::shared_ptr<CardHost> cards;
     std::atomic<bool> demanded{false};
     std::atomic<ULONGLONG> lastFrameRequest{0};
+    std::atomic<ULONGLONG> lastLiveDelivery{0};
     std::atomic<int> mode{1};
     std::atomic<HRESULT> error{S_OK};
     std::atomic<uint64_t> sequence{0};
@@ -93,7 +94,9 @@ private:
                 if(header.mode==0)header.capturedMs=GetTickCount64();
                 if(Transfer(pipe.value,true,&header,sizeof(header),stop.value,250)&&
                     Transfer(pipe.value,true,f->pixels.data(),FrameBytes,stop.value,250)) {
-                    BYTE ack=0;Transfer(pipe.value,false,&ack,1,stop.value,250);
+                    BYTE ack=0;
+                    if(Transfer(pipe.value,false,&ack,1,stop.value,250)&&ack==1&&header.mode!=0&&
+                        GetTickCount64()-header.capturedMs<=750)frames->lastLiveDelivery=GetTickCount64();
                 }
             }
             DisconnectNamedPipe(pipe.value);
@@ -231,6 +234,7 @@ struct App {
     std::thread activation;
     std::atomic<bool> activating=false;
     std::atomic<HRESULT> activationResult=S_FALSE;
+    HRESULT outputError=S_OK;
     std::vector<Device> devices;
     std::vector<BYTE> preview;
     PreviewBuffer paintBuffer;
@@ -241,7 +245,7 @@ struct App {
         if(activating)return;
         if(activation.joinable())activation.join();
         if(virtualCamera)return;
-        activating=true;activationResult=S_FALSE;cameraStatus=L"Starting virtual camera…";
+        activating=true;activationResult=S_FALSE;outputError=S_OK;cameraStatus=L"Starting virtual camera…";
         activation=std::thread([this]{
             CoInitializeEx(nullptr,COINIT_MULTITHREADED);
             try{auto v=VirtualCamera();Check(v->Start(nullptr));virtualCamera=v;activationResult=S_OK;}
@@ -293,6 +297,7 @@ struct App {
         HRESULT result=activationResult.exchange(S_FALSE);
         if(result==S_OK)cameraStatus=L"Callayers is available in meeting apps — 1920 × 1080, 30 fps.";
         else if(FAILED(result)){
+            outputError=result;
             cameraStatus=L"Cannot start camera: "+ErrorText(result);
             if(result==REGDB_E_CLASSNOTREG)cameraStatus+=L" Run the development registration script first.";
             else if(result==MF_E_SHUTDOWN)cameraStatus+=L" The camera source shut down during startup. Update the camera component and restart Callayers.";
@@ -304,7 +309,13 @@ struct App {
         if(FAILED(error))message=L"Webcam unavailable: "+ErrorText(error)+L" Choose Test pattern or retry the webcam.";
         else if(frames->mode==2&&frame->header.mode==0)message=L"Waiting for webcam frames — idle image is being sent.";
         if(frames->cards&&FAILED(frames->cards->Error()))message=L"Card rendering failed: "+ErrorText(frames->cards->Error())+L". Save your deck and restart Callayers.";
-        if(shell)shell->Status(message,activating,!activating&&virtualCamera!=nullptr);
+        if(shell){
+            shell->Status(message,activating,!activating&&virtualCamera!=nullptr);
+            auto background=frames->latest.load();
+            shell->SetupStatus(SUCCEEDED(error)&&background->header.mode!=0&&GetTickCount64()-background->header.capturedMs<750,
+                !activating&&virtualCamera!=nullptr,LiveDeliveryRecent(GetTickCount64(),frames->lastLiveDelivery.load()),
+                FAILED(error)?error:outputError,message);
+        }
         if(PreviewVisible()){
             if(editor&&editor->IsEditing()){
                 auto background=frames->latest.load();
@@ -416,7 +427,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR command,int show){
             HWND window=CreateWindowW(wc.lpszClassName,L"Callayers",WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,CW_USEDEFAULT,CW_USEDEFAULT,1280,850,nullptr,nullptr,instance,&app);
             if(!window)throw HRESULT_FROM_WIN32(GetLastError());ShowWindow(window,show);
             if(wcsstr(command,L"--smoke-test"))SetTimer(window,2,1500,nullptr);
-            if(wcsstr(command,L"--webcam")&&!app.devices.empty()){
+            if((wcsstr(command,L"--webcam")||app.shell->SetupActive())&&!app.devices.empty()){
                 app.cameraIndex=1;app.shell->CameraIndex(1);app.Select();
             }
             if(wcsstr(command,L"--demo-cards")){app.editor->AddSampleCard();app.editor->AddSampleCard();}

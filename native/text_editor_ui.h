@@ -368,6 +368,19 @@ public:
         Publish();Sync();return true;
     }
 
+    void AddSetupCard(CardElement card){
+        FinishInk();FinishEdit(true);
+        if(document.scene.cards.size()>=12||ElementCount(document.scene)>=100)throw std::runtime_error("This scene has reached its card limit.");
+        auto before=document.scene;document.scene.cards.push_back(std::move(card));
+        selected=selectedImage=selectedInk=-1;selectedCard=static_cast<int>(document.scene.cards.size())-1;
+        focusedCard=document.scene.cards.back().id;textTool=false;drawTool=DrawTool::None;
+        document.Commit(before);playing.push_back(document.scene.cards.back());Publish();Sync();
+    }
+    void UpdateSetupCard(const std::wstring& id,const std::wstring& html){
+        auto target=CaptureCardTarget(document,id);
+        if(target.creating||target.card.html==html)return;
+        AcceptGenerated(target,html,target.card.name);
+    }
     void AddSampleCard(){
         FinishInk();drawTool=DrawTool::None;FinishEdit(true);if(document.scene.cards.size()>=12||ElementCount(document.scene)>=100)throw std::runtime_error("This scene has reached its card limit.");
         auto before=document.scene;auto c=SampleCard(!document.scene.cards.empty());

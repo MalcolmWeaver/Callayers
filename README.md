@@ -52,6 +52,16 @@ Camera creation persists for the current user. Registration of the source DLL is
 
 ## Cards and live annotation
 
+### First-run setup
+
+The sidebar guides new users through three steps beside the live preview:
+
+1. Choose a camera, then **Next**. Permissions and retry controls appear only when needed.
+2. Enter a name and optional second line, then **Create name tag**. This is a fixed transparent template, with no AI request or API key. It appears on camera immediately; edits update the same card. Choose **Next** to continue.
+3. Open Meet, Zoom, or Teams and select **Callayers (Windows Virtual Camera)** in camera settings. Windows appends the virtual-camera suffix to our registered friendly name, **Callayers**. **Next** becomes available after acknowledged fresh video delivery; **I'll do this later** skips connection testing.
+
+Completion is remembered for the Windows user. **Use in a call** reopens the connection guide. The workspace distinguishes camera availability from recent live-frame delivery; a local preview alone does not confirm a connection. Delivery confirms a camera consumer, not meeting participation or a particular calling app. Name tags are regular cards saved with the deck; use Save to keep them.
+
 - **Create with AI** opens the sidebar composer. Describe a card and click **Generate card** (or Ctrl+Enter). Enter alone adds a new line.
 - Cards appear as compact title rows. Click a title to open its AI editor; double-click to rename it. Enter or clicking away commits the title, Escape cancels. The card menu also offers Rename for keyboard users.
 - Each row has an independent **Show on camera** checkbox. Check multiple cards to show them together; uncheck any card to hide just that one. **Hide all** clears the stage.
