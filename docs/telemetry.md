@@ -14,7 +14,7 @@ This is the product measurement reference. [Cloud rollout](cloud-rollout.md) cov
 | Do people get the virtual camera working? | `setup_completed`, `vcam_state_changed` | First detected consumer per installation/service and later consuming/idle transitions. This does not prove a successful meeting or visible frames. Camera consumption still needs production verification. |
 | Is Callayers being used for output or just left open? | Camera transitions; heartbeat consumer count and preview visibility | Approximate periods with a detected consumer, separate from preview visibility and process lifetime. It does not identify the consuming app or human audience. |
 | Are cards used in presentations? | `card_stage_changed`, `card_output_changed`, heartbeat card count | Cards selected into the scene, and selected cards while a consumer exists. It does not measure clicks inside cards, animation playback, or attention. |
-| Are annotations useful? | Heartbeat annotation count in current source | Whether text/ink elements exist at a snapshot. Creation, editing, deletion, and brief use between snapshots are not tracked. |
+| Are annotations useful? | `annotation_changed` actions and heartbeat annotation count | Completed text/drawing actions, including short-lived annotations between snapshots. Separate direct edits from undo/redo and automatic card-change clearing. No content or proof of audience attention. |
 | Do people try AI, and does it work? | `card_generation` with operation, state, request ID | Create/revise attempts and observed desktop outcomes. Failures lack a reason in this PostHog event. Success does not prove the result was kept or presented. |
 | How many tokens and how much allowance does each account use? | Backend AI request ledger and account/month/global spending totals | Provider-reported usage when available, estimated cost, and conservative holds when the provider outcome is unknown. These figures are not currently sent to PostHog. |
 | Where do people encounter failures, and do they recover? | `failure`, `recovery`; AI ledger outcome codes | Instrumented component failures and recovery, grouped by code/version. Not comprehensive crash reporting, performance tracing, or a copy of every screen message. |
@@ -49,7 +49,7 @@ PostHog receives the event UUID as `uuid`, the Firebase UID as `distinct_id`, th
 
 ## Implemented event catalog
 
-The common fields above apply to every row. Names and values here describe the current emitter; the collector's allowlist is in [telemetry.ts](../backend/src/telemetry.ts).
+The common fields above apply to every row. Names and values here describe the current emitter; the collector's allowlist is in [telemetry-schema.ts](../backend/src/telemetry-schema.ts).
 
 | Event | When emitted | Properties | Interpretation |
 | --- | --- | --- | --- |
@@ -61,10 +61,23 @@ The common fields above apply to every row. Names and values here describe the c
 | `card_stage_changed` | Card enters or leaves the selected scene | `state`: `shown`, `removed`; `card_id` | Scene membership, even when the preview is hidden. Not card creation or a manual edit event. |
 | `card_output_changed` | Card enters or leaves the selected scene while consuming; consumption starts/stops with cards selected | `state`: `shown`, `removed`; `card_id` | Intended output membership, not proof that another app displayed a frame. |
 | `card_generation` | Desktop observes a generation lifecycle change | `operation`: `create`, `revise`; `state`: `started`, `succeeded`, `failed`, `canceled`, `discarded`; `request_id` when available | A request may emit `succeeded` followed by `discarded` when its target changed. Cancellation does not prove provider cancellation or zero spend. |
+| `annotation_changed` | Completed annotation mutation at document commit, undo/redo, or automatic card-change clear | `action`: `created`, `edited`, `deleted`, `cleared`; `annotation_type`: `text`, `drawing`; `change_source`: `direct`, `undo`, `redo`, `card_switch`; `count`; `consuming` | One event per action/type group, not per keystroke or pointer movement. No text, geometry, style values, or annotation IDs are uploaded. |
 | `failure` | Instrumented component reports a changed failing condition | `component`, `code`, `native_code` | Stable category and native error number; repeated identical conditions are suppressed. |
 | `recovery` | A previously failing component reports success | `component`, `code`, `native_code` | Requires an observed preceding failure in process state. It is not a general sign-in-success or feature-usage event. |
 
 Heartbeat card counts mean cards selected into the scene. Annotation counts are scene text elements plus ink strokes/shapes; images, card internals, and the transient laser trail are excluded. A nonzero annotation count does not establish when it was edited or whether a viewer saw it. After sleep or a delayed UI tick, the scheduler emits one current snapshot and skips missed slots.
+
+### Annotation action semantics
+
+Text editing emits when the edit is committed; pen/shape/eraser gestures and drags emit when finished. Text, style, position, size, and ordering changes count as edits. A canceled or unchanged action emits nothing. Laser movements, card contents, images, and loading/replacing a document do not emit annotation actions.
+
+`count` is the number of affected annotations in that action/type group. Erasing five strokes in one gesture emits one `deleted / drawing` event with `count=5`. Clearing text and drawings emits up to two `cleared` events, one per nonempty type. An empty clear emits nothing. Committing an unfinished edit before clearing can legitimately emit an edit/create followed by a clear.
+
+Undo and redo report the resulting change with `change_source=undo` or `redo`: undoing a creation emits `deleted / undo`; undoing a clear emits `created / undo`; redoing that clear emits `deleted / redo`. To measure new annotation creation, filter `action=created` and `change_source=direct`. Do not count undo restores as new authoring.
+
+The explicit Clear action uses `action=cleared, change_source=direct`. Showing/hiding cards automatically removes annotations and uses `cleared / card_switch`; it is not evidence that a user chose the Clear tool. `consuming` is the latest locally observed virtual-camera consumer state when the action commits, subject to the same camera verification gap as other events.
+
+The collector requires all five annotation properties and rejects extra properties, including content. Normal account/session fields are attached as for other events. Deploy this collector before the updated client: an older collector rejects `annotation_changed` and can block its entire mixed event batch.
 
 ## AI usage and outcomes
 
@@ -98,6 +111,7 @@ These are working product definitions, not existing dashboards or approved busin
 4. **AI attempts and outcomes:** distinct request IDs by create/revise and lifecycle state. Keep discarded/canceled outcomes visible; do not assume all lifecycle states are mutually exclusive.
 5. **AI spending:** backend usage/cost by account and month, separating confirmed usage estimates from uncertain holds. Use this to investigate heavy usage and allowance exhaustion.
 6. **Reliability:** affected accounts and occurrences by component, code, and build. Counts are instrumented failures, not a complete crash or failure rate.
+7. **Annotation adoption:** distinct accounts/sessions with `annotation_changed`, `action=created`, and `change_source=direct`, broken down by text/drawing and `consuming`. Sum `count` for affected annotations; event row counts measure grouped changes, not necessarily individual objects. Keep restores and automatic clears out of direct-authoring totals.
 
 ## Verification status and gaps
 
@@ -109,7 +123,7 @@ Evidence from the October 12, 2026 read-only PostHog inspection showed process s
 | Setup and card stage/output events | Implemented, not confirmed in the inspected sample | Exercise first consumption and card selection/removal with and without a consumer. |
 | Five-minute heartbeats and snapshot counts | Present in current source; production receipt not established here | Deploy collector first, then client; confirm timing and fields, including annotations present/absent. |
 | Successful AI generation and token accounting | Implemented, not verified in the inspected sample | Enable correctly priced AI for an approved account; reconcile desktop outcome, request ledger, provider usage, and allowance. |
-| Annotation actions | Proposed, not implemented | Add `annotation_changed` with action `created`, `edited`, `deleted`, or `cleared`, type text/drawing, and consuming state. Define completed edit/undo/redo behavior; avoid per-keystroke or per-pointer events and collect no content. |
+| Annotation actions | Implemented in source; production receipt not verified | Deploy collector then desktop. Follow the annotation walkthrough in the rollout guide; check grouped counts, cancellation, undo/redo, automatic clearing, and content-free payloads. |
 | AI failure reasons in analytics | Proposed, not implemented | Add stable categories so configuration/approval/budget/provider failures can be distinguished without collecting messages or prompts. |
 | Manual card edits and interactions | Not tracked directly | Decide which actions answer a product question before instrumenting them. |
 | Install and sign-in funnel | Not implemented | Decide whether acquisition/abandonment measurement warrants events before authentication and its privacy implications. |
@@ -119,4 +133,4 @@ Evidence from the October 12, 2026 read-only PostHog inspection showed process s
 
 For each telemetry change, update the product question, event trigger, properties, privacy boundary, client/server compatibility, and verification status here. Keep proposed events separate from shipped events. Record what was actually observed when closing a gap; a successful build alone does not verify ingestion.
 
-Implementation references: [desktop collection](../native/cloud_client.cpp), [heartbeat schedule](../native/heartbeat.h), [scene observation](../native/app.cpp), [AI lifecycle emission](../native/winui_shell.h), [collector schema](../backend/src/telemetry.ts), and [AI ledger](../backend/src/ai.ts).
+Implementation references: [annotation commits](../native/editor.h), [desktop collection](../native/cloud_client.cpp), [heartbeat schedule](../native/heartbeat.h), [scene observation](../native/app.cpp), [AI lifecycle emission](../native/winui_shell.h), [collector schema](../backend/src/telemetry-schema.ts), and [AI ledger](../backend/src/ai.ts).

@@ -368,6 +368,7 @@ LRESULT CALLBACK WindowProc(HWND window,UINT msg,WPARAM wp,LPARAM lp){
     case WM_CREATE:{
         app->editor=std::make_unique<TextEditorUI>(window,[app](auto overlay){app->frames->overlay=std::move(overlay);},false);
         app->editor->SceneChanged=[app](const Scene& scene){app->shownCards.clear();for(const auto& card:scene.cards)app->shownCards.push_back(card.id);app->frames->cards->SetScene(scene,app->editor->DocumentEpoch());};
+        app->editor->SetAnnotationObserver([app](const AnnotationChange& change){CloudAnnotation(change,app->consumerCount);});
         app->editor->CardMouse=[app](UINT msg,POINT point,WPARAM buttons){app->frames->cards->Mouse(msg,point,buttons);};
         app->editor->CardKey=[app](UINT msg,WPARAM key,LPARAM flags){app->frames->cards->Key(msg,key,flags);};
         app->editor->CardText=[app](const std::wstring& text){app->frames->cards->InsertText(text);};

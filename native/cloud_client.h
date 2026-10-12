@@ -28,6 +28,7 @@ void CloudSignOut();
 void CloudRefresh();
 // Only the fixed, content-free fields accepted by the collector belong in properties.
 void CloudTrack(const wchar_t* event,winrt::Windows::Data::Json::JsonObject properties={});
+void CloudAnnotation(const AnnotationChange& change,size_t consumers);
 void CloudTransition(const wchar_t* event,const wchar_t* state);
 void CloudFailure(const wchar_t* component,const wchar_t* code,HRESULT nativeCode);
 void CloudObserve(bool previewVisible,size_t consumers,const std::vector<std::wstring>& shownCards,size_t annotations);

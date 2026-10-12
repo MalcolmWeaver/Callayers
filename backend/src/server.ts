@@ -5,12 +5,15 @@ import { config, db, hash, ApiError, rateLimit, accountRef, month } from './core
 import { startLogin, approveLogin, exchangeLogin, desktopUser, adminUser, googleUser } from './auth.js';
 import { generate, requestStatus, accountStatus } from './ai.js';
 import { capture } from './telemetry.js';
+import { registerAuthProxy } from './auth-proxy.js';
 
 const app = Fastify({ bodyLimit: 350000, logger: true, disableRequestLogging: true, trustProxy: false });
 app.addHook('onRequest', async (req, reply) => {
   reply.header('Cache-Control', 'no-store').header('X-Content-Type-Options','nosniff');
   // The browser sign-in page and API share this Cloud Run origin. No wildcard CORS.
-  if (req.headers.origin && req.headers.origin !== config.PUBLIC_ORIGIN) throw new ApiError(403, 'origin_rejected', 'Unrecognized website.');
+  // Provider callbacks may be cross-origin. This exception only reaches the
+  // isolated Firebase helper proxy, never our account or login APIs.
+  if (!req.url.startsWith('/__/auth/') && req.headers.origin && req.headers.origin !== config.PUBLIC_ORIGIN) throw new ApiError(403, 'origin_rejected', 'Unrecognized website.');
 });
 app.setErrorHandler((error, req, reply) => {
   if (error instanceof z.ZodError) { reply.code(400).send({ code: 'invalid_request', message: 'The request format is invalid.' }); return; }
@@ -30,12 +33,13 @@ for (const [route, file, type] of [
   const bytes = readFileSync(new URL('../web-dist/' + file, import.meta.url));
   app.get(route, async (_req, reply) => reply.type(type)
     .header('Referrer-Policy', 'no-referrer').header('X-Frame-Options', 'DENY')
-    .header('Content-Security-Policy', "default-src 'self'; script-src 'self' https://apis.google.com; connect-src 'self' https://*.googleapis.com https://*.firebaseapp.com; frame-src https://*.firebaseapp.com https://accounts.google.com; img-src 'self' https://*.googleusercontent.com; style-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
+    .header('Content-Security-Policy', "default-src 'self'; script-src 'self' https://apis.google.com; connect-src 'self' https://*.googleapis.com https://*.firebaseapp.com; frame-src 'self' https://*.firebaseapp.com https://accounts.google.com; img-src 'self' https://*.googleusercontent.com; style-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
     .send(bytes));
 }
+await registerAuthProxy(app, config.GOOGLE_CLOUD_PROJECT);
 app.get('/v1/client-config', async () => {
-  if (!config.FIREBASE_WEB_API_KEY) throw new ApiError(503, 'login_unconfigured', 'Sign-in configuration is not complete yet.');
-  return { apiKey: config.FIREBASE_WEB_API_KEY, projectId: config.GOOGLE_CLOUD_PROJECT, authDomain: config.GOOGLE_CLOUD_PROJECT + '.firebaseapp.com' };
+  if (!config.FIREBASE_WEB_API_KEY || !config.PUBLIC_ORIGIN) throw new ApiError(503, 'login_unconfigured', 'Sign-in configuration is not complete yet.');
+  return { apiKey: config.FIREBASE_WEB_API_KEY, projectId: config.GOOGLE_CLOUD_PROJECT, authDomain: new URL(config.PUBLIC_ORIGIN).host };
 });
 app.get('/health', async () => ({ ok: true }));
 app.post('/v1/login/start', startLogin);

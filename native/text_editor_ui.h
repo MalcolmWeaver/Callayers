@@ -324,6 +324,7 @@ public:
         if(inkPending||hadLaser){inkPending=false;Publish(false,now);}
     }
     std::function<void()> StateChanged;
+    void SetAnnotationObserver(std::function<void(const AnnotationChange&)> observer){document.AnnotationsChanged=std::move(observer);}
     std::function<void(const Scene&)> SceneChanged;
     std::function<void(UINT,POINT,WPARAM)> CardMouse;
     std::function<void(UINT,WPARAM,LPARAM)> CardKey;
@@ -352,7 +353,7 @@ public:
     }
     void SelectCard(int index){interacting=false;FinishInk();FinishEdit(true);selected=selectedImage=selectedInk=-1;selectedCard=index;focusedCard=SelectedCard()?SelectedCard()->id:L"";textTool=false;drawTool=DrawTool::None;Sync();}
     void HideCard(){if(FlushCardState)FlushCardState();FinishInk();FinishEdit(true);document.ClearAnnotations();laser.clear();playing.clear();textTool=false;drawTool=DrawTool::None;selected=selectedImage=selectedInk=selectedCard=-1;Publish();Sync();}
-    void ClearAnnotations(){FinishInk();FinishEdit(true);auto before=document.scene;document.scene.texts.clear();document.scene.ink.clear();laser.clear();selected=selectedImage=selectedInk=-1;document.Commit(before);Publish();Sync();}
+    void ClearAnnotations(){FinishInk();FinishEdit(true);auto before=document.scene;document.scene.texts.clear();document.scene.ink.clear();laser.clear();selected=selectedImage=selectedInk=-1;document.Commit(before,true);Publish();Sync();}
     void EnableAnnotationSelection(){annotationMode=true;}
     uint32_t AnnotationColor(){return Selected()?Selected()->color:SelectedInk()?SelectedInk()->color:ShapeTool()?shapeColor:textTool?textColor:penColor;}
     int AnnotationSize(){double value=Selected()?Selected()->size:textTool?textSize:SelectedInk()?SelectedInk()->width:penWidth;return Selected()||textTool?(value<=32?0:value<=56?1:2):(value<=3?0:value<=6?1:2);}

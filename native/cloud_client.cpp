@@ -226,6 +226,17 @@ void CloudTrack(const wchar_t* event,JsonObject properties){
     }catch(...){}
 }
 void CloudTransition(const wchar_t* event,const wchar_t* state){try{JsonObject p;p.SetNamedValue(L"state",JsonValue::CreateStringValue(state));CloudTrack(event,p);}catch(...){} }
+void CloudAnnotation(const AnnotationChange& change,size_t consumers){
+    if(!CloudEnabled())return;
+    try{JsonObject p;
+        p.SetNamedValue(L"action",JsonValue::CreateStringValue(change.action));
+        p.SetNamedValue(L"annotation_type",JsonValue::CreateStringValue(change.type));
+        p.SetNamedValue(L"change_source",JsonValue::CreateStringValue(change.source));
+        p.SetNamedValue(L"count",JsonValue::CreateNumberValue(double(change.count)));
+        p.SetNamedValue(L"consuming",JsonValue::CreateBooleanValue(consumers>0));
+        CloudTrack(L"annotation_changed",p);
+    }catch(...){}
+}
 void CloudFailure(const wchar_t* component,const wchar_t* code,HRESULT nativeCode){
     if(!CloudEnabled())return;auto state=Shared();bool recovered=false;
     {std::lock_guard lock(state->mutex);auto& last=state->failures[component];if(last==std::pair<std::wstring,HRESULT>{code,nativeCode})return;recovered=last.second<0&&SUCCEEDED(nativeCode);last={code,nativeCode};}

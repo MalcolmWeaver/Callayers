@@ -154,6 +154,19 @@ The first release sends analytics only with an authenticated desktop session. It
 
 Create three initial PostHog insights manually: first `setup_completed` users; weekly returning `card_output_changed` users filtered to `state=shown`; failures grouped by `component`, `code`, and `app_version`. For retention, exclude staff/test accounts. Disable replay/autocapture; this app supplies explicit events.
 
+## Manual walkthrough: annotation events
+
+Verify annotation telemetry after deploying the updated collector and rebuilding the desktop:
+
+1. Create a text annotation and finish editing: expect one `annotation_changed` event, `action=created`, `annotation_type=text`, `change_source=direct`, `count=1`.
+2. Edit its text or drag it, then finish: expect one `edited` event per completed action. Typing and pointer movements should not produce individual events. Cancel an edit: expect no action for the canceled change.
+3. Draw a pen stroke or shape: expect `created / drawing`. Erase several strokes in one gesture: expect one `deleted / drawing` event whose count is the number removed.
+4. Clear text and drawings: expect one `cleared / direct` event per affected type. Clear again: no event. Undo/redo: expect resulting changes labeled `undo`/`redo`, not new direct authoring.
+5. Show or hide a card with annotations present: expect `cleared / card_switch`. Loading a document, images, card interactions, and laser movement should not produce annotation actions.
+6. Repeat with a verified virtual-camera consumer: `consuming` should reflect the last observed consumer state. Allow normal batching/ingestion time. Confirm payloads contain only the five action metadata fields plus normal event/account/session metadata, with no text or drawing contents.
+
+The event definitions and counting rules are in [Annotation action semantics](telemetry.md#annotation-action-semantics). An older backend rejects the new event name, so deploy the collector before using the new desktop build.
+
 ## Manual walkthrough: recovery messages
 
 - Deny desktop camera access in Windows Settings, then select the camera again. Expect permission guidance on screen and one `failure` event with a stable code and HRESULT. Repeated timer ticks should not flood the collector.
