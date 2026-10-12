@@ -52,7 +52,7 @@ Camera creation persists for the current user. Registration of the source DLL is
 - Cards appear as compact title rows. Click a title to open its AI editor; double-click to rename it. Enter or clicking away commits the title, Escape cancels. The card menu also offers Rename for keyboard users.
 - Each row has an independent **Show on camera** checkbox. Check multiple cards to show them together; uncheck any card to hide just that one. **Hide all** clears the stage.
 - New cards remain hidden until checked. Revisions to checked cards appear on camera automatically when generation finishes; other checked cards remain visible. Revisions to unchecked cards stay hidden. Undo/Redo also updates checked cards automatically.
-- Drag visible cards on the stage to position them; handles resize them. Card menu actions offer Move up, Move down, and Delete. Sidebar order is also stacking order: later cards appear above earlier cards.
+- Click a card title to reveal its local editing handles. Drag the **Move** handle above the card to position it; corner/side handles resize it. Inside the card, clicks and drags go to its HTML controls. Card menu actions offer Move up, Move down, and Delete. Sidebar order is also stacking order: later cards appear above earlier cards.
 - **Save / Ctrl+S**, **Save as / Ctrl+Shift+S**, and **Open / Ctrl+O** manage `.callayers.json` decks. A deck holds up to 12 cards. Reopening starts with all cards hidden.
 - AI configuration is available under **File → Settings…**, outside the everyday workspace.
 
@@ -66,7 +66,7 @@ Images retain transparency and orientation normalization. Large images are reduc
 
 ### Optional markup toolbar
 
-**Annotate** shows Select, Pen, Shapes, Text, Color, Size, Undo, Redo, and Clear. Shapes offers Arrow, Rectangle, and Ellipse with transparent interiors. The color swatch opens a full-window dialog with standard swatches, a spectrum, and hex input; Apply commits the choice and Cancel leaves it unchanged. Color is shared across annotation tools; Small/Medium/Large means stroke width or text size. There are no separate image, signature, note, eraser, laser, font-family, or fill controls.
+**Annotate** shows Select, Pen, Shapes, Text, Color, Size, Undo, Redo, and Clear. Shapes offers Arrow, Rectangle, and Ellipse with transparent interiors. The color swatch opens a floating panel with standard swatches, a spectrum, and hex input; the camera and cards remain visible without a dark backdrop; Apply commits the choice and Cancel leaves it unchanged. Color is shared across annotation tools; Small/Medium/Large means stroke width or text size. There are no separate image, signature, note, eraser, laser, font-family, or fill controls.
 
 - Pen (**P**): drag to draw; click for a dot.
 - Shapes: choose a shape and drag from one corner/end to the other.
@@ -84,9 +84,9 @@ Annotations are temporary and are not saved with the deck. They do not modify ca
 The agent has not built, launched, or tested these changes, at the user's request. Close the app, build with `.\scripts\build.ps1 -SkipTests`, and launch `.\build\Release\Callayers.exe`.
 
 1. Toggle Annotate and resize the window: the Cards heading and Create with AI button should remain fully visible. The size dropdown should align with the toolbar buttons.
-2. Open the color swatch: a full-window dialog should show the palette, spectrum, hex input, and Apply/Cancel without scrolling. Apply a custom color, then reopen and cancel another choice.
+2. Open the color swatch: a floating panel should show the palette, spectrum, hex input, and Apply/Cancel without scrolling or blacking out the camera behind it. Apply a custom color, then reopen and cancel another choice.
 3. Create or import two cards. They should appear as compact title rows without previews or Play buttons. Single-click opens AI editing; double-click renames. Try Enter, Escape, and clicking elsewhere.
-4. Check both cards, then drag them apart on the stage. Confirm both appear in the receiving camera app. Unchecking either should leave the other visible.
+4. Check both cards, select each title, then drag its Move handle to position the cards apart. Confirm both appear in the receiving camera app. Unchecking either should leave the other visible.
 5. Revise a checked card. Its content should update automatically when generation finishes, while other checked cards remain visible. Revise an unchecked card and confirm it stays hidden. Undo/Redo should update a checked card too.
 6. Try annotation tools, move/resize, Undo/Redo, and Clear. Hiding the toolbar retains marks; changing card visibility clears them.
 7. Save/reopen: names and card content should persist, annotations should not, and all checkboxes should start unchecked.
@@ -214,3 +214,17 @@ Then in Administrator PowerShell:
 ```
 
 The script removes only the Callayers registration and development DLLs. If Windows still has a DLL loaded, removal reports the failure; close camera clients or reboot and retry. It does not stop shared Windows camera services.
+
+## Interactive cards
+
+Card contents are interactive by default, with no Select/Interact switch. Click a shown card's controls to type, toggle, or expand them. Select a card from its sidebar title (or click its contents) to reveal a **Move** handle above it and resize handles around it. These local handles take priority over HTML and never appear in the outgoing camera. Interior dragging remains available to text selection, sliders, and custom HTML controls.
+
+Active annotation tools take priority over HTML. The annotation arrow returns to normal card interaction while allowing existing annotations to be selected. Escape releases HTML keyboard focus back to the canvas. Ordinary typing, navigation keys, Tab, text selection, plain-text paste, and browser field undo/redo are supported. Input-method composition and touch/pressure input are not implemented in this initial interaction path.
+
+Open `examples/interactive-template.callayers.json`, check its card, then click directly into its fields. Try the topic and notes fields, checkbox, and collapsible. Save, reopen, and show the card again to inspect the restored values. An AI request such as “Make an editable agenda with a title, notes, checkbox, and a collapsible section” uses the same mechanism.
+
+Card JSON contains an optional `state` object alongside HTML/assets. Decks containing state use version 6; versions 1–5 still load. State is limited to 64 KiB per card. Text fields, checkbox/radio values, select values, plaintext contenteditable regions, and `details.open` persist when marked with a stable `data-state-key` or `id`. Password/file inputs are excluded. Animations and hover effects are not saved. Revisions retain existing state; field identifiers must remain stable for values to carry over.
+
+Custom scripts can call `window.callayers.getState()` and `window.callayers.setState({field: value})`, and listen for `callayers-state` when restoring custom UI. This is a JSON state bridge only; cards retain their sandbox and network restrictions. Save waits for live controls to report their latest values and reports a retryable error if an unresponsive card cannot finish. Arbitrary DOM mutations and JavaScript variables are not automatically serialized.
+
+These interaction changes have not been built or visually verified by the implementing agent.

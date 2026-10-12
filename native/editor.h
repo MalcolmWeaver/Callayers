@@ -24,6 +24,7 @@ struct CardElement {
     double x=.1,y=.15,width=.42,height=.45;
     std::vector<CardAsset> assets;
     std::optional<CardUsage> usage;
+    std::wstring state=L"{}"; // Persisted JSON object; HTML and assets remain separate.
     double renderScale=1; // Preview-only scale; never serialized.
     bool operator==(const CardElement&)const=default;
 };
@@ -183,7 +184,8 @@ inline std::string EncodeScene(const Scene& scene){
     using namespace winrt::Windows::Data::Json;
     JsonObject root;root.SetNamedValue(L"format",JsonValue::CreateStringValue(L"callayers"));
     bool mediaCards=std::any_of(scene.cards.begin(),scene.cards.end(),[](const auto& c){return !c.assets.empty()||c.usage.has_value();});
-    root.SetNamedValue(L"version",JsonValue::CreateNumberValue(mediaCards?5:!scene.images.empty()?4:!scene.ink.empty()?3:scene.cards.empty()?1:2));root.SetNamedValue(L"title",JsonValue::CreateStringValue(scene.title));
+    bool stateCards=std::any_of(scene.cards.begin(),scene.cards.end(),[](const auto& c){return c.state!=L"{}";});
+    root.SetNamedValue(L"version",JsonValue::CreateNumberValue(stateCards?6:mediaCards?5:!scene.images.empty()?4:!scene.ink.empty()?3:scene.cards.empty()?1:2));root.SetNamedValue(L"title",JsonValue::CreateStringValue(scene.title));
     JsonArray elements;
     for(const auto& t:scene.texts){
         JsonObject o;
@@ -202,6 +204,8 @@ inline std::string EncodeScene(const Scene& scene){
         o.SetNamedValue(L"id",JsonValue::CreateStringValue(c.id));o.SetNamedValue(L"html",JsonValue::CreateStringValue(c.html));o.SetNamedValue(L"name",JsonValue::CreateStringValue(c.name));
         o.SetNamedValue(L"x",JsonValue::CreateNumberValue(c.x));o.SetNamedValue(L"y",JsonValue::CreateNumberValue(c.y));
         o.SetNamedValue(L"width",JsonValue::CreateNumberValue(c.width));o.SetNamedValue(L"height",JsonValue::CreateNumberValue(c.height));
+        if(c.state.size()>65536)throw std::runtime_error("Card state is too large.");
+        o.SetNamedValue(L"state",JsonObject::Parse(c.state));
         ValidateCardAssets(c.assets);
         if(!c.assets.empty()){
             JsonArray assets;for(const auto& a:c.assets){JsonObject value;
@@ -234,7 +238,7 @@ inline Scene DecodeScene(const std::string& bytes){
     using namespace winrt::Windows::Data::Json;
     if(bytes.size()>MaxDeckBytes)throw std::runtime_error("This deck is too large to open.");
     auto root=JsonObject::Parse(winrt::to_hstring(bytes));
-    if(root.GetNamedString(L"format")!=L"callayers"||(root.GetNamedNumber(L"version")!=1&&root.GetNamedNumber(L"version")!=2&&root.GetNamedNumber(L"version")!=3&&root.GetNamedNumber(L"version")!=4&&root.GetNamedNumber(L"version")!=5))
+    if(root.GetNamedString(L"format")!=L"callayers"||(root.GetNamedNumber(L"version")!=1&&root.GetNamedNumber(L"version")!=2&&root.GetNamedNumber(L"version")!=3&&root.GetNamedNumber(L"version")!=4&&root.GetNamedNumber(L"version")!=5&&root.GetNamedNumber(L"version")!=6))
         throw std::runtime_error("Unsupported Callayers file version.");
     auto scenes=root.GetNamedArray(L"scenes");
     if(scenes.Size()!=1)throw std::runtime_error("This editor currently supports one scene per file.");
@@ -268,6 +272,7 @@ inline Scene DecodeScene(const std::string& bytes){
         }
         if(o.GetNamedString(L"type")==L"card"){
             CardElement c;c.id=o.GetNamedString(L"id");c.html=o.GetNamedString(L"html");c.name=o.GetNamedString(L"name",L"Card");
+            if(o.HasKey(L"state")){c.state=o.GetNamedObject(L"state").Stringify();if(c.state.size()>65536)throw std::runtime_error("Card state is too large.");}
             if(o.HasKey(L"assets")){
                 for(const auto& assetValue:o.GetNamedArray(L"assets")){auto value=assetValue.GetObject();CardAsset a;
                     a.id=value.GetNamedString(L"id");a.description=value.GetNamedString(L"description");a.sourceUrl=value.GetNamedString(L"source");

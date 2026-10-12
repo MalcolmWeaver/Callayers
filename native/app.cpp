@@ -297,11 +297,15 @@ LRESULT CALLBACK WindowProc(HWND window,UINT msg,WPARAM wp,LPARAM lp){
     if(msg==WM_NCCREATE){app=static_cast<App*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);app->window=window;SetWindowLongPtrW(window,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(app));}
     if(!app)return DefWindowProcW(window,msg,wp,lp);
     try{
-    if(app->editor){LRESULT result;if(app->editor->Message(msg,wp,lp,result))return result;}
+    if(app->editor){for(const auto& change:app->frames->cards->TakeStates())app->editor->ApplyCardState(change.id,change.epoch,change.html,change.state);LRESULT result;if(app->editor->Message(msg,wp,lp,result))return result;}
     switch(msg){
     case WM_CREATE:{
         app->editor=std::make_unique<TextEditorUI>(window,[app](auto overlay){app->frames->overlay=std::move(overlay);},false);
-        app->editor->SceneChanged=[app](const Scene& scene){app->frames->cards->SetScene(scene);};
+        app->editor->SceneChanged=[app](const Scene& scene){app->frames->cards->SetScene(scene,app->editor->DocumentEpoch());};
+        app->editor->CardMouse=[app](UINT msg,POINT point,WPARAM buttons){app->frames->cards->Mouse(msg,point,buttons);};
+        app->editor->CardKey=[app](UINT msg,WPARAM key,LPARAM flags){app->frames->cards->Key(msg,key,flags);};
+        app->editor->CardText=[app](const std::wstring& text){app->frames->cards->InsertText(text);};
+        app->editor->FlushCardState=[app]{if(!app->frames->cards->FlushState())throw std::runtime_error("The card is still responding. Please try saving again.");for(const auto& change:app->frames->cards->TakeStates())app->editor->ApplyCardState(change.id,change.epoch,change.html,change.state);};
         app->shell=std::make_unique<WinUIShell>(window,*app->editor,app->devices,[app](int index){app->cameraIndex=index;app->Select();},[app]{app->StartOutput();});
         SetTimer(window,1,33,nullptr);return 0;}
     case WM_GETMINMAXINFO:{auto info=reinterpret_cast<MINMAXINFO*>(lp);double dpi=GetDpiForWindow(window)/96.;info->ptMinTrackSize={static_cast<LONG>(1000*dpi),static_cast<LONG>(600*dpi)};return 0;}

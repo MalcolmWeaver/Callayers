@@ -31,7 +31,10 @@ private:
     std::wstring focusedCard;
     CardElement* FocusedCard(){for(auto& card:document.scene.cards)if(card.id==focusedCard)return &card;return nullptr;}
     double textSize=56;
-    bool annotationMode=false;
+    bool annotationMode=false,interacting=false;
+    bool cardPointerCaptured=false,cardPointerHover=false;
+    wchar_t pendingSurrogate=0;
+    POINT interactionPoint{};
     bool ShapeTool()const{return drawTool==DrawTool::Arrow||drawTool==DrawTool::Rectangle||drawTool==DrawTool::Ellipse;}
     InkStroke* SelectedInk(){return selectedInk>=0&&size_t(selectedInk)<document.scene.ink.size()?&document.scene.ink[selectedInk]:nullptr;}
     struct InkBounds {double x,y,width,height;};
@@ -78,6 +81,15 @@ private:
     ImageElement* SelectedImage(){return selectedImage>=0&&static_cast<size_t>(selectedImage)<document.scene.images.size()?&document.scene.images[selectedImage]:nullptr;}
     bool HasSelection(){return Selected()||SelectedImage()||SelectedInk()||CardOnStage();}
     RECT SelectionRect(){return Selected()?Rect(*Selected()):SelectedImage()?Rect(*SelectedImage()):SelectedInk()?Rect(Bounds(*SelectedInk())):Rect(*SelectedCard());}
+    RECT CardMoveRect(){
+        auto r=Rect(*SelectedCard());double dpi=GetDpiForWindow(window)/96.;LONG w=LONG(80*dpi),h=LONG(20*dpi),gap=LONG(4*dpi);
+        LONG x=(r.left+r.right-w)/2;return {x,r.top-gap-h,x+w,r.top-gap};
+    }
+    bool HitCardMove(POINT p){if(!CardOnStage())return false;auto r=CardMoveRect();return PtInRect(&r,p)!=FALSE;}
+    bool AnnotationHit(POINT p){
+        if(!annotationMode)return false;if(HitText(p)>=0)return true;
+        auto point=StagePoint(p);for(const auto& stroke:document.scene.ink)if(InkHit(stroke,point,point,10))return true;return false;
+    }
     int HitCard(POINT p){for(int i=int(document.scene.cards.size())-1;i>=0;--i){const auto& card=document.scene.cards[i];if(IsCardShown(card.id)){auto r=Rect(card);if(PtInRect(&r,p))return i;}}return -1;}
     int HitHandle(POINT p){if(!HasSelection())return -1;auto points=Handles(SelectionRect());for(int i=0;i<6;++i)if(std::abs(p.x-points[i].x)<=7&&std::abs(p.y-points[i].y)<=7)return i;return -1;}
     int HitText(POINT p){int hit=-1;for(int i=0;i<static_cast<int>(document.scene.texts.size());++i){auto r=Rect(document.scene.texts[i]);if(PtInRect(&r,p)&&(hit<0||document.scene.texts[i].order>=document.scene.texts[hit].order))hit=i;}return hit;}
@@ -212,6 +224,7 @@ private:
         DWORD error=CommDlgExtendedError();if(error)throw HRESULT_FROM_WIN32(error);return {};
     }
     bool Save(bool saveAs=false){
+        if(FlushCardState)FlushCardState();
         FinishInk();FinishEdit(true);auto destination=path;
         if(destination.empty()||saveAs)destination=FileDialog(true);if(destination.empty())return false;
         auto saved=document.scene;saved.texts.clear();saved.ink.clear();SaveScene(destination,saved);path=destination;document.Saved();Sync();return true;
@@ -233,9 +246,9 @@ private:
         for(const auto& image:loaded.images){auto card=ImageCard(image);card.width=std::max(.08,image.width);card.height=std::max(.08,image.height);card.x=std::min(image.x,1.-card.width);card.y=std::min(image.y,1.-card.height);loaded.cards.push_back(std::move(card));}loaded.images.clear();
         if(!loaded.texts.empty()||!loaded.ink.empty()){loaded.cards.push_back(LegacyAnnotations(loaded));loaded.texts.clear();loaded.ink.clear();}
         for(auto& text:loaded.texts)renderer.FitHeight(text);
-        auto overlay=renderer.Render(loaded);laser.clear();playing.clear();focusedCard.clear();selectedInk=-1;document.Loaded(std::move(loaded));path=candidate;selected=selectedCard=selectedImage=selectedInk=-1;publish(overlay);PublishCards();Sync();
+        auto overlay=renderer.Render(loaded);interacting=false;laser.clear();playing.clear();focusedCard.clear();selectedInk=-1;document.Loaded(std::move(loaded));path=candidate;selected=selectedCard=selectedImage=selectedInk=-1;publish(overlay);PublishCards();Sync();
     }
-    void Delete(){FinishEdit(true);if(!HasSelection()&&!SelectedCard())return;auto before=document.scene;
+    void Delete(){if(FlushCardState)FlushCardState();FinishEdit(true);if(!HasSelection()&&!SelectedCard())return;auto before=document.scene;
         if(SelectedInk())document.scene.ink.erase(document.scene.ink.begin()+selectedInk);else if(Selected())document.scene.texts.erase(document.scene.texts.begin()+selected);else if(SelectedImage())document.scene.images.erase(document.scene.images.begin()+selectedImage);else document.scene.cards.erase(document.scene.cards.begin()+selectedCard);
         selected=selectedCard=selectedImage=selectedInk=-1;document.Commit(before);Publish();Sync();}
 
@@ -302,13 +315,24 @@ public:
     double PenWidth()const{return penWidth;}
     void SetPenColor(uint32_t color){FinishInk();penColor=color&0xffffff;Sync();}
     void SetPenWidth(double width){FinishInk();if(std::isfinite(width))penWidth=std::clamp(width,1.,40.);Sync();}
-    void SetDrawingTool(DrawTool tool){FinishInk();FinishEdit(true);drawTool=tool;textTool=false;selected=selectedCard=selectedImage=selectedInk=-1;Sync();SetFocus(window);}
+    void SetDrawingTool(DrawTool tool){interacting=false;FinishInk();FinishEdit(true);drawTool=tool;textTool=false;selected=selectedCard=selectedImage=selectedInk=-1;Sync();SetFocus(window);}
     void TickInk(Clock::time_point now=Clock::now()){
         bool hadLaser=!laser.empty();std::erase_if(laser,[&](const auto& sample){return now-sample.time>=std::chrono::milliseconds(900);});
         if(inkPending||hadLaser){inkPending=false;Publish(false,now);}
     }
     std::function<void()> StateChanged;
     std::function<void(const Scene&)> SceneChanged;
+    std::function<void(UINT,POINT,WPARAM)> CardMouse;
+    std::function<void(UINT,WPARAM,LPARAM)> CardKey;
+    std::function<void(const std::wstring&)> CardText;
+    std::function<void()> FlushCardState;
+    uint64_t DocumentEpoch()const{return document.Epoch();}
+    bool Interacting()const{return interacting;}
+    void SetInteract(bool value){FinishInk();FinishEdit(true);if(cardPointerCaptured){cardPointerCaptured=false;if(CardMouse)CardMouse(WM_LBUTTONUP,interactionPoint,0);ReleaseCapture();}interacting=value;pendingSurrogate=0;drawTool=DrawTool::None;textTool=false;selected=selectedImage=selectedInk=selectedCard=-1;Sync();SetFocus(window);}
+    void ApplyCardState(const std::wstring& id,uint64_t epoch,const std::wstring& html,const std::wstring& state){
+        if(epoch!=document.Epoch()||state.size()>65536)return;
+        for(auto& card:document.scene.cards)if(card.id==id&&card.html==html){if(card.state==state)return;auto before=document.scene;card.state=state;document.Commit(before);PublishCards();UpdateTitle();return;}
+    }
     bool CardSelected(){return FocusedCard()!=nullptr;}
     const Scene& CurrentScene()const{return document.scene;}
     int SelectedCardIndex()const{for(int i=0;i<int(document.scene.cards.size());++i)if(document.scene.cards[i].id==focusedCard)return i;return -1;}
@@ -319,12 +343,12 @@ public:
         FinishInk();FinishEdit(true);auto before=document.scene;for(auto& card:document.scene.cards)if(card.id==id)card.name=name;document.Commit(before);Sync();
     }
     void SetCardShown(int index,bool show){
-        FinishInk();FinishEdit(true);if(index<0||size_t(index)>=document.scene.cards.size())return;auto card=document.scene.cards[index];
+        if(FlushCardState)FlushCardState();FinishInk();FinishEdit(true);if(index<0||size_t(index)>=document.scene.cards.size())return;auto card=document.scene.cards[index];
         document.ClearAnnotations();laser.clear();std::erase_if(playing,[&](const auto& live){return live.id==card.id;});if(show)playing.push_back(card);
         textTool=false;drawTool=DrawTool::None;selected=selectedImage=selectedInk=-1;selectedCard=index;Publish();Sync();
     }
-    void SelectCard(int index){FinishInk();FinishEdit(true);selected=selectedImage=selectedInk=-1;selectedCard=index;focusedCard=SelectedCard()?SelectedCard()->id:L"";textTool=false;drawTool=DrawTool::None;Sync();}
-    void HideCard(){FinishInk();FinishEdit(true);document.ClearAnnotations();laser.clear();playing.clear();textTool=false;drawTool=DrawTool::None;selected=selectedImage=selectedInk=selectedCard=-1;Publish();Sync();}
+    void SelectCard(int index){interacting=false;FinishInk();FinishEdit(true);selected=selectedImage=selectedInk=-1;selectedCard=index;focusedCard=SelectedCard()?SelectedCard()->id:L"";textTool=false;drawTool=DrawTool::None;Sync();}
+    void HideCard(){if(FlushCardState)FlushCardState();FinishInk();FinishEdit(true);document.ClearAnnotations();laser.clear();playing.clear();textTool=false;drawTool=DrawTool::None;selected=selectedImage=selectedInk=selectedCard=-1;Publish();Sync();}
     void ClearAnnotations(){FinishInk();FinishEdit(true);auto before=document.scene;document.scene.texts.clear();document.scene.ink.clear();laser.clear();selected=selectedImage=selectedInk=-1;document.Commit(before);Publish();Sync();}
     void EnableAnnotationSelection(){annotationMode=true;}
     uint32_t AnnotationColor(){return Selected()?Selected()->color:SelectedInk()?SelectedInk()->color:penColor;}
@@ -335,11 +359,11 @@ public:
     void SetAnnotationSize(int index){textSize=index==0?32:index==1?56:88;SetPenWidth(index==0?3:index==1?6:12);if(Selected())ChangeStyle([&](auto& t){t.size=textSize;});if(SelectedInk()){auto before=document.scene;SelectedInk()->width=penWidth;document.Commit(before);Publish();Sync();}}
     std::wstring CardName(){return FocusedCard()?FocusedCard()->name:L"";}
     void NewCardSelection(){focusedCard.clear();FinishInk();FinishEdit(true);selected=selectedCard=selectedImage=selectedInk=-1;textTool=false;drawTool=DrawTool::None;Sync();}
-    CardRequestTarget GenerationTarget(){FinishInk();FinishEdit(true);return CaptureCardTarget(document,focusedCard);}
+    CardRequestTarget GenerationTarget(){if(FlushCardState)FlushCardState();FinishInk();FinishEdit(true);return CaptureCardTarget(document,focusedCard);}
     bool TargetCurrent(const CardRequestTarget& target)const{return CardTargetCurrent(document,target);}
     std::optional<CardUsage> SelectedCardUsage(){if(auto card=FocusedCard())return card->usage;return {};}
     bool AcceptGenerated(const CardRequestTarget& target,const std::wstring& html,const std::wstring& name,const std::vector<CardAsset>& assets={},const std::optional<CardUsage>& usage={}){
-        FinishInk();FinishEdit(true);if(!ApplyGeneratedCard(document,target,html,name,assets,usage))return false;
+        if(FlushCardState)FlushCardState();FinishInk();FinishEdit(true);if(!ApplyGeneratedCard(document,target,html,name,assets,usage))return false;
         if(target.creating&&focusedCard.empty()){selectedCard=static_cast<int>(document.scene.cards.size())-1;focusedCard=target.card.id;}
         Publish();Sync();return true;
     }
@@ -390,12 +414,53 @@ public:
     void RefreshEdit(){if(edit)InvalidateRect(edit,nullptr,FALSE);}
     void SetStage(RECT next){FinishInk();stage=next;PositionEdit();}
     bool MayDiscard(){
+        if(FlushCardState)FlushCardState();
         FinishInk();FinishEdit(true);if(!document.Dirty())return true;
         int answer=MessageBoxW(window,L"Save your changes before continuing?",L"Callayers",MB_YESNOCANCEL|MB_ICONQUESTION);
         if(answer==IDCANCEL)return false;if(answer==IDYES)return Save();return true;
     }
     bool Message(UINT msg,WPARAM wp,LPARAM lp,LRESULT& result){
         result=0;
+        const bool pointerMessage=msg==WM_LBUTTONDOWN||msg==WM_LBUTTONDBLCLK||msg==WM_LBUTTONUP||msg==WM_MOUSEMOVE||msg==WM_MOUSEWHEEL;
+        if((msg==WM_CAPTURECHANGED||msg==WM_CANCELMODE)&&cardPointerCaptured){cardPointerCaptured=false;if(CardMouse)CardMouse(WM_LBUTTONUP,interactionPoint,0);}
+        if(msg==WM_MOUSELEAVE&&cardPointerHover){cardPointerHover=false;if(CardMouse)CardMouse(msg,interactionPoint,0);}
+        if(pointerMessage&&!dragging&&!marking&&drawTool==DrawTool::None&&!textTool){
+            POINT p{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};if(msg==WM_MOUSEWHEEL)ScreenToClient(window,&p);
+            const bool down=msg==WM_LBUTTONDOWN||msg==WM_LBUTTONDBLCLK;
+            const int handle=HitHandle(p);const bool move=HitCardMove(p);
+            // Native handles always win. The interior belongs to HTML, including
+            // text selection, sliders, and other drag gestures implemented by the card.
+            if(down&&!cardPointerCaptured&&(move||(CardOnStage()&&handle>=0))){
+                FinishEdit(true);interacting=false;pendingSurrogate=0;dragHandle=move?-1:handle;
+                beforeDrag=document.scene;dragStart=p;dragging=true;SetFocus(window);SetCapture(window);return true;
+            }
+            const int hit=PtInRect(&stage,p)?HitCard(p):-1;
+            const bool nativeTarget=move||handle>=0||AnnotationHit(p);
+            if(cardPointerCaptured||(hit>=0&&!nativeTarget)){
+                if(down){FinishEdit(true);interacting=true;pendingSurrogate=0;selected=selectedImage=selectedInk=-1;selectedCard=hit;focusedCard=document.scene.cards[hit].id;Sync();SetFocus(window);cardPointerCaptured=true;SetCapture(window);}
+                if(msg==WM_MOUSEMOVE){TRACKMOUSEEVENT tracking{sizeof(tracking),TME_LEAVE,window,0};TrackMouseEvent(&tracking);}
+                POINT mapped{LONG(double(p.x-stage.left)*Width/std::max(1L,stage.right-stage.left)),LONG(double(p.y-stage.top)*Height/std::max(1L,stage.bottom-stage.top))};
+                interactionPoint=mapped;cardPointerHover=true;if(CardMouse)CardMouse(msg,mapped,wp);
+                if(msg==WM_LBUTTONUP){cardPointerCaptured=false;ReleaseCapture();}return true;
+            }
+            if(cardPointerHover){cardPointerHover=false;if(CardMouse)CardMouse(WM_MOUSELEAVE,interactionPoint,0);}
+            if(down){interacting=false;pendingSurrogate=0;}
+        }
+        if(interacting){
+            if((msg==WM_KEYDOWN||msg==WM_KEYUP)&&GetFocus()==window){
+                if(wp==VK_ESCAPE){if(msg==WM_KEYDOWN)SetInteract(false);return true;}
+                if(msg==WM_KEYDOWN&&wp=='V'&&(GetKeyState(VK_CONTROL)&0x8000)){
+                    if(OpenClipboard(window)){auto data=GetClipboardData(CF_UNICODETEXT);if(data){auto text=static_cast<const wchar_t*>(GlobalLock(data));if(text){std::wstring value(text);GlobalUnlock(data);if(value.size()<=65536&&CardText)CardText(value);}}CloseClipboard();}return true;
+                }
+                if(CardKey)CardKey(msg,wp,lp);return true;
+            }
+            if(msg==WM_CHAR&&GetFocus()==window){
+                if(GetKeyState(VK_CONTROL)&0x8000)return true;wchar_t ch=static_cast<wchar_t>(wp);
+                if(ch>=0xd800&&ch<=0xdbff){pendingSurrogate=ch;return true;}
+                std::wstring text;if(pendingSurrogate&&ch>=0xdc00&&ch<=0xdfff)text+=pendingSurrogate;pendingSurrogate=0;
+                if(ch>=32||ch==L'\r'){text+=ch==L'\r'?L'\n':ch;if(CardText)CardText(text);}return true;
+            }
+        }
         if(msg==WM_DROPFILES){auto drop=reinterpret_cast<HDROP>(wp);struct FinishDrop {HDROP value;~FinishDrop(){DragFinish(value);}} cleanup{drop};POINT point{};DragQueryPoint(drop,&point);auto files=DropPaths(drop);ImportImages(files,point);return true;}
         if(msg==WM_APP+20){FinishEdit(wp!=0);SetFocus(window);return true;}
         if(msg==WM_APP+21){if(edit&&GetFocus()!=edit)FinishEdit(true);return true;}
@@ -412,9 +477,9 @@ public:
             }
             if(id==SizeId&&notification!=EN_KILLFOCUS)return true;
             if((id==FontId||id==AlignId)&&notification!=CBN_SELCHANGE)return true;
-            if(id==SelectId||id==TextId){FinishEdit(true);drawTool=DrawTool::None;textTool=id==TextId;Sync();SetFocus(window);return true;}
+            if(id==SelectId||id==TextId){interacting=false;FinishEdit(true);drawTool=DrawTool::None;textTool=id==TextId;Sync();SetFocus(window);return true;}
             if(id==SaveId){Save();return true;}if(id==OpenId){Open();return true;}
-            if(id==NewIdControl){FinishEdit(true);if(MayDiscard()){laser.clear();playing.clear();focusedCard.clear();document.Loaded({});path.clear();selected=selectedCard=selectedImage=selectedInk=-1;Publish();Sync();}return true;}
+            if(id==NewIdControl){FinishEdit(true);if(MayDiscard()){interacting=false;laser.clear();playing.clear();focusedCard.clear();document.Loaded({});path.clear();selected=selectedCard=selectedImage=selectedInk=-1;Publish();Sync();}return true;}
             if(id==UndoId||id==RedoId){FinishEdit(true);if(id==UndoId)document.Undo();else document.Redo();selected=selectedCard=selectedImage=selectedInk=-1;Publish();Sync();return true;}
             if(id==DeleteId){Delete();return true;}
             auto requestedFamily=ReadText(Control(FontId));auto requestedSize=ReadText(Control(SizeId));
@@ -473,8 +538,8 @@ public:
         }
         if((msg==WM_LBUTTONUP||msg==WM_CAPTURECHANGED)&&dragging){dragging=false;document.Commit(beforeDrag);ReleaseCapture();Sync();return true;}
         if(msg==WM_SETCURSOR&&LOWORD(lp)==HTCLIENT){
-            POINT p;GetCursorPos(&p);ScreenToClient(window,&p);if(PtInRect(&stage,p)){
-                int handle=HitHandle(p);LPCWSTR cursor=drawTool!=DrawTool::None?IDC_CROSS:handle>=4?IDC_SIZEWE:(handle==0||handle==2)?IDC_SIZENWSE:(handle==1||handle==3)?IDC_SIZENESW:textTool?IDC_IBEAM:IDC_ARROW;
+            POINT p;GetCursorPos(&p);ScreenToClient(window,&p);if(PtInRect(&stage,p)||HitCardMove(p)){
+                int handle=HitHandle(p);LPCWSTR cursor=drawTool!=DrawTool::None?IDC_CROSS:HitCardMove(p)?IDC_SIZEALL:handle>=4?IDC_SIZEWE:(handle==0||handle==2)?IDC_SIZENWSE:(handle==1||handle==3)?IDC_SIZENESW:textTool?IDC_IBEAM:IDC_ARROW;
                 SetCursor(LoadCursorW(nullptr,cursor));result=TRUE;return true;
             }
         }
@@ -509,6 +574,12 @@ public:
         HPEN pen=CreatePen(PS_SOLID,2,RGB(126,119,255));auto oldPen=SelectObject(dc,pen);auto oldBrush=SelectObject(dc,GetStockObject(HOLLOW_BRUSH));
         Rectangle(dc,r.left,r.top,r.right,r.bottom);SelectObject(dc,GetStockObject(WHITE_BRUSH));
         if(!edit)for(auto p:Handles(r))Rectangle(dc,p.x-4,p.y-4,p.x+5,p.y+5);
+        if(CardOnStage()){
+            auto grip=CardMoveRect();auto brush=CreateSolidBrush(RGB(76,69,116));FillRect(dc,&grip,brush);DeleteObject(brush);
+            auto font=SelectObject(dc,GetStockObject(DEFAULT_GUI_FONT));auto color=SetTextColor(dc,RGB(255,255,255));auto mode=SetBkMode(dc,TRANSPARENT);
+            DrawTextW(dc,L"Move",-1,&grip,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+            SetBkMode(dc,mode);SetTextColor(dc,color);SelectObject(dc,font);
+        }
         SelectObject(dc,oldPen);SelectObject(dc,oldBrush);DeleteObject(pen);
     }
 };

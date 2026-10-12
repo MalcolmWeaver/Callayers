@@ -44,6 +44,8 @@ class WinUIShell {
     TextEditorUI& editor;
     hosting::DesktopWindowXamlSource top{nullptr},bottom{nullptr},settingsIsland{nullptr};
     controls::ContentDialog settingsDialog{nullptr};
+    controls::Border colorPanel{nullptr};
+    RECT colorPanelRegion{};
     std::shared_ptr<int> lifetime=std::make_shared<int>(0);
     ux::FrameworkElement header{nullptr},footer{nullptr};
     bool syncing=false,generating=false,annotating=false,composerOpen=false;
@@ -117,17 +119,36 @@ class WinUIShell {
     void Action(const wchar_t* name,std::function<void()> action){
         Find<controls::Button>(name).Click([this,action](auto&&,auto&&){try{action();}catch(...){EditorError(window);}});
     }
+    void CloseColorPicker(){
+        header.DispatcherQueue().TryEnqueue([this,weak=std::weak_ptr<int>(lifetime)]{
+            if(weak.expired()||!colorPanel)return;colorPanel=nullptr;if(settingsIsland)settingsIsland.Close();settingsIsland=nullptr;colorPanelRegion={};
+            InvalidateRect(window,nullptr,FALSE);SetFocus(window);
+        });
+    }
+    void ClipColorPicker(){
+        if(!colorPanel||!settingsIsland||colorPanel.ActualWidth()<=0||colorPanel.ActualHeight()<=0)return;
+        auto root=settingsIsland.Content().as<ux::FrameworkElement>();auto point=colorPanel.TransformToVisual(root).TransformPoint({0,0});double scale=root.XamlRoot().RasterizationScale();
+        RECT next{LONG(std::floor(point.X*scale)),LONG(std::floor(point.Y*scale)),LONG(std::ceil((point.X+colorPanel.ActualWidth())*scale)),LONG(std::ceil((point.Y+colorPanel.ActualHeight())*scale))};
+        if(EqualRect(&next,&colorPanelRegion))return;colorPanelRegion=next;
+        // Clip the native island too: a transparent XAML brush alone cannot reveal
+        // the sibling native camera surface behind a full-window island.
+        auto region=CreateRoundRectRgn(next.left,next.top,next.right+1,next.bottom+1,int(16*scale),int(16*scale));
+        if(!SetWindowRgn(winrt::Microsoft::UI::GetWindowFromWindowId(settingsIsland.SiteBridge().WindowId()),region,TRUE))DeleteObject(region);
+        InvalidateRect(window,nullptr,FALSE);
+    }
     void ChooseAnnotationColor(){
         if(settingsIsland)return;
-        // The header island is only toolbar-height. A full-window island gives the
-        // picker its own unobstructed overlay instead of clipping it to that header.
+        // Lay out against the full window, but expose only the picker panel.
         settingsIsland=hosting::DesktopWindowXamlSource();settingsIsland.Initialize(winrt::Microsoft::UI::GetWindowIdFromWindow(window));
-        controls::Grid root;root.Background(ux::Media::SolidColorBrush(winrt::Windows::UI::Color{255,28,28,32}));settingsIsland.Content(root);
+        controls::Grid root;root.Background(ux::Media::SolidColorBrush(winrt::Windows::UI::Color{0,0,0,0}));settingsIsland.Content(root);
         RECT bounds;GetClientRect(window,&bounds);settingsIsland.SiteBridge().MoveAndResize({0,0,bounds.right,bounds.bottom});
         SetWindowPos(winrt::Microsoft::UI::GetWindowFromWindowId(settingsIsland.SiteBridge().WindowId()),HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
+        auto hiddenRegion=CreateRectRgn(0,0,0,0);if(!SetWindowRgn(winrt::Microsoft::UI::GetWindowFromWindowId(settingsIsland.SiteBridge().WindowId()),hiddenRegion,TRUE))DeleteObject(hiddenRegion);
+        root.RequestedTheme(ux::ElementTheme::Dark);
         auto current=editor.AnnotationColor();controls::ColorPicker picker;picker.Color(winrt::Windows::UI::Color{255,BYTE(current>>16),BYTE(current>>8),BYTE(current)});
         picker.IsAlphaEnabled(false);picker.IsMoreButtonVisible(false);picker.IsColorChannelTextInputVisible(false);picker.IsHexInputVisible(true);picker.Width(240);picker.HorizontalAlignment(ux::HorizontalAlignment::Center);picker.ColorSpectrumShape(controls::ColorSpectrumShape::Box);
         controls::StackPanel panel;panel.Spacing(10);panel.Width(280);
+        controls::TextBlock title;title.Text(L"Annotation color");title.FontSize(20);title.FontWeight(winrt::Windows::UI::Text::FontWeights::SemiBold());title.Margin({0,0,0,8});panel.Children().Append(title);
         const uint32_t colors[]{0x000000,0x808080,0xffffff,0xff0000,0xff8000,0xffff00,0x00a000,0x00bfff,0x0000ff,0x8000ff,0xff00ff,0x804000};
         for(int row=0;row<2;++row){controls::StackPanel swatches;swatches.Orientation(controls::Orientation::Horizontal);swatches.Spacing(8);
             for(int column=0;column<6;++column){auto rgb=colors[row*6+column];auto color=winrt::Windows::UI::Color{255,BYTE(rgb>>16),BYTE(rgb>>8),BYTE(rgb)};
@@ -137,10 +158,13 @@ class WinUIShell {
             }panel.Children().Append(swatches);
         }
         panel.Children().Append(picker);
-        controls::ContentDialog dialog;settingsDialog=dialog;dialog.XamlRoot(root.XamlRoot());dialog.RequestedTheme(ux::ElementTheme::Dark);dialog.Title(winrt::box_value(L"Annotation color"));dialog.PrimaryButtonText(L"Apply");dialog.CloseButtonText(L"Cancel");dialog.Content(panel);
-        dialog.PrimaryButtonClick([this,picker](auto&&,controls::ContentDialogButtonClickEventArgs const& args){try{auto color=picker.Color();editor.SetAnnotationColor((uint32_t(color.R)<<16)|(uint32_t(color.G)<<8)|color.B);}catch(...){args.Cancel(true);EditorError(window);}});
-        dialog.Closed([this,weak=std::weak_ptr<int>(lifetime)](auto&&,auto&&){if(weak.expired())return;header.DispatcherQueue().TryEnqueue([this,weak]{if(weak.expired())return;settingsDialog=nullptr;if(settingsIsland)settingsIsland.Close();settingsIsland=nullptr;SetFocus(window);});});
-        dialog.ShowAsync();
+        controls::StackPanel actions;actions.Orientation(controls::Orientation::Horizontal);actions.Spacing(8);actions.Margin({0,12,0,0});actions.HorizontalAlignment(ux::HorizontalAlignment::Right);
+        controls::Button apply;apply.Content(winrt::box_value(L"Apply"));apply.Click([this,picker](auto&&,auto&&){try{auto color=picker.Color();editor.SetAnnotationColor((uint32_t(color.R)<<16)|(uint32_t(color.G)<<8)|color.B);CloseColorPicker();}catch(...){EditorError(window);}});actions.Children().Append(apply);
+        controls::Button cancel;cancel.Content(winrt::box_value(L"Cancel"));cancel.Click([this](auto&&,auto&&){CloseColorPicker();});actions.Children().Append(cancel);panel.Children().Append(actions);
+        colorPanel=controls::Border();colorPanel.Background(ux::Media::SolidColorBrush(winrt::Windows::UI::Color{255,40,40,40}));colorPanel.BorderBrush(ux::Media::SolidColorBrush(winrt::Windows::UI::Color{255,65,65,65}));colorPanel.BorderThickness({1,1,1,1});colorPanel.CornerRadius({8,8,8,8});colorPanel.Padding({24,20,24,20});colorPanel.HorizontalAlignment(ux::HorizontalAlignment::Center);colorPanel.VerticalAlignment(ux::VerticalAlignment::Center);colorPanel.Child(panel);root.Children().Append(colorPanel);
+        root.LayoutUpdated([this,weak=std::weak_ptr<int>(lifetime)](auto&&,auto&&){if(!weak.expired())ClipColorPicker();});
+        root.KeyDown([this](auto&&,ux::Input::KeyRoutedEventArgs const& args){if(args.Key()==winrt::Windows::System::VirtualKey::Escape){CloseColorPicker();args.Handled(true);}});
+        root.UpdateLayout();ClipColorPicker();picker.Focus(ux::FocusState::Programmatic);
     }
     void Relayout(){RECT r;GetClientRect(window,&r);SendMessageW(window,WM_SIZE,0,MAKELPARAM(r.right,r.bottom));}
     void OpenComposer(bool fresh){if(fresh)editor.NewCardSelection();composerOpen=true;RefreshComposer();Bottom<controls::TextBox>(L"Prompt").Focus(ux::FocusState::Programmatic);}
@@ -323,6 +347,11 @@ public:
     }
     bool Key(const MSG& message){
         if(message.message!=WM_KEYDOWN)return false;
+        if(editor.Interacting()&&GetFocus()==window){
+            if(message.wParam==VK_ESCAPE){editor.SetInteract(false);return true;}
+            if((GetKeyState(VK_CONTROL)&0x8000)&&(message.wParam=='S'||message.wParam=='O'))return editor.Key(message);
+            return false;
+        }
         if(message.wParam==VK_TAB&&GetFocus()==window){top.NavigateFocus(hosting::XamlSourceFocusNavigationRequest((GetKeyState(VK_SHIFT)&0x8000)?hosting::XamlSourceFocusNavigationReason::Last:hosting::XamlSourceFocusNavigationReason::First));return true;}
         // Let XAML text fields own ordinary keys and their local undo. File shortcuts
         // remain application-wide; stage shortcuts only run when the stage has focus.
