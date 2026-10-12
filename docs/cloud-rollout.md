@@ -36,7 +36,7 @@ AI_ENABLED: "false"
 POSTHOG_HOST: "https://us.i.posthog.com"
 ```
 
-No provider secrets belong in this file. `deploy.ps1` sets `PUBLIC_ORIGIN` to the actual Cloud Run URL, replacing any old Hosting origin. The service's `callayers-posthog` secret should contain the project ingestion token (`phc_`), not a privileged secret/personal API key. Your screenshot's “Create project secret API key” dialog is not needed for event capture.
+No provider secrets belong in this file. `PUBLIC_ORIGIN`, when supplied, must exactly match the desktop build’s `-ServiceUrl`. Remove any old Hosting origin. When omitted, `deploy.ps1` discovers a Cloud Run URL; use the final printed Service URL for the desktop build. For this project, pin `PUBLIC_ORIGIN: "https://callayers-api-955736732096.us-central1.run.app"` to match the current desktop build. The service's `callayers-posthog` secret should contain the project ingestion token (`phc_`), not a privileged secret/personal API key. Your screenshot's “Create project secret API key” dialog is not needed for event capture.
 
 ## 2. Deploy the backend yourself
 
@@ -78,8 +78,11 @@ A build without `-ServiceUrl` retains the original developer API-key flow. An un
 
 1. On a fresh cloud-configured launch, expect a sign-in dialog. The editor and camera output should remain unavailable until the saved session is validated or Google sign-in completes. Escape should not dismiss this gate.
 2. Choose **Sign in with Google** in the startup dialog (or File → Account when already signed in). The browser should open the Cloud Run hostname, then Google sign-in.
-3. Sign in as `malcolm@callayers.com`. Match and type the eight-character code displayed in the desktop app, then choose **Connect Callayers**. Return to the app; expect **Awaiting beta approval**. This creates your Firebase identity and backend account.
-4. Grant your first admin role using your cloud operator credentials. Run these commands yourself:
+3. Choose `malcolm@callayers.com` in Google's account picker. The browser returns to a temporary `127.0.0.1` address and Callayers reconnects automatically, without a typed code. If the browser blocks the automatic popup, click **Sign in with Google** on the page. Windows may keep the browser in front; in that case Callayers flashes in the taskbar. Expect **Awaiting beta approval** for a new account. This creates your Firebase identity and backend account.
+4. Cancel an in-progress sign-in in the app and confirm a stale browser attempt cannot unlock it. Start again to get a fresh connection. Closing the browser or losing the callback should leave the app locked; retry from the app. The listener expires after ten minutes and accepts connections only on this PC.
+
+Deploy the backend before running the updated desktop build. Older desktop builds keep their manual code flow during this transition. No extra Firebase domain, OAuth client, URL protocol registration, or firewall rule is needed for the loopback return. The Firebase Google login itself still completes on the existing authorized web origin.
+5. Grant your first admin role using your cloud operator credentials. Run these commands yourself:
 
 ```powershell
 gcloud auth application-default login
@@ -91,9 +94,9 @@ Pop-Location
 
 The ADC login is for this local operator command, not a service-account key distributed with the app.
 
-5. In the app, select **Refresh account**. **Administration** should appear. Open it; expect monthly global spending and the top lifetime spenders.
-6. Search your exact Google email. Open your account, check **Approved for AI**, leave **Paid access** off, and choose **Save access**. Confirm the refreshed details retain the change. The trial should still say **not started** while AI is disabled.
-7. Close Administration and reopen Account. Expect approved trial access, the $1 allowance, and “AI service not enabled yet.” Restart the app and confirm it validates your saved session and then opens the editor. Sign out: expect the gate and stopped camera output, with the unsaved deck kept in memory. Sign back in to resume.
+6. In the app, select **Refresh account**. **Administration** should appear. Open it; expect monthly global spending and the top lifetime spenders.
+7. Search your exact Google email. Open your account, check **Approved for AI**, leave **Paid access** off, and choose **Save access**. Confirm the refreshed details retain the change. The trial should still say **not started** while AI is disabled.
+8. Close Administration and reopen Account. Expect approved trial access, the $1 allowance, and “AI service not enabled yet.” Restart the app and confirm it validates your saved session and then opens the editor. Sign out: expect the gate and stopped camera output, with the unsaved deck kept in memory. Sign back in to resume.
 
 To revoke admin later, use the same operator command with `revoke`. Refresh Account: the button should disappear. With Administration already open, a subsequent admin request should be denied and the panel should clear on its next UI update. Regrant with `grant` if this is your admin account.
 
@@ -129,6 +132,8 @@ Pending reservations remain counted after backend interruptions. Unknown provide
 
 ## Manual walkthrough: lifecycle and card events
 
+The [telemetry reference](telemetry.md) maps product questions to events, defines their meaning and limitations, and separates implemented tracking from proposed additions and production verification.
+
 In PostHog's event explorer, filter by the Firebase user ID shown on the native Administration account details. Allow 30–60 seconds for batching, plus service ingestion delay.
 
 1. Launch: `process_state_changed / started`, initial preview and vcam states.
@@ -137,7 +142,11 @@ In PostHog's event explorer, filter by the Firebase user ID shown on the native 
 4. First observed consumer on this installation/service: `setup_completed`. This proves a consumer connected, not that someone joined a meeting.
 5. Check a card while no consumer exists: `card_stage_changed / shown`, with no output event. Start a consumer: `card_output_changed / shown`. Uncheck it: corresponding removed events.
 6. Generate/revise: `card_generation` includes operation, request ID, and started/succeeded/failed/canceled/discarded state. Authoritative billing remains in the backend ledger.
-7. Quit from the tray: best-effort `process_state_changed / ended`. Force termination may lose the unflushed tail. A missing end is not proof of a crash. Minute heartbeats provide approximate process lifetime, not active presentation time.
+7. Quit from the tray: best-effort `process_state_changed / ended`. Force termination may lose the unflushed tail. A missing end is not proof of a crash. Heartbeats at process minutes 1, 6, 11, 16, and so on provide approximate process lifetime, not active presentation time. After sleep or a delayed timer tick, send one current snapshot and skip missed slots; do not replay historical heartbeats.
+
+Each `session_heartbeat` includes `uptime_ms`, `preview_visible`, `consumer_count`, `visible_card_count`, and `visible_annotation_count`, alongside the existing account/install/session identifiers and app version. Card counts describe the cards selected into the scene, independently of whether any surface is showing it. Annotation counts are scene text elements plus ink strokes/shapes; images, card internals, and the transient laser trail are excluded. A nonzero count does not prove an edit occurred or a viewer saw the output. Snapshot counts do not replace immediate preview/camera/card transition events. No annotation contents are collected. Heartbeat timestamps describe observation time; the normal event queue may deliver them later.
+
+Deploy the updated backend collector before running the new desktop build: older collectors reject the new snapshot fields. Existing queued heartbeats without snapshot fields remain accepted; missing fields mean unknown, not zero.
 
 `card_output_changed` means a selected card is included in the intended output scene while a consumer lease exists; it does not prove the receiving app displayed the frame. Stage visibility is independent of whether the editor window is minimized. Unchanged states do not generate per-frame events.
 
@@ -157,7 +166,7 @@ Failure events contain component, stable code, native error code, app version an
 
 ## Sessions, retention, and limits
 
-Browser identity is verified with Firebase Admin, including revocation checking and Google provider/email verification. Pairing expires after ten minutes and requires a secret known only to the initiating desktop. The browser sees a request identifier and confirmation code, not a reusable desktop credential. Approved desktop sessions expire after 30 days; this first version asks for sign-in again instead of implementing silent long-lived refresh. Backend stores only session hashes. Account disable is checked on every desktop call. The app refreshes its account about once a minute; a rejected session locks the editor and camera. A fresh process needs an online account check before unlocking. After a successful check, a transient network failure does not itself sign you out.
+Browser identity is verified with Firebase Admin, including revocation checking and Google provider/email verification. Connections expire after ten minutes and require a secret known only to the initiating desktop. New desktop builds also require a separate browser approval grant delivered to an ephemeral IPv4 loopback listener with a random state. The backend fixes the destination to `127.0.0.1`, stores the grant hash, and checks both the grant and desktop proof at exchange. A remembered browser account does not silently approve a connection: each attempt uses Google's account picker. The browser never receives the reusable desktop credential. Older builds retain manual pairing. Approved desktop sessions expire after 30 days; this first version asks for sign-in again instead of implementing silent long-lived refresh. Backend stores only session hashes. Account disable is checked on every desktop call. The app refreshes its account about once a minute; a rejected session locks the editor and camera. A fresh process needs an online account check before unlocking. After a successful check, a transient network failure does not itself sign you out.
 
 Request ledgers contain metadata and usage, not prompts. For connection recovery, generated API responses (including the generated card HTML) are stored for 24 hours in a separate collection; reads reject expired results even before TTL deletion. Firestore TTL deletion is asynchronous. Install/usage events go to PostHog under opaque account IDs without email/profile autocapture. Choose PostHog retention/access appropriate to your beta. Account metadata, billing ledger and admin audit records remain until an operator deletes them; a self-service account-deletion workflow is a follow-up.
 

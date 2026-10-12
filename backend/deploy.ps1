@@ -16,6 +16,13 @@ if ($deploymentConfig -notmatch ('GOOGLE_CLOUD_PROJECT:\s*"?' + [regex]::Escape(
 if ($deploymentConfig -notmatch '(?m)^FIREBASE_WEB_API_KEY:\s*["'']?(AIza[A-Za-z0-9_-]{35})["'']?\s*(?:#.*)?$') {
     throw 'Set FIREBASE_WEB_API_KEY in env.local.yaml to the apiKey from Firebase Project settings > Your apps. The example placeholder is not a working key.'
 }
+# Preserve an explicitly chosen origin so it matches the desktop build URL.
+$configuredOrigin = ''
+if ($deploymentConfig -match '(?m)^PUBLIC_ORIGIN:\s*["'']?(https://[A-Za-z0-9.-]+(?::[0-9]+)?)/?["'']?\s*(?:#.*)?$') {
+    $configuredOrigin = $Matches[1]
+} elseif ($deploymentConfig -match '(?m)^PUBLIC_ORIGIN:') {
+    throw 'PUBLIC_ORIGIN must be an HTTPS origin without a path, query, or fragment.'
+}
 Push-Location $PSScriptRoot
 try {
     $serviceIdentity = "callayers-api@$ProjectId.iam.gserviceaccount.com"
@@ -25,7 +32,10 @@ try {
         --service-account $serviceIdentity --no-invoker-iam-check --timeout 180 --concurrency 8 `
         --min-instances 0 --max-instances 2 --memory 512Mi --cpu 1 `
         --env-vars-file $EnvironmentFile --set-secrets 'OPENAI_API_KEY=callayers-openai:latest,POSTHOG_KEY=callayers-posthog:latest'
-    $serviceOrigin = (Invoke-Cloud run services describe callayers-api --project $ProjectId --region us-central1 --format 'value(status.url)' | Out-String).Trim()
+    $serviceOrigin = $configuredOrigin
+    if (-not $serviceOrigin) {
+        $serviceOrigin = (Invoke-Cloud run services describe callayers-api --project $ProjectId --region us-central1 --format 'value(status.url)' | Out-String).Trim()
+    }
     if ($serviceOrigin -notmatch '^https://[^/]+$') { throw 'Could not determine the Cloud Run service origin.' }
     Invoke-Cloud run services update callayers-api --project $ProjectId --region us-central1 --update-env-vars "PUBLIC_ORIGIN=$serviceOrigin"
     npx.cmd firebase-tools deploy --project $ProjectId --only firestore

@@ -11,6 +11,9 @@ const event = z.object({
     state: z.enum(['started','ended','visible','hidden','consuming','idle','shown','removed','succeeded','failed','canceled','discarded']).optional(),
     operation: z.enum(['create','revise']).optional(), component: identifier.optional(), code: identifier.optional(),
     native_code: z.number().int().optional(), consumer_count: z.number().int().min(0).max(1000).optional(),
+    preview_visible: z.boolean().optional(),
+    visible_card_count: z.number().int().min(0).max(1000).optional(),
+    visible_annotation_count: z.number().int().min(0).max(1000).optional(),
     card_id: identifier.optional(), request_id: z.uuid().optional(), uptime_ms: z.number().nonnegative().optional()
   }).strict()
 }).strict();

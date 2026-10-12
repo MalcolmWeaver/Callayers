@@ -394,7 +394,13 @@ public:
         if(label.Text()!=text)label.Text(text);
     }
     void SyncAccess(){
-        const bool allowed=CloudAccessAllowed();header.IsEnabled(allowed);footer.IsEnabled(allowed);
+        if(CloudTakeSignInReturn()){
+            ShowWindow(window,IsIconic(window)?SW_RESTORE:SW_SHOW);
+            if(!SetForegroundWindow(window)){FLASHWINFO flash{sizeof(FLASHWINFO),window,FLASHW_TRAY,3,0};FlashWindowEx(&flash);}
+        }
+        const bool allowed=CloudAccessAllowed();
+        const auto visibility=allowed?ux::Visibility::Visible:ux::Visibility::Collapsed;
+        header.Visibility(visibility);footer.Visibility(visibility);
         if(!allowed){
             if(generating){job.Cancel();generating=false;RefreshComposer();}
             if(accountStatus){accountGate=true;settingsDialog.CloseButtonText(L"");}

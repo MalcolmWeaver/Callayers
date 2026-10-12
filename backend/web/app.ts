@@ -6,7 +6,8 @@ const status = (text: string) => { $('status').textContent = text; };
 const handle = (fn: () => Promise<void>) => async () => {
   try { await fn(); } catch (e) { status(e instanceof Error ? e.message : 'Something went wrong.'); }
 };
-const loginId = location.hash.slice(1);
+const [loginId = '', mode] = location.hash.slice(1).split('&');
+const automatic = mode === 'desktop=1';
 if (loginId) history.replaceState(null, '', location.pathname);
 void handle(async () => {
   const response = await fetch('/v1/client-config');
@@ -26,7 +27,22 @@ void handle(async () => {
   }
   $('signin').onclick = handle(async () => {
     const provider = new GoogleAuthProvider(); provider.setCustomParameters({ prompt: 'select_account' });
-    await signInWithPopup(auth, provider);
+    const button = $('signin') as HTMLButtonElement; button.disabled = true;
+    try {
+      await signInWithPopup(auth, provider);
+      if (automatic) {
+        status('Returning to Callayers…');
+        const result = await api('login/approve', { id: loginId });
+        const target = new URL(result.returnUrl);
+        if (target.protocol !== 'http:' || target.hostname !== '127.0.0.1' || target.pathname !== '/callback' || target.username || target.password)
+          throw new Error('Invalid desktop return address. Start sign-in again in Callayers.');
+        location.replace(target.href);
+      }
+    } catch (e) {
+      if ((e as { code?: string }).code === 'auth/popup-blocked') {
+        status('Choose Sign in with Google to continue. Your browser blocked the automatic account picker.');
+      } else throw e;
+    } finally { button.disabled = false; }
   });
   $('signout').onclick = handle(async () => { await signOut(auth); });
   $('approve').onclick = handle(async () => {
@@ -39,6 +55,9 @@ void handle(async () => {
     } finally { button.disabled = false; }
   });
   onAuthStateChanged(auth, user => { void handle(async () => {
+    // A remembered browser account never approves a new desktop connection by
+    // itself. Only completion of this attempt's Google account picker does.
+    if (automatic) return;
     $('signin').hidden = !!user; $('signout').hidden = !user; $('pairing').hidden = true;
     if (!user) { status('Sign in to continue.'); return; }
     const me = await api('browser/me'); status(`Signed in as ${me.email}`);
@@ -46,4 +65,8 @@ void handle(async () => {
       $('pair-code').textContent = loginId.slice(0, 8).toUpperCase(); $('pairing').hidden = false;
     } else status('Open File → Account → Sign in with Google in the Windows app to connect it.');
   })(); });
+  if (automatic && /^[a-f0-9]{64}$/.test(loginId)) {
+    status('Opening Google account chooser…');
+    $('signin').click();
+  }
 })();

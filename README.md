@@ -2,6 +2,8 @@
 
 ## Accounts and beta service
 
+See [Telemetry and product questions](docs/telemetry.md) for what we want to learn, what each event means, privacy boundaries, and verification gaps.
+
 The account/backend implementation and manual setup walkthrough are in [docs/cloud-rollout.md](docs/cloud-rollout.md). It adds Google sign-in, approved seven-day trials, manual paid entitlements, AI spending limits, PostHog events, and a small admin page. Cloud accounts have not been created or deployed yet. The implementing agent is building only; runtime verification is intentionally left to the owner.
 
 For a cloud-connected build, pass `-ServiceUrl` (Cloud Run HTTPS origin; also serves browser sign-in) to `scripts/build.ps1 -SkipTests`. Cloud-connected builds require Google sign-in before editor or camera use. File → Account opens allowance details and sign-out, plus Administration for authorized accounts. Firebase Hosting is no longer deployed. See [the manual rollout walkthrough](docs/cloud-rollout.md). A configured cloud build routes generation through the service and never falls back to a personal API key. Without a service address, the existing developer API-key flow below remains available. The installer is a separate follow-up.

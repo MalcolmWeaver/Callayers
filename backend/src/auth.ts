@@ -1,6 +1,7 @@
 import type { FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { db, auth, config, hash, secret, expires, accountRef, newAccount, ApiError, rateLimit } from './core.js';
+import { startLoginBody, exchangeLoginBody, desktopReturnUrl } from './login-protocol.js';
 
 export async function googleUser(req: FastifyRequest) {
   const token = req.headers.authorization?.replace(/^Bearer /, '');
@@ -29,32 +30,38 @@ export async function adminUser(req: FastifyRequest) {
 export async function startLogin(req: FastifyRequest) {
   if (!config.PUBLIC_ORIGIN || !config.FIREBASE_WEB_API_KEY) throw new ApiError(503, 'login_unconfigured', 'Sign-in configuration is not complete yet.');
   await rateLimit('login:' + req.ip, 12, 60000);
-  const { challenge } = z.object({ challenge: z.string().regex(/^[a-f0-9]{64}$/) }).strict().parse(req.body);
+  const { challenge, desktopReturn } = startLoginBody.parse(req.body);
   const id = secret();
-  await db.collection('logins').doc(id).create({ challenge, expiresAt: expires(10 * 60000), uid: null });
-  return { id, code: id.slice(0, 8).toUpperCase(), url: config.PUBLIC_ORIGIN + '/login.html#' + id };
+  await db.collection('logins').doc(id).create({ challenge, expiresAt: expires(10 * 60000), uid: null,
+    ...(desktopReturn ? { desktopReturn } : {}) });
+  return { id, code: id.slice(0, 8).toUpperCase(), url: config.PUBLIC_ORIGIN + '/login.html#' + id + (desktopReturn ? '&desktop=1' : '') };
 }
 export async function approveLogin(req: FastifyRequest) {
   const user = await googleUser(req);
   await rateLimit('approve:' + user.uid, 20, 60000);
   const { id } = z.object({ id: z.string().regex(/^[a-f0-9]{64}$/) }).strict().parse(req.body);
-  await db.runTransaction(async tx => {
+  return db.runTransaction(async tx => {
     const ref = db.collection('logins').doc(id); const login = (await tx.get(ref)).data();
     const account = await tx.get(accountRef(user.uid));
     if (!login || login.expiresAt.toMillis() < Date.now() || login.uid) throw new ApiError(409, 'login_expired', 'Start sign-in again in Callayers.');
     if (account.data()?.disabled) throw new ApiError(403, 'account_disabled', 'This account is disabled.');
     if (!account.exists) tx.create(accountRef(user.uid), newAccount(user.email!));
-    tx.update(ref, { uid: user.uid });
+    const grant = login.desktopReturn ? secret() : undefined;
+    tx.update(ref, { uid: user.uid, ...(grant ? { grantHash: hash(grant) } : {}) });
+    return { approved: true, ...(grant ? { returnUrl: desktopReturnUrl(login.desktopReturn, grant) } : {}) };
   });
-  return { approved: true };
 }
 export async function exchangeLogin(req: FastifyRequest) {
-  const { id, proof } = z.object({ id: z.string().regex(/^[a-f0-9]{64}$/), proof: z.string().regex(/^[a-f0-9]{64}$/) }).strict().parse(req.body);
+  const { id, proof, grant } = exchangeLoginBody.parse(req.body);
   // Only the initiating desktop knows this high-entropy proof. It never enters a URL.
   return db.runTransaction(async tx => {
     const loginRef = db.collection('logins').doc(id); const login = (await tx.get(loginRef)).data();
     if (!login || login.expiresAt.toMillis() < Date.now() || login.challenge !== hash(proof)) throw new ApiError(401, 'login_expired', 'Start sign-in again in Callayers.');
     if (!login.uid) return { pending: true };
+    // Browser approval alone cannot unlock an automatic login. The initiating
+    // desktop must also receive the grant through its private loopback listener.
+    if (login.desktopReturn && (!grant || login.grantHash !== hash(grant)))
+      throw new ApiError(401, 'login_return_required', 'Return to the desktop that started sign-in.');
     if (!login.claimed) {
       tx.create(db.collection('sessions').doc(hash(proof)), { uid: login.uid, expiresAt: expires(30 * 86400000), createdAt: Date.now() });
       tx.update(loginRef, { claimed: true });

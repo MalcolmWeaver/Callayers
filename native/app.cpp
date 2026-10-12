@@ -327,7 +327,10 @@ struct App {
         else if(frames->mode==2&&frame->header.mode==0)message=L"Waiting for webcam frames — idle image is being sent.";
         if(frames->cards&&FAILED(frames->cards->Error()))message=L"Card rendering failed: "+ErrorText(frames->cards->Error())+L". Save your deck and restart Callayers.";
         if(GetTickCount64()-lastObservation>=250){
-            lastObservation=GetTickCount64();CloudObserve(PreviewVisible(),consumerCount,shownCards);
+            // Count scene annotations directly: in-progress ink updates bypass
+            // SceneChanged, which publishes the independently playing cards.
+            const auto& scene=editor->CurrentScene();
+            lastObservation=GetTickCount64();CloudObserve(PreviewVisible()&&!locked,consumerCount,shownCards,scene.texts.size()+scene.ink.size());
             CloudFailure(L"virtual_camera",FAILED(outputError)?L"virtual_camera_start_failed":L"virtual_camera_ready",outputError);
             auto background=frames->latest.load();
             if(FAILED(error)||background->header.mode!=0&&GetTickCount64()-background->header.capturedMs<750)
