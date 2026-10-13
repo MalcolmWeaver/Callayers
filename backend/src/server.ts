@@ -28,14 +28,18 @@ app.setErrorHandler((error, req, reply) => {
 for (const [route, file, type] of [
   ['/', 'login.html', 'text/html; charset=utf-8'],
   ['/login.html', 'login.html', 'text/html; charset=utf-8'],
+  ['/signin', 'signin.html', 'text/html; charset=utf-8'],
+  ['/signup', 'signup.html', 'text/html; charset=utf-8'],
+  ['/home', 'home.html', 'text/html; charset=utf-8'],
   ['/app.js', 'app.js', 'text/javascript; charset=utf-8'],
+  ['/account.js', 'account.js', 'text/javascript; charset=utf-8'],
   ['/style.css', 'style.css', 'text/css; charset=utf-8']
 ] as const) {
   const bytes = readFileSync(new URL('../web-dist/' + file, import.meta.url));
   app.get(route, async (_req, reply) => reply.type(type)
     // Origin-only policy preserves Origin on the HTTPS-to-loopback form POST.
     .header('Referrer-Policy', 'origin').header('X-Frame-Options', 'DENY')
-    .header('Content-Security-Policy', "default-src 'self'; script-src 'self' https://apis.google.com; connect-src 'self' https://*.googleapis.com https://*.firebaseapp.com; frame-src 'self' https://*.firebaseapp.com https://accounts.google.com; img-src 'self' https://*.googleusercontent.com; style-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action http://127.0.0.1:*")
+    .header('Content-Security-Policy', "default-src 'self'; script-src 'self' https://apis.google.com; connect-src 'self' https://*.googleapis.com https://*.firebaseapp.com; frame-src 'self' https://*.firebaseapp.com https://accounts.google.com; img-src 'self' https://*.googleusercontent.com; style-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self' http://127.0.0.1:*")
     .send(bytes));
 }
 await registerAuthProxy(app, config.GOOGLE_CLOUD_PROJECT);

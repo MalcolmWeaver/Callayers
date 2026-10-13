@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign up · Callayers</title><link rel="stylesheet" href="/style.css"><script type="module" src="/account.js"></script></head>
+<body data-page="signup">
+  <header class="site-header"><a class="brand" href="/">CALLAYERS</a><nav aria-label="Account"><a href="/signin">Sign in</a></nav></header>
+  <main class="auth-layout"><section class="auth-card" aria-labelledby="page-title">
+    <p class="eyebrow">Join Callayers</p><h1 id="page-title">Create an account</h1><p class="note">Set up your Callayers web account.</p>
+    <form id="auth-form" method="post" action="/signup" novalidate>
+      <div class="field"><label for="name">Name</label><input id="name" name="name" type="text" autocomplete="name" aria-invalid="false" aria-describedby="name-error" required><p class="field-error" id="name-error"></p></div>
+      <div class="field"><label for="email">Email</label><input id="email" name="email" type="email" autocomplete="email" aria-invalid="false" aria-describedby="email-error" required><p class="field-error" id="email-error"></p></div>
+      <div class="field"><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="new-password" aria-invalid="false" aria-describedby="password-error" required minlength="8"><p class="field-error" id="password-error"></p></div>
+      <div class="field"><label for="confirmPassword">Confirm password</label><input id="confirmPassword" name="confirmPassword" type="password" autocomplete="new-password" aria-invalid="false" aria-describedby="confirmPassword-error" required><p class="field-error" id="confirmPassword-error"></p></div>
+      <p id="status" class="form-error" role="alert" aria-live="polite"></p><button class="primary-button" type="submit">Create account</button>
+    </form>
+    <p class="auth-footer">Already have an account? <a href="/signin">Sign in</a></p>
+    <p class="note">Connecting the Windows app? Start from the app and use <a href="/">Google sign-in</a>.</p>
+  </section></main>
+</body></html>

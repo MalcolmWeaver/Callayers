@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign in · Callayers</title><link rel="stylesheet" href="/style.css"><script type="module" src="/account.js"></script></head>
+<body data-page="signin">
+  <header class="site-header"><a class="brand" href="/">CALLAYERS</a><nav aria-label="Account"><a href="/signup">Sign up</a></nav></header>
+  <main class="auth-layout"><section class="auth-card" aria-labelledby="page-title">
+    <p class="eyebrow">Welcome back</p><h1 id="page-title">Sign in</h1><p class="note">Continue with your Callayers web account.</p>
+    <form id="auth-form" method="post" action="/signin" novalidate>
+      <div class="field"><label for="email">Email</label><input id="email" name="email" type="email" autocomplete="email" aria-invalid="false" aria-describedby="email-error" required><p class="field-error" id="email-error"></p></div>
+      <div class="field"><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" aria-invalid="false" aria-describedby="password-error" required><p class="field-error" id="password-error"></p></div>
+      <p id="status" class="form-error" role="alert" aria-live="polite"></p><button class="primary-button" type="submit">Sign in</button>
+    </form>
+    <p class="auth-footer">New to Callayers? <a href="/signup">Create an account</a></p>
+    <p class="note">Connecting the Windows app? Start from the app and use <a href="/">Google sign-in</a>.</p>
+  </section></main>
+</body></html>
