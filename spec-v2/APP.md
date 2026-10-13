@@ -46,7 +46,7 @@ After the camera works, the empty sidebar says **Create your first card**. Keep 
 - **Header:** logo, File, Annotate, camera selector, short status.
 - **Left sidebar:** Create with AI, Import image, Hide all, Search cards, and saved card rows with visibility checkboxes. Show recently created or edited cards first. Card menus offer rename, change stacking order, and delete; stacking order is separate from library sorting.
 - **Card selection:** show its content and editing controls in the sidebar without changing whether it is broadcast. Checkboxes control visibility; reopening restores the previous visibility automatically. Search filters by name.
-- **Preview:** move and resize shown cards. Editing handles never appear in the outgoing video.
+- **Preview:** move and resize shown cards. Resize the whole card proportionally: text, graphics, borders and spacing scale together from the card's content dimensions. Preserve aspect ratio; resizing does not restart timers/animations or reflow the HTML document. Editing handles never appear in the outgoing video.
 - **Annotations:** Select, pen, shapes, text, color, size, Eraser, and Clear annotations. Follow the [annotation-bar reference](references/annotation-bar.png), replacing Undo/Redo with Eraser. Use simple color swatches; the full spectrum/hex picker is optional.
 - **File:** account/sign out and quit.
 

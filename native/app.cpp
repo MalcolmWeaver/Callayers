@@ -21,7 +21,13 @@
 
 using namespace callayers;
 namespace {
-struct Card { double x, y, w, h; bool visible = true; };
+struct Card {
+    double x, y, w, h;
+    bool visible = true;
+    // The HTML document keeps this layout size for its whole lifetime. Resizing
+    // changes presentation scale, so scripts/animation and text layout survive.
+    double contentW = w, contentH = h;
+};
 struct Point { double x, y; };
 struct PresentedFrame { std::vector<uint8_t> pixels; bool live = false; ULONGLONG tick = 0; unsigned version = 0; };
 struct App {
@@ -64,7 +70,7 @@ struct App {
         for (int i = 0; i < 3; ++i) {
             if (i) out << ',';
             const auto& c = cards[i];
-            out << L"{\"id\":" << i << L",\"x\":" << c.x << L",\"y\":" << c.y << L",\"w\":" << c.w << L",\"h\":" << c.h << L",\"visible\":" << (c.visible ? L"true" : L"false") << '}';
+            out << L"{\"id\":" << i << L",\"x\":" << c.x << L",\"y\":" << c.y << L",\"w\":" << c.w << L",\"h\":" << c.h << L",\"contentW\":" << c.contentW << L",\"contentH\":" << c.contentH << L",\"visible\":" << (c.visible ? L"true" : L"false") << '}';
         }
         out << L"],\"strokes\":[";
         for (size_t i = 0; i < strokes.size(); ++i) {
@@ -154,7 +160,15 @@ struct App {
         }
         if (dragging && selectedCard >= 0) {
             auto& c = cards[selectedCard];
-            if (resizing) { c.w = std::clamp(original.w+p.x-dragStart.x, 180.0, Width-c.x); c.h = std::clamp(original.h+p.y-dragStart.y, 100.0, Height-c.y); }
+            if (resizing) {
+                // Project the corner drag onto the card's diagonal. One scale
+                // factor preserves aspect ratio even on horizontal/vertical drags.
+                double factor=1+((p.x-dragStart.x)*original.w+(p.y-dragStart.y)*original.h)/(original.w*original.w+original.h*original.h);
+                double maximum=std::min((Width-c.x)/original.w,(Height-c.y)/original.h);
+                double minimum=std::min(maximum,std::max(180.0/original.w,100.0/original.h));
+                factor=std::clamp(factor,minimum,maximum);
+                c.w=original.w*factor; c.h=original.h*factor;
+            }
             else { c.x = std::clamp(original.x+p.x-dragStart.x, 0.0, Width-c.w); c.y = std::clamp(original.y+p.y-dragStart.y, 0.0, Height-c.h); }
         }
         changed();
