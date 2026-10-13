@@ -169,6 +169,15 @@ inline std::shared_ptr<Frame> ReadFrame(HANDLE stop=nullptr) {
     return f;
 }
 struct Device { std::wstring name, link; };
+inline uint64_t CameraModeScore(UINT width,UINT height,UINT numerator,UINT denominator) {
+    if(!width||!height||!denominator||width>Width||height>Height||
+       uint64_t(numerator)<15ull*denominator||uint64_t(numerator)>60ull*denominator)return 0;
+    // Prefer a camera's 30 fps mode at any supported size over its 60 fps mode.
+    const bool withinOutputRate=uint64_t(numerator)<=uint64_t(Fps)*denominator;
+    const auto rate=std::min(numerator/denominator,60u);
+    return (withinOutputRate?1'000'000'000ull:0ull)+uint64_t(width)*height*100+
+        (withinOutputRate?rate:60u-rate);
+}
 inline std::vector<Device> Cameras(bool includeCallayers=false) {
     ComPtr<IMFAttributes> a; Check(MFCreateAttributes(&a,1));
     Check(a->SetGUID(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE,MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID));

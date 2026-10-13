@@ -351,9 +351,9 @@ public:
         for(auto pair:{std::pair{L"NewDeck",TextEditorUI::NewIdControl},{L"OpenDeck",TextEditorUI::OpenId},{L"SaveDeck",TextEditorUI::SaveId}})
             Find<controls::MenuFlyoutItem>(pair.first).Click([this,id=pair.second](auto&&,auto&&){try{editor.Command(id);}catch(...){EditorError(window);}});
         Find<controls::MenuFlyoutItem>(L"SaveAsDeck").Click([this](auto&&,auto&&){try{editor.SaveAs();}catch(...){EditorError(window);}});
-        auto sources=Find<controls::ComboBox>(L"Camera");sources.PlaceholderText(L"No cameras found");
-        for(auto& device:devices)sources.Items().Append(winrt::box_value(device.name));sources.SelectedIndex(devices.empty()?-1:0);
-        sources.SelectionChanged([this,camera](auto&&,auto&&){if(!syncing)try{int index=Find<controls::ComboBox>(L"Camera").SelectedIndex();camera(index+1);if(setup)setup->CameraIndex(index+1);}catch(...){EditorError(window);}});
+        auto sources=Find<controls::ComboBox>(L"Camera");
+        sources.Items().Append(winrt::box_value(L"Camera off"));for(auto& device:devices)sources.Items().Append(winrt::box_value(device.name));sources.SelectedIndex(0);
+        sources.SelectionChanged([this,camera](auto&&,auto&&){if(!syncing)try{int index=Find<controls::ComboBox>(L"Camera").SelectedIndex();camera(index);if(setup)setup->CameraIndex(index);}catch(...){EditorError(window);}});
         Action(L"Output",output);
         Action(L"Annotate",[this]{annotating=!annotating;editor.SetAnnotationMode(annotating);Refresh();Relayout();});
         Action(L"Pen",[this]{editor.SetDrawingTool(TextEditorUI::DrawTool::Pen);});
@@ -376,7 +376,7 @@ public:
         Find<controls::MenuFlyoutItem>(L"AiSettings").Visibility(ux::Visibility::Visible);
         Find<controls::MenuFlyoutItem>(L"AiSettings").Click([this](auto&&,auto&&){try{ShowAiSettings();}catch(...){EditorError(window);}});
         Bottom<controls::TextBox>(L"Prompt").KeyDown([this](auto&&,ux::Input::KeyRoutedEventArgs const& args){if(args.Key()==winrt::Windows::System::VirtualKey::Enter&&(GetKeyState(VK_CONTROL)&0x8000)){Generate();args.Handled(true);}});
-        setup=std::make_unique<SetupPanel>(window,editor,devices,[this,camera](int index){syncing=true;Find<controls::ComboBox>(L"Camera").SelectedIndex(index-1);syncing=false;camera(index);},output,[this]{CloseSetup();});
+        setup=std::make_unique<SetupPanel>(window,editor,devices,[this,camera](int index){syncing=true;Find<controls::ComboBox>(L"Camera").SelectedIndex(index);syncing=false;camera(index);},[this]{CloseSetup();});
         controls::Grid::SetRowSpan(setup->Root,4);footer.as<controls::Grid>().Children().Append(setup->Root);
         Bottom<controls::Button>(L"UseInCall").Click([this](auto&&,auto&&){ShowSetup(2);});
         editor.StateChanged=[this]{Refresh();};Refresh();
@@ -395,7 +395,7 @@ public:
         bottom.SiteBridge().MoveAndResize({0,headerHeight,sidebar,std::max(1,height-headerHeight)});
     }
     int HeaderHeight()const{return annotating?128:72;}
-    void CameraIndex(int index){syncing=true;Find<controls::ComboBox>(L"Camera").SelectedIndex(index-1);syncing=false;if(setup)setup->CameraIndex(index);}
+    void CameraIndex(int index){syncing=true;Find<controls::ComboBox>(L"Camera").SelectedIndex(index);syncing=false;if(setup)setup->CameraIndex(index);}
     bool SetupActive()const{return setup&&setup->Active();}
     void SetupStatus(bool fresh,bool running,bool live,HRESULT failure,const std::wstring& message){
         setup->Update(fresh,running,live,failure,message);

@@ -112,6 +112,8 @@ class Capture final:public RuntimeClass<RuntimeClassFlags<ClassicCom>,IMFSourceR
     std::shared_ptr<Frames> frames;
     bool stopped=false;
     UINT width=0,height=0;LONG stride=0;
+    bool reduceHighRate=false;
+    ULONGLONG lastConvertedAt=0;
 public:
     HRESULT Open(const Device& device,std::shared_ptr<Frames> f) {
         frames=std::move(f);
@@ -124,15 +126,16 @@ public:
             Check(MFCreateSourceReaderFromMediaSource(source.Get(),a.Get(),&reader));
             Check(reader->SetStreamSelection(AllStreams,FALSE));
             Check(reader->SetStreamSelection(VideoStream,TRUE));
-            ComPtr<IMFMediaType> best;uint64_t bestScore=0;
+            ComPtr<IMFMediaType> best;uint64_t bestScore=0;UINT bestN=0,bestD=1;
             for(DWORD i=0;;++i) {
                 ComPtr<IMFMediaType> t;if(FAILED(reader->GetNativeMediaType(VideoStream,i,&t)))break;
                 UINT w=0,h=0,n=0,d=1;MFGetAttributeSize(t.Get(),MF_MT_FRAME_SIZE,&w,&h);MFGetAttributeRatio(t.Get(),MF_MT_FRAME_RATE,&n,&d);
-                if(!w||!h||!d||w>Width||h>Height||n/d<15)continue;
-                uint64_t score=uint64_t(w)*h*100+std::min(n/d,30u);
-                if(score>bestScore){best=t;bestScore=score;}
+                uint64_t score=CameraModeScore(w,h,n,d);
+                if(score>bestScore){best=t;bestScore=score;bestN=n;bestD=d;}
             }
-            if(best)Check(reader->SetCurrentMediaType(VideoStream,nullptr,best.Get()));
+            if(!best)throw HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
+            reduceHighRate=uint64_t(bestN)>uint64_t(Fps)*bestD;
+            Check(reader->SetCurrentMediaType(VideoStream,nullptr,best.Get()));
             ComPtr<IMFMediaType> output;Check(MFCreateMediaType(&output));
             Check(output->SetGUID(MF_MT_MAJOR_TYPE,MFMediaType_Video));
             Check(output->SetGUID(MF_MT_SUBTYPE,MFVideoFormat_RGB32));
@@ -153,7 +156,9 @@ public:
             Check(hr);if(flags&MF_SOURCE_READERF_ERROR)throw E_FAIL;
             if(flags&MF_SOURCE_READERF_ENDOFSTREAM)throw MF_E_END_OF_STREAM;
             if(flags&MF_SOURCE_READERF_CURRENTMEDIATYPECHANGED)UpdateFormat();
-            if(sample) {
+            const auto now=GetTickCount64();
+            if(sample&&(!reduceHighRate||now-lastConvertedAt>=1000/Fps)) {
+                lastConvertedAt=now;
                 ComPtr<IMFMediaBuffer> buffer;Check(sample->ConvertToContiguousBuffer(&buffer));
                 ComPtr<IMF2DBuffer> twoD;BYTE* data=nullptr;LONG pitch=stride;
                 std::shared_ptr<Frame> frame;
@@ -238,12 +243,12 @@ struct App {
     HRESULT outputError=S_OK;
     std::vector<Device> devices;
     std::vector<BYTE> preview;
+    bool idlePreviewDrawn=false;
     PreviewBuffer paintBuffer;
     std::wstring cameraStatus=L"Camera output is off";
     size_t consumerCount=0;
     std::vector<std::wstring> shownCards;
     ULONGLONG lastObservation=0,lastAccountRefresh=GetTickCount64();
-    bool accessWasLocked=true;
     RECT stage{};
     ~App(){if(capture)capture->Close();if(activation.joinable())activation.join();publisher.reset();}
     void StartOutput(){
@@ -261,7 +266,13 @@ struct App {
     bool PreviewVisible()const{return window&&IsWindowVisible(window)&&!IsIconic(window);}
     void UpdateDemand(){
         consumerCount=demand?demand->Poll():0;
-        const bool needed=CloudAccessAllowed()&&NeedsCameraFrames(PreviewVisible(),consumerCount,frames->lastFrameRequest.load());
+        // A visible window alone must not start the camera or a 30 fps idle compositor.
+        // A source selection, live output consumer, or visible content opts into frames.
+        const bool hasSourceOrContent=cameraIndex>0||frames->mode==1||
+            (editor&&editor->HasShownCards())||frames->overlay.load()!=nullptr;
+        const auto lastRequest=frames->lastFrameRequest.load();
+        const bool needed=ShouldProduceFrames(CloudAccessAllowed(),PreviewVisible(),
+            hasSourceOrContent,consumerCount,lastRequest);
         frames->demanded=needed;
         if(!needed||cameraIndex<=0){
             if(capture){capture->Close();capture.Reset();}
@@ -297,8 +308,8 @@ struct App {
         if(locked){
             if(!activating&&virtualCamera){if(activation.joinable())activation.join();virtualCamera->Stop();virtualCamera.Reset();}
             preview.clear();
-        }else if(accessWasLocked&&!shellOnly)StartOutput();
-        accessWasLocked=locked;
+            idlePreviewDrawn=false;
+        }
         if(CloudEnabled()&&GetTickCount64()-lastAccountRefresh>=60000){lastAccountRefresh=GetTickCount64();CloudRefresh();}
         UpdateDemand();
         if(editor&&!locked)editor->TickInk();
@@ -322,9 +333,11 @@ struct App {
         HRESULT error=frames->error.load();
         if(FAILED(error)){
             message=error==E_ACCESSDENIED?L"Camera access is blocked. Allow desktop camera access in Windows Settings > Privacy & security > Camera, then select your webcam again.":
+                error==HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED)?L"This webcam currently reports no usable format at 60 fps or lower. Reconnect it to a USB 3 port or restart Windows, then try again. Details: "+ErrorText(error):
                 L"The webcam could not start or stopped responding. Stop its use in other apps, then select the webcam again to retry. You can also choose another camera. Details: "+ErrorText(error);
         }
-        else if(frames->mode==0)message=L"No camera found. Connect a webcam and restart Callayers.";
+        else if(frames->mode==0)message=devices.empty()?L"No camera found. Connect a webcam and restart Callayers.":
+            L"Camera is off. Choose a webcam when you want to start its preview.";
         else if(frames->mode==2&&frame->header.mode==0)message=L"Waiting for webcam frames — idle image is being sent.";
         if(frames->cards&&FAILED(frames->cards->Error()))message=L"Card rendering failed: "+ErrorText(frames->cards->Error())+L". Save your deck and restart Callayers.";
         if(GetTickCount64()-lastObservation>=250){
@@ -352,8 +365,12 @@ struct App {
                 if(frames->cards)if(auto card=frames->cards->Latest())background=ComposeText(*background,*card);
                 frame=editor->EditingFrame(*background);
             }
-            ToBgra(*frame,preview);
-            InvalidateRect(window,&stage,FALSE);
+            const bool plainIdle=frame==frames->idle;
+            if(!plainIdle||!idlePreviewDrawn){
+                ToBgra(*frame,preview);
+                InvalidateRect(window,&stage,FALSE);
+            }
+            idlePreviewDrawn=plainIdle;
         }
     }
 };
@@ -459,12 +476,11 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR command,int show){
             HWND window=CreateWindowW(wc.lpszClassName,L"Callayers",WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,CW_USEDEFAULT,CW_USEDEFAULT,1280,850,nullptr,nullptr,instance,&app);
             if(!window)throw HRESULT_FROM_WIN32(GetLastError());ShowWindow(window,show);
             if(wcsstr(command,L"--smoke-test"))SetTimer(window,2,1500,nullptr);
-            if(!app.devices.empty()&&(app.cameraIndex==0||wcsstr(command,L"--webcam"))){
+            if(!app.devices.empty()&&wcsstr(command,L"--webcam")){
                 app.cameraIndex=1;app.shell->CameraIndex(1);app.Select();
             }
             if(wcsstr(command,L"--demo-cards")){app.editor->AddSampleCard();app.editor->AddSampleCard();}
             app.tray.Add(window);
-            if(!app.shellOnly)app.StartOutput();
             MSG message{};while(GetMessageW(&message,nullptr,0,0)>0){
                 try{if(app.shell&&app.shell->Key(message))continue;}catch(...){EditorError(window);continue;}
                 if(ContentPreTranslateMessage(&message))continue;

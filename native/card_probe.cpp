@@ -39,7 +39,10 @@ int main(){
         host.SetScene(scene);bool replacement=false;
         for(int i=0;i<30;++i){Sleep(50);auto current=host.Latest();Require(current&&LumaAt(*current,300,300)>=0,"replacement exposed a blank frame");if(LumaAt(*current,300,300)>220){replacement=true;break;}}
         Require(replacement,"prepared replacement did not become visible");
-        scene.cards.clear();host.SetScene(scene);Sleep(500);overlay=host.Latest();Require(overlay&&overlay->luma.empty(),"removed cards left stale pixels");
+        scene.cards.clear();host.SetScene(scene);Sleep(500);
+        auto emptyCount=host.FrameCount();Sleep(250);
+        Require(host.FrameCount()==emptyCount,"empty deck kept capturing frames");
+        Require(host.Latest()==nullptr,"removed cards left a stale overlay");
         CardElement media;media.id=NewId();media.html=L"<style>body{margin:0}</style><img src='callayers-asset:logo' width='200' height='200'>";
         const std::string svg="<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><rect width='200' height='200' fill='white'/></svg>";
         DWORD chars=0;Check(CryptBinaryToStringW(reinterpret_cast<const BYTE*>(svg.data()),static_cast<DWORD>(svg.size()),CRYPT_STRING_BASE64|CRYPT_STRING_NOCRLF,nullptr,&chars)?S_OK:E_FAIL);

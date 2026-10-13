@@ -15,7 +15,7 @@ class SetupPanel {
     HWND window;
     TextEditorUI& editor;
     std::function<void(int)> selectCamera;
-    std::function<void()> retryOutput,closed;
+    std::function<void()> closed;
     setupcontrols::StackPanel body;
     setupcontrols::TextBlock progress,title,description,status,guide,error;
     setupcontrols::ComboBox cameras,apps;
@@ -92,7 +92,7 @@ class SetupPanel {
     void Refresh(){
         progress.Text(L"Step "+std::to_wstring(step+1)+L" of 3");
         const wchar_t* titles[]{L"Choose your camera",L"Create your first card",L"Try it in your calling app"};Text(title,titles[step]);
-        const wchar_t* descriptions[]{L"Choose a camera and check your preview.",L"Add your name to a transparent name tag.",L"Choose Callayers as your camera. You can try it without joining a call."};Text(description,descriptions[step]);
+        const wchar_t* descriptions[]{L"Choose a camera and check your preview.",L"Add your name to a transparent name tag.",L"Start the Callayers camera, then choose it in your calling app. You can try it without joining a call."};Text(description,descriptions[step]);
         cameraStep.Visibility(step==0?setupui::Visibility::Visible:setupui::Visibility::Collapsed);
         cardStep.Visibility(step==1?setupui::Visibility::Visible:setupui::Visibility::Collapsed);
         connectStep.Visibility(step==2?setupui::Visibility::Visible:setupui::Visibility::Collapsed);
@@ -112,8 +112,8 @@ class SetupPanel {
     }
 public:
     setupcontrols::ScrollViewer Root;
-    SetupPanel(HWND owner,TextEditorUI& value,const std::vector<Device>& devices,std::function<void(int)> camera,std::function<void()> output,std::function<void()> onClose)
-        :window(owner),editor(value),selectCamera(std::move(camera)),retryOutput(std::move(output)),closed(std::move(onClose)){
+    SetupPanel(HWND owner,TextEditorUI& value,const std::vector<Device>& devices,std::function<void(int)> camera,std::function<void()> onClose)
+        :window(owner),editor(value),selectCamera(std::move(camera)),closed(std::move(onClose)){
         Root.VerticalScrollBarVisibility(setupcontrols::ScrollBarVisibility::Auto);Root.HorizontalScrollBarVisibility(setupcontrols::ScrollBarVisibility::Disabled);
         body.Spacing(14);body.Padding({0,0,6,16});Root.Content(body);
         progress.FontSize(12);title.FontSize(24);title.FontWeight(winrt::Windows::UI::Text::FontWeights::SemiBold());
@@ -121,11 +121,11 @@ public:
         body.Children().Append(progress);body.Children().Append(title);body.Children().Append(description);
         cameraStep.Spacing(10);cardStep.Spacing(10);connectStep.Spacing(10);
         cameras.Header(winrt::box_value(L"Your camera"));cameras.HorizontalAlignment(setupui::HorizontalAlignment::Stretch);
-        cameras.PlaceholderText(L"No cameras found");for(const auto& device:devices)cameras.Items().Append(winrt::box_value(device.name));cameras.SelectedIndex(devices.empty()?-1:0);
-        cameras.SelectionChanged([this](auto&&,auto&&){if(!syncingCamera&&cameras.SelectedIndex()>=0){fresh=false;selectCamera(cameras.SelectedIndex()+1);Persist();Refresh();}});
+        cameras.Items().Append(winrt::box_value(L"Camera off"));for(const auto& device:devices)cameras.Items().Append(winrt::box_value(device.name));cameras.SelectedIndex(0);
+        cameras.SelectionChanged([this](auto&&,auto&&){if(!syncingCamera&&cameras.SelectedIndex()>=0){fresh=false;selectCamera(cameras.SelectedIndex());Persist();Refresh();}});
         cameraStep.Children().Append(cameras);
-        Button(privacy,L"Open camera permissions",[this]{if(permissionsOpened){fresh=false;selectCamera(cameras.SelectedIndex()+1);retryOutput();}else{Open(L"ms-settings:privacy-webcam");permissionsOpened=true;}Refresh();});Primary(privacy);cameraStep.Children().Append(privacy);
-        Button(retry,L"Try camera again",[this]{fresh=false;selectCamera(cameras.SelectedIndex()+1);retryOutput();});Primary(retry);cameraStep.Children().Append(retry);
+        Button(privacy,L"Open camera permissions",[this]{if(permissionsOpened){fresh=false;selectCamera(cameras.SelectedIndex());}else{Open(L"ms-settings:privacy-webcam");permissionsOpened=true;}Refresh();});Primary(privacy);cameraStep.Children().Append(privacy);
+        Button(retry,L"Try camera again",[this]{fresh=false;selectCamera(cameras.SelectedIndex());});Primary(retry);cameraStep.Children().Append(retry);
         name.Header(winrt::box_value(L"Your name"));name.PlaceholderText(L"e.g. Alex Morgan");name.MaxLength(60);
         detail.Header(winrt::box_value(L"Second line (optional)"));detail.PlaceholderText(L"Role, company, or pronouns");detail.MaxLength(80);
         cardStep.Children().Append(name);cardStep.Children().Append(detail);
@@ -153,9 +153,9 @@ public:
         auto saved=DecodeSetupProgress(CloudGetAccount().setupJson);cardId=saved.cardId;name.Text(saved.name);detail.Text(saved.detail);apps.SelectedIndex(saved.app);
         if(!Complete()){
             syncingCamera=true;
-            cameras.SelectedIndex(cameras.Items().Size()==0?-1:saved.camera>0&&saved.camera<=int(cameras.Items().Size())?saved.camera-1:0);
+            // A previous choice must not reopen a physical camera on launch.
+            cameras.SelectedIndex(0);
             syncingCamera=false;fresh=false;
-            selectCamera(cameras.SelectedIndex()+1);
             if(!cardId.empty()&&CardIndex()<0&&!saved.name.empty()){auto card=NameTagCard(saved.name,saved.detail);card.id=cardId;editor.AddSetupCard(card);}
         }
         restoring=false;return saved.step;
@@ -163,14 +163,15 @@ public:
     bool Complete()const{return CloudEnabled()?CloudGetAccount().setupComplete:localComplete;}
     void Suspend(){saveJob.Cancel();queuedSave.clear();sentSave.clear();saving=false;finishing=false;body.IsHitTestVisible(true);active=false;Root.Visibility(setupui::Visibility::Collapsed);}
     bool Active()const{return active;}
-    void CameraIndex(int index){syncingCamera=true;if(cameras.SelectedIndex()!=index-1)cameras.SelectedIndex(index-1);syncingCamera=false;}
+    void CameraIndex(int index){syncingCamera=true;if(cameras.SelectedIndex()!=index)cameras.SelectedIndex(index);syncingCamera=false;}
     void Update(bool cameraFresh,bool outputReady,bool live,HRESULT failure,const std::wstring& message){
         PollSave();
         if(finishing){status.Text(L"Saving setup to your account…");return;}
         fresh=cameraFresh;running=outputReady;cameraFailure=failure;delivering=live&&fresh&&running;if(delivering)verified=true;
         std::wstring text=delivering?L"Camera connected — live video is being delivered.":verified&&running?L"Ready for your next call. Choose Callayers in your calling app.":running?L"Ready for your calling app. Choose Callayers in its camera settings.":message;
         if(FAILED(failure))text=message;
-        else if(!fresh)text=step==0&&cameras.Items().Size()>0?L"Waiting for your camera preview…":message;
+        else if(step==2&&!running)text=L"Choose Start camera at the top, then select Callayers in your calling app.";
+        else if(!fresh)text=step==0&&cameras.Items().Size()>1&&cameras.SelectedIndex()==0?L"Choose a camera above to start its preview.":message;
         if(status.Text()!=text)status.Text(text);
         if(active)Refresh();
     }
