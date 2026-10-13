@@ -326,6 +326,7 @@ struct App {
             cameraStatus=L"Cannot start camera: "+ErrorText(result);
             if(result==REGDB_E_CLASSNOTREG)cameraStatus+=L" Run the development registration script first.";
             else if(result==MF_E_SHUTDOWN)cameraStatus+=L" The camera source shut down during startup. Update the camera component and restart Callayers.";
+            else if(result==MF_E_REBOOT_REQUIRED)cameraStatus+=L" Restart Windows to finish camera registration, then choose Start camera again.";
             else if(result==E_ACCESSDENIED)cameraStatus+=L" Check Windows camera privacy permissions.";
         }
         auto frame=frames->Current();
