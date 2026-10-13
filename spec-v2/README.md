@@ -31,7 +31,8 @@ Resource measurements and the focused investigation are complete. On October 13,
 5. **Create an AI card.** Connect generation, local saving, allowance and actionable failure handling. Video must stay responsive during requests. Use the restrictions and website-input behavior in [AI.md](AI.md).
 6.  **Import and keep cards.** Add image import and the saved local library: search, independent selection/visibility, rename, stacking and delete. Autosave cards, placement and visibility; verify that reopening restores the user's work. Split this outcome further if its walkthrough becomes unwieldy.
 8. **Revise and restore a card.** Save one previous version after a successful revision; restore it without losing current placement/visibility. Failed or cancelled requests preserve existing work.
-9. **Deliver the runnable MVP.** Handle camera registration and prerequisites so users can launch without developer commands. Perform a short integrated demo of sign-in, creation/editing, Meet output and saved-work restoration, reusing accepted evidence where relevant.
+9. **Temelemetry** 
+10. **Deliver the runnable MVP.** Handle camera registration and prerequisites so users can launch without developer commands. Perform a short integrated demo of sign-in, creation/editing, Meet output and saved-work restoration, reusing accepted evidence where relevant.
 
 Trial/payment flows, telemetry, cloud card sync and other explicitly deferred features remain outside this MVP. Do not add them to the walkthrough.
 

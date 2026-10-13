@@ -2,6 +2,7 @@
 <html><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; frame-src about:; connect-src 'none'; media-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; worker-src 'none'">
 <style>
+/*CALLAYERS_TEXT_STYLE*/
 html,body{margin:0;width:1280px;height:720px;overflow:hidden;background:transparent}
 iframe{position:absolute;border:0;background:transparent;pointer-events:none;transform-origin:top left}
 svg{position:absolute;inset:0;width:1280px;height:720px;pointer-events:none;z-index:10}
@@ -60,7 +61,7 @@ window.setScene = scene => {
       if(typeof a.text!=='string'||!Number.isFinite(a.font)||a.font<8||a.font>600)continue;
       shape=create('foreignObject');shape.setAttribute('x',a.x);shape.setAttribute('y',a.y);shape.setAttribute('width',a.w);shape.setAttribute('height',a.h);
       const text=document.createElementNS('http://www.w3.org/1999/xhtml','div');
-      text.style.cssText=`font-family:Segoe UI,sans-serif;font-size:${a.font}px;line-height:1.2;color:${a.color};white-space:pre-wrap;overflow-wrap:break-word;margin:0;padding:0`;
+      text.classList.add('annotation-text');text.style.fontSize=a.font+'px';text.style.color=a.color;
       text.textContent=a.text;shape.append(text);
     }
     shape.setAttribute('fill',a.kind===2 || a.kind===3?a.color:'none');shape.setAttribute('stroke',a.kind===6?'none':a.color);shape.setAttribute('stroke-width',widths[a.size]);shape.setAttribute('stroke-linecap','round');shape.setAttribute('stroke-linejoin','round');ink.append(shape);

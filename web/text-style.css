@@ -1,0 +1,16 @@
+.annotation-text {
+  font-family: "Segoe UI", sans-serif;
+  font-weight: 400;
+  font-style: normal;
+  line-height: 1.2;
+  letter-spacing: normal;
+  text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
+  tab-size: 8;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  box-sizing: border-box;
+}

@@ -2,6 +2,7 @@
 #include "frame_bridge.h"
 #include "renderer_log.h"
 #include "resource_diagnostics.h"
+#include "text_style.h"
 #include <WebView2EnvironmentOptions.h>
 #include <shlobj.h>
 #include <shlwapi.h>
@@ -13,12 +14,6 @@
 using Microsoft::WRL::ComPtr;
 using Microsoft::WRL::Callback;
 namespace callayers {
-static std::wstring Utf8(const std::string& s) {
-    int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), int(s.size()), nullptr, 0);
-    std::wstring result(n, 0);
-    MultiByteToWideChar(CP_UTF8, 0, s.data(), int(s.size()), result.data(), n);
-    return result;
-}
 Overlay::~Overlay() {
     close();
 }
@@ -190,13 +185,11 @@ void Overlay::configure(ICoreWebView2Environment* environment) {
             }
             return S_OK;
         }).Get(), &token);
-        wchar_t exe[MAX_PATH]; GetModuleFileNameW(nullptr, exe, MAX_PATH);
-        std::ifstream file(std::filesystem::path(exe).parent_path() / L"web" / L"overlay.html", std::ios::binary);
-        std::string html((std::istreambuf_iterator<char>(file)), {});
-        if (html.empty()) { fail("read-overlay-file", HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)); return S_OK; }
+        std::wstring html;
+        try{html=ReadTextDocument(L"overlay.html");}catch(...){fail("read-overlay-file",HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND));return S_OK;}
         log_->record("overlay-file-loaded", S_OK, int(html.size()));
         initialDocumentPending_ = true;
-        if (FAILED(configured = view_->NavigateToString(Utf8(html).c_str()))) {
+        if (FAILED(configured = view_->NavigateToString(html.c_str()))) {
             initialDocumentPending_ = false;
             fail("navigate-to-overlay", configured);
         }

@@ -69,7 +69,7 @@ AI cards get descriptive names; imported images use their filename. Users can re
 
 - Save on-camera placement and annotations automatically. Showing or hiding cards keeps annotations.
 - Hidden cards stop running. Showing them again or reopening the app restarts timers from their configured initial value and animations from the beginning; progress is not saved. Minimizing during a call keeps timers and animations running. When minimized without a video consumer, card work stops; restoring the window or reconnecting a consumer restarts timers and animations.
-- Select annotations to move or resize them. Double-click text to edit it; clicking away finishes editing. Simple color swatches change the selected annotation or the next annotation's color.
+- Select annotations to move or resize them. Double-click text to edit it; clicking away finishes editing. While editing, keep the same text position, font, size, color, width and line spacing as the completed annotation, including resized text. Enter adds a line; Ctrl+Enter finishes; Escape cancels the edit. Draft text and editing controls stay private until editing finishes. Simple color swatches change the selected annotation or the next annotation's color.
 - Eraser removes a whole stroke, shape, or text annotation. Highlight the object under the pointer before erasing; never erase card content or webcam pixels.
 - Clear annotations asks for confirmation, then removes all annotations. Erasing and clearing save immediately and cannot be undone.
 - No general Undo/Redo or annotation history. Normal text-field editing shortcuts still work.

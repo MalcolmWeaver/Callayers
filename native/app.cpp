@@ -66,7 +66,7 @@ struct App {
     std::wstring shapeColor=L"#ffffff";
     int inkSize=1, selectedAnnotation=-1, hoveredAnnotation=-1;
     uint64_t nextAnnotationId=1, editingAnnotationId=0;
-    InkPoint textAnchor{};
+    Annotation editingTextDraft;
     Annotation originalInk;
     unsigned annotationRevision=0;
     HRESULT annotationRestoreError=S_OK;
@@ -212,15 +212,15 @@ struct App {
         if(h>Height || w>Width){MessageBoxW(window,L"This text is too large for the picture. Shorten it or choose a smaller size.",L"Text doesn't fit",MB_OK|MB_ICONINFORMATION);return false;}
         a.box.w=w;a.box.h=h;a.box.x=std::clamp(a.box.x,0.0,Width-w);a.box.y=std::clamp(a.box.y,0.0,Height-h);return true;
     }
-    bool commitText(std::wstring value,bool commit) {
+    bool commitText(std::wstring value,bool commit,double height) {
         if(!commit){editingAnnotationId=0;return true;}
         auto found=std::find_if(annotations.begin(),annotations.end(),[&](const auto& a){return a.id==editingAnnotationId;});
         bool empty=value.empty() || std::all_of(value.begin(),value.end(),[](wchar_t c){return std::iswspace(c)!=0;});
         if(empty){if(found!=annotations.end())eraseAnnotation(int(found-annotations.begin()));editingAnnotationId=0;return true;}
-        Annotation a;
-        if(found!=annotations.end())a=*found;
-        else {if(annotations.size()>=MaxAnnotations){MessageBoxW(window,L"There are too many annotations. Remove a few to continue.",L"Annotations",MB_OK);return false;}a.id=nextAnnotationId;a.kind=AnnotationTool::Text;a.color=inkColor;a.size=inkSize;a.font=TextSizes[inkSize];a.box={textAnchor.x,textAnchor.y,480,60};}
-        a.text=std::move(value);if(!measureText(a))return false;
+        Annotation a=editingTextDraft;
+        if(found==annotations.end()){if(annotations.size()>=MaxAnnotations){MessageBoxW(window,L"There are too many annotations. Remove a few to continue.",L"Annotations",MB_OK);return false;}a.id=nextAnnotationId;}
+        if(!std::isfinite(height) || height<=0 || height>Height-a.box.y){MessageBoxW(window,L"This text runs past the bottom of the picture. Shorten it before finishing.",L"Text doesn't fit",MB_OK|MB_ICONINFORMATION);return false;}
+        a.text=std::move(value);a.box.h=height;
         if(found!=annotations.end()){selectedAnnotation=int(found-annotations.begin());*found=std::move(a);}
         else {++nextAnnotationId;annotations.push_back(std::move(a));selectedAnnotation=int(annotations.size())-1;}
         editingAnnotationId=0;changed();syncAnnotationControls();saveAnnotations();return true;
@@ -228,15 +228,14 @@ struct App {
     void beginText(InkPoint p,int existing=-1) {
         if(workspace && !workspace->finishText())return;
         finishGesture();
-        textAnchor=p;editingAnnotationId=existing>=0?annotations[existing].id:0;
-        std::wstring value=existing>=0?annotations[existing].text:L"";double textSize=existing>=0?annotations[existing].font:TextSizes[inkSize];
+        editingAnnotationId=existing>=0?annotations[existing].id:0;
+        if(existing>=0)editingTextDraft=annotations[existing];
+        else {editingTextDraft=Annotation{};editingTextDraft.kind=AnnotationTool::Text;editingTextDraft.color=inkColor;editingTextDraft.size=inkSize;editingTextDraft.font=TextSizes[inkSize];editingTextDraft.box={std::clamp(p.x,0.0,Width-480.0),std::clamp(p.y,0.0,Height-editingTextDraft.font*1.2),480,editingTextDraft.font*1.2};}
         selectedAnnotation=existing;
-        if(existing>=0){selectedAnnotation=existing;textAnchor={annotations[existing].box.x,annotations[existing].box.y};}
         selectedCard=-1;syncCards();syncAnnotationControls();
-        auto at=inkRect({textAnchor.x,textAnchor.y,1,1});
-        int width=std::min(px(360),int(previewRect.right-previewRect.left)),height=std::min(px(160),int(previewRect.bottom-previewRect.top));
-        int left=std::clamp(int(at.left),int(previewRect.left),int(previewRect.right)-width),top=std::clamp(int(at.top),int(previewRect.top),int(previewRect.bottom)-height);
-        workspace->editText({left,top,left+width,top+height},value,textSize*(previewRect.right-previewRect.left)/Width/dpi,inkColor);
+        auto at=inkRect(editingTextDraft.box);double scale=double(previewRect.right-previewRect.left)/Width;
+        at.right=at.left+int(std::ceil(editingTextDraft.box.w*scale));at.bottom=previewRect.bottom;
+        workspace->editText(at,editingTextDraft.text,editingTextDraft.font,editingTextDraft.color,editingTextDraft.box.w,scale,editingTextDraft.box.h);
         InvalidateRect(window,nullptr,FALSE);
     }
     void setTool(AnnotationTool chosen) {
@@ -483,7 +482,7 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam
             actions.tool=[app](AnnotationTool tool){app->setTool(tool);};
             actions.color=[app](std::wstring color){app->setInkColor(std::move(color));};
             actions.size=[app](int size){app->setInkSize(size);};
-            actions.text=[app](std::wstring text,bool commit){return app->commitText(std::move(text),commit);};
+            actions.text=[app](std::wstring text,bool commit,double height){return app->commitText(std::move(text),commit,height);};
             actions.retry=[app]{
                 if(app->status==L"Couldn't restore annotations"){if(app->restoreAnnotations(!app->annotations.empty())){app->changed();app->syncAnnotationControls();app->saveAnnotations();}return;}
                 if(app->status==L"Couldn't save annotations"){app->saveAnnotations();return;}

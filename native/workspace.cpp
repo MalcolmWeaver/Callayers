@@ -1,5 +1,6 @@
 #include "workspace.h"
 #include "resource_diagnostics.h"
+#include "text_editor.h"
 #ifdef GetCurrentTime
 #undef GetCurrentTime
 #endif
@@ -30,6 +31,24 @@ namespace callayers {
 namespace ux = winrt::Microsoft::UI::Xaml;
 namespace controls = ux::Controls;
 namespace hosting = ux::Hosting;
+static constexpr const wchar_t* WorkspacePreferenceKey=L"Software\\Callayers\\WorkspaceV2";
+static bool LoadAnnotationBarOpen() {
+    DWORD open=1,bytes=sizeof(open);
+    LSTATUS result=RegGetValueW(HKEY_CURRENT_USER,WorkspacePreferenceKey,L"AnnotateBarOpen",RRF_RT_REG_DWORD,nullptr,&open,&bytes);
+    if(result==ERROR_SUCCESS && bytes==sizeof(open) && open<=1)return open!=0;
+    if(result!=ERROR_FILE_NOT_FOUND && result!=ERROR_PATH_NOT_FOUND)Resources().event("annotation_bar_preference_read_failed");
+    return true;
+}
+static void SaveAnnotationBarOpen(bool open) {
+    HKEY key=nullptr;
+    LSTATUS result=RegCreateKeyExW(HKEY_CURRENT_USER,WorkspacePreferenceKey,0,nullptr,0,KEY_SET_VALUE,nullptr,&key,nullptr);
+    if(result==ERROR_SUCCESS) {
+        DWORD value=open?1:0;
+        result=RegSetValueExW(key,L"AnnotateBarOpen",0,REG_DWORD,reinterpret_cast<const BYTE*>(&value),sizeof(value));
+        RegCloseKey(key);
+    }
+    if(result!=ERROR_SUCCESS)Resources().event("annotation_bar_preference_write_failed");
+}
 // Only startup/shutdown checkpoints use synchronous writes. They must survive
 // a framework crash before the background resource logger's first interval.
 static void StartupTrace(const char* stage, bool reset=false) {
@@ -98,12 +117,11 @@ struct Workspace::Impl {
     hosting::DesktopWindowXamlSource headerIsland, sidebarIsland, toolbarIsland, helpIsland;
     ux::FrameworkElement header{nullptr}, sidebar{nullptr}, toolbar{nullptr}, help{nullptr};
     controls::ContentControl sidebarGate, toolbarGate;
-    hosting::DesktopWindowXamlSource editorIsland{nullptr};
-    controls::TextBox editor{nullptr};
+    TextEditor editor;
     bool finishingText=false;
     unsigned editorToken=0;
     std::shared_ptr<int> lifetime=std::make_shared<int>(0);
-    bool syncing = false, annotating = false;
+    bool syncing = false, annotating = LoadAnnotationBarOpen();
     bool lastFresh = true, lastPrivacy = false;
     bool lastRetryPreference = false;
     bool listedVisible[3]{true,true,true};
@@ -118,7 +136,6 @@ struct Workspace::Impl {
         if(visible)island.SiteBridge().Show();else island.SiteBridge().Hide();
     }
     std::vector<hosting::DesktopWindowXamlSource> focusOrder() {
-        if(editorIsland){if(annotating)return {headerIsland,sidebarIsland,toolbarIsland,editorIsland};return {headerIsland,sidebarIsland,editorIsland};}
         if(!lastFresh)return {headerIsland,helpIsland};
         if(annotating)return {headerIsland,sidebarIsland,toolbarIsland};
         return {headerIsland,sidebarIsland};
@@ -178,7 +195,8 @@ struct Workspace::Impl {
  <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Center"><Button x:Name="Retry" Content="Retry"/><Button x:Name="Privacy" Content="Camera privacy settings" Visibility="Collapsed"/></StackPanel>
 </StackPanel></Grid>)");
         sidebarGate.Content(sidebar); toolbarGate.Content(toolbar);
-        toolbarGate.Visibility(ux::Visibility::Collapsed);
+        toolbarGate.Visibility(annotating?ux::Visibility::Visible:ux::Visibility::Collapsed);
+        find<controls::Primitives::ToggleButton>(header,L"Annotate").IsChecked(annotating);
         for(auto gate:{sidebarGate,toolbarGate}) {gate.HorizontalContentAlignment(ux::HorizontalAlignment::Stretch);gate.VerticalContentAlignment(ux::VerticalAlignment::Stretch);}
         attach(headerIsland, header); attach(sidebarIsland, sidebarGate); attach(toolbarIsland, toolbarGate,false); attach(helpIsland, help);
         StartupTrace("islands-ready");
@@ -197,7 +215,7 @@ struct Workspace::Impl {
         find<controls::Image>(header,L"Logo").Source(ux::Media::Imaging::BitmapImage(winrt::Windows::Foundation::Uri(L"file:///"+logo)));
         BOOL dark = TRUE; DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));
         find<controls::MenuFlyoutItem>(header,L"Quit").Click([this](auto&&,auto&&){actions.quit();});
-        find<controls::Primitives::ToggleButton>(header,L"Annotate").Click([this](auto&& sender,auto&&){annotating = sender.template as<controls::Primitives::ToggleButton>().IsChecked().GetBoolean();if(!annotating)actions.tool(AnnotationTool::Select);actions.layout();});
+        find<controls::Primitives::ToggleButton>(header,L"Annotate").Click([this](auto&& sender,auto&&){annotating = sender.template as<controls::Primitives::ToggleButton>().IsChecked().GetBoolean();if(!annotating)actions.tool(AnnotationTool::Select);actions.layout();SaveAnnotationBarOpen(annotating);});
         auto cameraChange = [this](auto&& sender,auto&&) { if (!syncing) actions.camera(sender.template as<controls::ComboBox>().SelectedIndex()); };
         find<controls::ComboBox>(header,L"Camera").SelectionChanged(cameraChange);
         find<controls::ComboBox>(help,L"HelpCamera").SelectionChanged(cameraChange);
@@ -234,7 +252,7 @@ struct Workspace::Impl {
         Resources().event("workspace_controls_ready");
         StartupTrace("controls-ready");
     }
-    ~Impl() { lifetime.reset();if(editorIsland)editorIsland.Close();helpIsland.Close(); toolbarIsland.Close(); sidebarIsland.Close(); headerIsland.Close(); }
+    ~Impl() { lifetime.reset();editor.close();helpIsland.Close(); toolbarIsland.Close(); sidebarIsland.Close(); headerIsland.Close(); }
 };
 Workspace::Workspace(HWND window,WorkspaceActions actions) : impl_(std::make_unique<Impl>(window,std::move(actions))) {}
 Workspace::~Workspace() = default;
@@ -270,27 +288,28 @@ void Workspace::annotationControls(AnnotationTool tool,const std::wstring& color
     ui.find<controls::Border>(ui.toolbar,L"ColorSwatch").Background(ux::Media::SolidColorBrush(winrt::Windows::UI::Color{255,uint8_t(value>>16),uint8_t(value>>8),uint8_t(value)}));
     ui.find<controls::ComboBox>(ui.toolbar,L"Size").SelectedIndex(size);ui.syncing=false;
 }
-bool Workspace::editingText() const {return bool(impl_->editor);}
+bool Workspace::editingText() const {return impl_->editor.active();}
 bool Workspace::finishText(bool commit) {
-    auto& ui=*impl_;if(!ui.editor)return true;if(ui.finishingText)return false;
+    auto& ui=*impl_;if(!ui.editor.active())return true;if(ui.finishingText)return false;
     ui.finishingText=true;
-    bool accepted=ui.actions.text(std::wstring(ui.editor.Text()),commit);
-    if(accepted){++ui.editorToken;ui.editor=nullptr;ui.editorIsland.Close();ui.editorIsland=nullptr;}
+    bool accepted=ui.actions.text(ui.editor.text(),commit,ui.editor.height());
+    if(accepted){++ui.editorToken;ui.editor.close();}
     ui.finishingText=false;
-    if(!accepted && ui.editor)ui.editor.Focus(ux::FocusState::Programmatic);
+    if(!accepted && ui.editor.active())ui.editor.focus();
     return accepted;
 }
-void Workspace::editText(const RECT& bounds,const std::wstring& value,double font,const std::wstring&) {
+void Workspace::editText(const RECT& area,const std::wstring& value,double font,const std::wstring& color,double width,double scale,double minimumHeight) {
     auto& ui=*impl_;if(!finishText())return;
-    ui.editorIsland=hosting::DesktopWindowXamlSource();ui.editor=controls::TextBox();
-    ui.editor.AcceptsReturn(true);ui.editor.TextWrapping(ux::TextWrapping::Wrap);ui.editor.MaxLength(2000);
-    ui.editor.FontSize(std::clamp(font,16.0,36.0));ui.editor.PlaceholderText(L"Type text. Click outside to finish.");ui.editor.Text(value);
     auto token=++ui.editorToken;auto weak=std::weak_ptr<int>(ui.lifetime);
-    ui.editorIsland.TakeFocusRequested([this,weak,token](auto&&,auto&& args){if(weak.expired() || impl_->editorToken!=token)return;bool reverse=args.Request().Reason()==hosting::XamlSourceFocusNavigationReason::Last;impl_->focusTarget(reverse?impl_->toolbarIsland:impl_->headerIsland,reverse);});
-    ui.editor.LostFocus([this,weak,token](auto&&,auto&&){if(weak.expired())return;impl_->header.DispatcherQueue().TryEnqueue([this,weak,token]{if(!weak.expired() && impl_->editorToken==token && impl_->editor)finishText();});});
-    ui.editor.KeyDown([this](auto&&,auto&& args){if(args.Key()==winrt::Windows::System::VirtualKey::Escape){args.Handled(true);finishText(false);}else if(args.Key()==winrt::Windows::System::VirtualKey::Enter && (GetKeyState(VK_CONTROL)&0x8000)){args.Handled(true);finishText();}});
-    ui.attach(ui.editorIsland,ui.editor);ui.editorIsland.SiteBridge().MoveAndResize({bounds.left,bounds.top,bounds.right-bounds.left,bounds.bottom-bounds.top});
-    ui.editor.Focus(ux::FocusState::Programmatic);
+    ui.editor.open(ui.window,area,value,font,color,width,scale,minimumHeight,[this,weak,token](bool commit){
+        if(weak.expired())return;
+        impl_->header.DispatcherQueue().TryEnqueue([this,weak,token,commit]{
+            if(weak.expired() || impl_->editorToken!=token)return;
+            bool unavailable=impl_->editor.unavailable();
+            if(impl_->editor.active())finishText(commit);
+            if(unavailable){Resources().event("text_editor_open_failed");MessageBoxW(impl_->window,L"Couldn't open text editing. Try again.",L"Text editing",MB_OK|MB_ICONINFORMATION);}
+        });
+    });
 }
 void Workspace::focus(bool reverse) {
     auto order=impl_->focusOrder();impl_->focusTarget(reverse?order.back():order.front(),reverse);
