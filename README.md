@@ -1,5 +1,13 @@
 # Callayers
 
+## Accounts and beta service
+
+See [Telemetry and product questions](docs/telemetry.md) for what we want to learn, what each event means, privacy boundaries, and verification gaps.
+
+The account/backend implementation and manual setup walkthrough are in [docs/cloud-rollout.md](docs/cloud-rollout.md). It adds Google sign-in, automatic seven-day AI trials, manual paid entitlements, AI spending limits, PostHog events, and a small admin page. Cloud accounts have not been created or deployed yet. The implementing agent is building only; runtime verification is intentionally left to the owner.
+
+For a cloud-connected build, pass `-ServiceUrl` (Cloud Run HTTPS origin; also serves browser sign-in) to `scripts/build.ps1 -SkipTests`. Cloud-connected builds require Google sign-in before editor or camera use. File → Sign out returns to the welcome screen without discarding the deck. Settings shows the signed-in identity and allowance; Administration is available to authorized accounts. New users complete camera, first-card, and calling-app setup after sign-in. Setup progress and completion are stored in the Firestore account record and follow the signed-in user across computers. Camera selection stays device-specific. Firebase Hosting is no longer deployed. See [the manual rollout walkthrough](docs/cloud-rollout.md). A configured cloud build routes generation through the service and never falls back to a personal API key. Without a service address, the existing developer API-key flow below remains available. The installer is a separate follow-up.
+
 Fresh implementation of the camera, text editor, WinUI shell, live cards, and OpenAI card generation in [mvp-dev-plan.md](mvp-dev-plan.md).
 The previous implementation remains deleted; nothing here restores it.
 
@@ -33,12 +41,12 @@ The Windows camera service must load the media-source DLL from a stable location
 
 This copies a versioned development DLL into `%ProgramFiles%\Callayers Development` and registers only the Callayers CLSID `{A487A33B-6EC3-43F1-A894-CA2D937619F0}`. Re-run after changing the DLL. No kernel driver or other camera registration is modified.
 
-Run `build\Release\Callayers.exe` as your normal user. Choose **Test pattern** or a webcam. The virtual camera starts automatically; **Retry camera** is available if activation fails. Select **Callayers (Windows Virtual Camera)** in a meeting app; Windows controls the appended device-name suffix.
+Run `build\Release\Callayers.exe` as your normal user. The first available webcam is selected automatically; use the camera menu to choose another webcam. The virtual camera starts automatically; **Retry camera** is available if activation fails. Select **Callayers (Windows Virtual Camera)** in a meeting app; Windows controls the appended device-name suffix.
 
 The native WinUI 3 shell is organized around a left-hand card library and a camera stage. **Create with AI** opens the sidebar composer; card titles select a card for revision, and independent checkboxes put cards on the stage. Camera controls and file actions stay in the header. **Annotate** reveals a compact, Preview-inspired markup toolbar above the stage.
 Launch with `--webcam --publish` to select the first available webcam and start output immediately.
 
-- Moving bar: active test pattern.
+- Moving bar: synthetic video used only by headless developer diagnostics.
 - Live image: selected webcam, letterboxed to 16:9 without stretching or intentional mirroring.
 - Gray pause symbol: no fresh producer frame, including after quitting the runtime.
 - A webcam failure is reported in the window; selecting the webcam again retries it.
@@ -178,7 +186,7 @@ The browser is rendered on a separate thread into a transparent Windows composit
 # and moving/resizing without restarting the card.
 .\build\Release\CardProbe.exe
 
-# With the default demo cards and Test pattern selected, before moving them:
+# With the default demo cards and a webcam selected, before moving them:
 .\build\Release\CameraProbe.exe --camera 120 --expect-cards
 # Repeat while the editor is covered and minimized.
 

@@ -1,0 +1,10 @@
+{
+  "indexes": [{ "collectionGroup": "requests", "queryScope": "COLLECTION", "fields": [
+    { "fieldPath": "uid", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" }
+  ] }],
+  "fieldOverrides": [
+    { "collectionGroup": "results", "fieldPath": "expiresAt", "ttl": true, "indexes": [] },
+    { "collectionGroup": "results", "fieldPath": "response", "indexes": [] },
+    { "collectionGroup": "limits", "fieldPath": "expiresAt", "ttl": true, "indexes": [] }
+  ]
+}

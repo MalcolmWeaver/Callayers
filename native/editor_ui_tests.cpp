@@ -9,7 +9,7 @@ LRESULT CALLBACK WindowProc(HWND window,UINT msg,WPARAM wp,LPARAM lp){
 }
 void Expect(bool condition,const char* message){if(!condition)throw std::runtime_error(message);}
 }
-int main(int argc,char**){
+int main(int argc,char** argv){
     winrt::init_apartment(winrt::apartment_type::multi_threaded);
     HWND window=nullptr;
     try{
@@ -18,7 +18,14 @@ int main(int argc,char**){
         Expect(window!=nullptr,"test window failed");
         std::shared_ptr<const TextOverlay> output;size_t published=0;
         auto controller=std::make_unique<TextEditorUI>(window,[&](auto layer){output=layer;++published;},argc==1);editor=controller.get();
+        std::vector<AnnotationChange> annotationEvents;
+        editor->SetAnnotationObserver([&](const AnnotationChange& change){annotationEvents.push_back(change);});
         editor->SetStage({20,165,980,705});
+        SendMessageW(window,WM_COMMAND,TextEditorUI::TextId,0);
+        SendMessageW(window,WM_LBUTTONDOWN,MK_LBUTTON,MAKELPARAM(120,245));
+        SetWindowTextW(GetDlgItem(window,TextEditorUI::EditId),L"  \r\n");
+        SendMessageW(window,WM_APP+20,1,0);
+        Expect(editor->CurrentScene().texts.empty()&&annotationEvents.empty(),"abandoned empty text counted as an annotation");
         SendMessageW(window,WM_COMMAND,TextEditorUI::TextId,0);
         SendMessageW(window,WM_LBUTTONDOWN,MK_LBUTTON,MAKELPARAM(120,245));
         HWND field=GetDlgItem(window,TextEditorUI::EditId);Expect(field!=nullptr,"text tool did not open editor");
@@ -43,7 +50,9 @@ int main(int argc,char**){
             Expect(GetPixel(surface,bounds.right-15,5)==color,"typing background did not preserve the camera frame");
         }
         SelectObject(surface,previous);DeleteObject(bitmap);DeleteDC(surface);ReleaseDC(window,screen);
+        Expect(annotationEvents.empty(),"typing emitted annotation events before session end");
         SendMessageW(window,WM_APP+20,1,0);
+        Expect(annotationEvents.size()==1&&std::wstring(annotationEvents[0].action)==L"created","text session did not emit exactly one creation");
         Expect(GetDlgItem(window,TextEditorUI::EditId)==nullptr,"commit left edit control open");
         Expect(ComposeText(*background,*output)->pixels==typing,"committing text changed outgoing pixels");
         SendMessageW(window,WM_COMMAND,TextEditorUI::UndoId,0);Expect(output->luma.empty(),"creation and typing were not one undo");
@@ -57,7 +66,11 @@ int main(int argc,char**){
         Expect(ComposeText(*background,*output)->pixels!=typing,"drag did not move text");
         SendMessageW(window,WM_COMMAND,TextEditorUI::UndoId,0);Expect(ComposeText(*background,*output)->pixels==typing,"one undo did not reverse the whole drag");
         SendMessageW(window,WM_LBUTTONDBLCLK,0,MAKELPARAM(150,270));field=GetDlgItem(window,TextEditorUI::EditId);Expect(field!=nullptr,"double click did not edit");
+        const auto beforeCancel=annotationEvents.size();
         SendMessageW(field,EM_SETSEL,0,-1);SendMessageW(field,EM_REPLACESEL,TRUE,reinterpret_cast<LPARAM>(L"Canceled change"));SendMessageW(window,WM_APP+20,0,0);Expect(ComposeText(*background,*output)->pixels==typing,"cancel did not restore original text");
+        Expect(annotationEvents.size()==beforeCancel,"canceled text session emitted telemetry");
+        SendMessageW(window,WM_LBUTTONDBLCLK,0,MAKELPARAM(150,270));SendMessageW(window,WM_APP+20,1,0);
+        Expect(annotationEvents.size()==beforeCancel,"unchanged text session emitted telemetry");
         SendMessageW(window,WM_LBUTTONDOWN,MK_LBUTTON,MAKELPARAM(150,270));SendMessageW(window,WM_LBUTTONUP,0,MAKELPARAM(150,270));
         SendMessageW(window,WM_COMMAND,TextEditorUI::DeleteId,0);Expect(output->luma.empty(),"delete failed");
         SendMessageW(window,WM_COMMAND,TextEditorUI::UndoId,0);Expect(ComposeText(*background,*output)->pixels==typing,"undo delete failed");
@@ -65,17 +78,23 @@ int main(int argc,char**){
         editor->ChangeStyle([](auto& t){t.family=L"Georgia";t.size=84;t.bold=true;t.alignment=1;});
         Expect(editor->Selection()->family==L"Georgia"&&editor->Selection()->size==84,"shell style command did not reach selected text");
         editor->Command(TextEditorUI::UndoId);Expect(ComposeText(*background,*output)->pixels==typing,"shell style command did not undo in one step");
+        if(argc>1&&std::string(argv[1])=="--annotation-session"){
+            editor=nullptr;controller.reset();DestroyWindow(window);
+            std::cout<<"PASS: text sessions, empty creation, typing, cancellation, undo, and formatting\n";return 0;
+        }
         Scene cards;editor->SceneChanged=[&](const Scene& next){cards=next;};
-        editor->AddSampleCard();Expect(editor->CardSelected()&&cards.cards.size()==1,"card creation did not publish");
+        editor->AddSampleCard();Expect(editor->CardSelected()&&editor->CurrentScene().cards.size()==1&&cards.cards.empty(),"new card must enter the library without going on camera");
+        editor->SetCardShown(0,true);Expect(cards.cards.size()==1,"checked card did not publish");
         auto originalCard=cards.cards[0];
-        SendMessageW(window,WM_LBUTTONDOWN,MK_LBUTTON,MAKELPARAM(300,420));
-        for(int x=310;x<=350;x+=10)SendMessageW(window,WM_MOUSEMOVE,MK_LBUTTON,MAKELPARAM(x,445));
-        SendMessageW(window,WM_LBUTTONUP,0,MAKELPARAM(350,445));Expect(cards.cards[0].x>originalCard.x,"card drag did not move");
+        int moveX=20+int(std::lround((originalCard.x+originalCard.width/2)*960));
+        int moveY=165+int(std::lround(originalCard.y*540))-int(14*GetDpiForWindow(window)/96.);
+        SendMessageW(window,WM_LBUTTONDOWN,MK_LBUTTON,MAKELPARAM(moveX,moveY));
+        SendMessageW(window,WM_MOUSEMOVE,MK_LBUTTON,MAKELPARAM(moveX+50,moveY+25));
+        SendMessageW(window,WM_LBUTTONUP,0,MAKELPARAM(moveX+50,moveY+25));Expect(cards.cards[0].x>originalCard.x,"card move handle did not move card");
         editor->Command(TextEditorUI::UndoId);Expect(cards.cards[0]==originalCard,"card drag was not one undo");
-        SendMessageW(window,WM_LBUTTONDOWN,MK_LBUTTON,MAKELPARAM(300,420));SendMessageW(window,WM_LBUTTONUP,0,MAKELPARAM(300,420));
-        editor->Command(TextEditorUI::DeleteId);Expect(cards.cards.empty(),"card delete failed");
-        editor->Command(TextEditorUI::UndoId);Expect(cards.cards.size()==1&&cards.cards[0]==originalCard,"card delete undo lost content");
-        SendMessageW(window,WM_LBUTTONDOWN,MK_LBUTTON,MAKELPARAM(300,420));SendMessageW(window,WM_LBUTTONUP,0,MAKELPARAM(300,420));
+        editor->SelectCard(0);editor->Command(TextEditorUI::DeleteId);Expect(cards.cards.empty()&&editor->CurrentScene().cards.empty(),"card delete failed");
+        editor->Command(TextEditorUI::UndoId);Expect(editor->CurrentScene().cards.size()==1&&editor->CurrentScene().cards[0]==originalCard&&cards.cards.empty(),"card undo must restore the library without showing the card");
+        editor->SetCardShown(0,true);editor->SelectCard(0);
         auto request=editor->GenerationTarget();Expect(!request.creating,"prompt lost selected card");
         editor->AddSampleCard();auto secondId=editor->CurrentScene().cards.back().id;
         Expect(editor->AcceptGenerated(request,L"<h1>AI revision</h1>",L"Revised first card"),"late result missed original target");

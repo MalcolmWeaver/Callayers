@@ -6,6 +6,13 @@ void Expect(bool value,const char* message){if(!value)throw std::runtime_error(m
 int main(){
     winrt::init_apartment(winrt::apartment_type::multi_threaded);
     try{
+        SetupProgress progress{2,1,2,L"Alex",L"Design",L"saved-card"};
+        auto encoded=EncodeSetupProgress(progress);
+        auto restored=DecodeSetupProgress(encoded);
+        Expect(restored.step==2&&restored.app==2&&restored.name==L"Alex"&&restored.detail==L"Design"&&restored.cardId==L"saved-card","cloud setup progress lost content or step");
+        Expect(restored.camera==-1,"device camera selection leaked into account setup");
+        Expect(DecodeSetupProgress(L"{}").step==0,"new account did not start at step one");
+        Expect(winrt::Windows::Data::Json::JsonObject::Parse(EncodeSetupProgress(progress,true)).GetNamedBoolean(L"completed"),"completion not serialized");
         auto tag=NameTagCard(L"Alex <script>&\"",L"Design & research");
         Expect(tag.html.find(L"<script>")==std::wstring::npos&&tag.html.find(L"Alex &lt;script&gt;&amp;&quot;")!=std::wstring::npos,"name tag did not escape user text");
         Scene scene;scene.cards={tag};Expect(DecodeScene(EncodeScene(scene))==scene,"template card did not survive deck round trip");

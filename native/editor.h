@@ -6,6 +6,7 @@
 #include <cmath>
 #include <set>
 #include <map>
+#include <functional>
 #include <winrt/Windows.Data.Json.h>
 #include <winrt/Windows.Foundation.Collections.h>
 
@@ -99,11 +100,37 @@ struct Scene {
 inline size_t ElementCount(const Scene& scene){return scene.texts.size()+scene.cards.size()+scene.images.size();}
 inline int NextForegroundOrder(const Scene& scene){int order=0;for(const auto& t:scene.texts)order=std::max(order,t.order+1);for(const auto& image:scene.images)order=std::max(order,image.order+1);return order;}
 inline std::wstring NewId(){GUID id;Check(CoCreateGuid(&id));wchar_t text[40];StringFromGUID2(id,text,40);return text;}
+// Only action metadata crosses this callback; annotation content stays in the editor.
+struct AnnotationChange {
+    const wchar_t* action;
+    const wchar_t* type;
+    const wchar_t* source;
+    size_t count;
+};
 class Document {
     std::vector<Scene> past,future;
+    std::optional<std::vector<TextElement>> textAnnotationSession;
     Scene saved;
     uint64_t epoch=1;
     std::map<std::wstring,uint64_t> contentRevisions;
+    void TrackAnnotations(const Scene& before,const wchar_t* source,bool cleared=false) noexcept {
+        if(!AnnotationsChanged)return;
+        try{
+            auto track=[&](const auto& old,const auto& current,const wchar_t* type){
+                size_t created=0,edited=0,deleted=0;
+                for(const auto& item:current){
+                    auto previous=std::find_if(old.begin(),old.end(),[&](const auto& value){return value.id==item.id;});
+                    if(previous==old.end())++created;else if(*previous!=item)++edited;
+                }
+                for(const auto& item:old)if(std::none_of(current.begin(),current.end(),[&](const auto& value){return value.id==item.id;}))++deleted;
+                if(created)AnnotationsChanged({L"created",type,source,created});
+                if(edited)AnnotationsChanged({L"edited",type,source,edited});
+                if(deleted)AnnotationsChanged({cleared?L"cleared":L"deleted",type,source,deleted});
+            };
+            if(!textAnnotationSession)track(before.texts,scene.texts,L"text");
+            track(before.ink,scene.ink,L"drawing");
+        }catch(...){} // Analytics failure must never interrupt an edit or undo.
+    }
     void TrackContent(const Scene& before){
         std::set<std::wstring> changed;
         for(const auto& old:before.cards){
@@ -114,22 +141,36 @@ class Document {
         for(const auto& id:changed)++contentRevisions[id];
     }
 public:
+    std::function<void(const AnnotationChange&)> AnnotationsChanged;
     Scene scene;
+    void BeginTextAnnotationSession(const Scene& before){
+        if(!textAnnotationSession)textAnnotationSession=before.texts;
+    }
+    void EndTextAnnotationSession(bool committed){
+        if(!textAnnotationSession)return;
+        Scene before;before.texts=std::move(*textAnnotationSession);textAnnotationSession.reset();
+        // Drawings have their own gesture events and must not be counted twice.
+        before.ink=scene.ink;
+        if(committed)TrackAnnotations(before,L"direct");
+    }
     bool Dirty()const{auto current=scene,baseline=saved;current.texts.clear();current.ink.clear();baseline.texts.clear();baseline.ink.clear();return current!=baseline;}
     void ClearAnnotations(){
+        auto before=scene;
         auto clear=[](Scene& value){value.texts.clear();value.ink.clear();};
         clear(scene);clear(saved);for(auto& value:past)clear(value);for(auto& value:future)clear(value);
         past.erase(std::unique(past.begin(),past.end()),past.end());future.erase(std::unique(future.begin(),future.end()),future.end());
         while(!past.empty()&&past.back()==scene)past.pop_back();while(!future.empty()&&future.back()==scene)future.pop_back();
+        TrackAnnotations(before,L"card_switch",true);
     }
     bool CanUndo()const{return !past.empty();}
     bool CanRedo()const{return !future.empty();}
-    void Commit(const Scene& before){
+    void Commit(const Scene& before,bool cleared=false){
         if(scene==before)return;
         TrackContent(before);past.push_back(before);if(past.size()>100)past.erase(past.begin());future.clear();
+        TrackAnnotations(before,L"direct",cleared);
     }
-    void Undo(){if(past.empty())return;future.push_back(scene);scene=past.back();past.pop_back();TrackContent(future.back());}
-    void Redo(){if(future.empty())return;past.push_back(scene);scene=future.back();future.pop_back();TrackContent(past.back());}
+    void Undo(){if(past.empty())return;future.push_back(scene);scene=past.back();past.pop_back();TrackContent(future.back());TrackAnnotations(future.back(),L"undo");}
+    void Redo(){if(future.empty())return;past.push_back(scene);scene=future.back();future.pop_back();TrackContent(past.back());TrackAnnotations(past.back(),L"redo");}
     void Loaded(Scene next){scene=std::move(next);saved=scene;past.clear();future.clear();++epoch;contentRevisions.clear();}
     void Saved(){saved=scene;}
     uint64_t Epoch()const{return epoch;}

@@ -25,11 +25,12 @@ struct Frames {
     std::atomic<bool> demanded{false};
     std::atomic<ULONGLONG> lastFrameRequest{0};
     std::atomic<ULONGLONG> lastLiveDelivery{0};
-    std::atomic<int> mode{1};
+    std::atomic<int> mode{0};
     std::atomic<HRESULT> error{S_OK};
     std::atomic<uint64_t> sequence{0};
     std::shared_ptr<Frame> idle=Pattern(0,true);
     std::shared_ptr<Frame> Current() {
+        if(!demanded)return idle;
         auto f=composed.load();
         return GetTickCount64()-f->header.capturedMs>750?idle:f;
     }
@@ -239,10 +240,14 @@ struct App {
     std::vector<BYTE> preview;
     PreviewBuffer paintBuffer;
     std::wstring cameraStatus=L"Camera output is off";
+    size_t consumerCount=0;
+    std::vector<std::wstring> shownCards;
+    ULONGLONG lastObservation=0,lastAccountRefresh=GetTickCount64();
+    bool accessWasLocked=true;
     RECT stage{};
     ~App(){if(capture)capture->Close();if(activation.joinable())activation.join();publisher.reset();}
     void StartOutput(){
-        if(activating)return;
+        if(!CloudAccessAllowed()||activating)return;
         if(activation.joinable())activation.join();
         if(virtualCamera)return;
         activating=true;activationResult=S_FALSE;outputError=S_OK;cameraStatus=L"Starting virtual camera…";
@@ -255,7 +260,8 @@ struct App {
     }
     bool PreviewVisible()const{return window&&IsWindowVisible(window)&&!IsIconic(window);}
     void UpdateDemand(){
-        const bool needed=NeedsCameraFrames(PreviewVisible(),demand?demand->Poll():0,frames->lastFrameRequest.load());
+        consumerCount=demand?demand->Poll():0;
+        const bool needed=CloudAccessAllowed()&&NeedsCameraFrames(PreviewVisible(),consumerCount,frames->lastFrameRequest.load());
         frames->demanded=needed;
         if(!needed||cameraIndex<=0){
             if(capture){capture->Close();capture.Reset();}
@@ -272,7 +278,7 @@ struct App {
     void Select(){
         if(capture){capture->Close();capture.Reset();}
         captureAttempted=false;frames->error=S_OK;frames->latest=frames->idle;
-        frames->mode=cameraIndex<=0?1:2;
+        frames->mode=cameraIndex<=0?0:2;
         UpdateDemand();
     }
     void Layout(){
@@ -286,8 +292,16 @@ struct App {
         InvalidateRect(window,nullptr,FALSE);
     }
     void Tick(){
+        if(shell)shell->SyncAccess();
+        const bool locked=!CloudAccessAllowed();
+        if(locked){
+            if(!activating&&virtualCamera){if(activation.joinable())activation.join();virtualCamera->Stop();virtualCamera.Reset();}
+            preview.clear();
+        }else if(accessWasLocked&&!shellOnly)StartOutput();
+        accessWasLocked=locked;
+        if(CloudEnabled()&&GetTickCount64()-lastAccountRefresh>=60000){lastAccountRefresh=GetTickCount64();CloudRefresh();}
         UpdateDemand();
-        if(editor)editor->TickInk();
+        if(editor&&!locked)editor->TickInk();
         if(shellOnly&&frames->demanded){
             if(frames->mode==1)frames->latest=Pattern(++frames->sequence);
             auto background=frames->latest.load();if(GetTickCount64()-background->header.capturedMs>750)background=frames->idle;
@@ -306,9 +320,24 @@ struct App {
         auto frame=frames->Current();
         std::wstring message=cameraStatus;
         HRESULT error=frames->error.load();
-        if(FAILED(error))message=L"Webcam unavailable: "+ErrorText(error)+L" Choose Test pattern or retry the webcam.";
+        if(FAILED(error)){
+            message=error==E_ACCESSDENIED?L"Camera access is blocked. Allow desktop camera access in Windows Settings > Privacy & security > Camera, then select your webcam again.":
+                L"The webcam could not start or stopped responding. Stop its use in other apps, then select the webcam again to retry. You can also choose another camera. Details: "+ErrorText(error);
+        }
+        else if(frames->mode==0)message=L"No camera found. Connect a webcam and restart Callayers.";
         else if(frames->mode==2&&frame->header.mode==0)message=L"Waiting for webcam frames — idle image is being sent.";
         if(frames->cards&&FAILED(frames->cards->Error()))message=L"Card rendering failed: "+ErrorText(frames->cards->Error())+L". Save your deck and restart Callayers.";
+        if(GetTickCount64()-lastObservation>=250){
+            // Count scene annotations directly: in-progress ink updates bypass
+            // SceneChanged, which publishes the independently playing cards.
+            const auto& scene=editor->CurrentScene();
+            lastObservation=GetTickCount64();CloudObserve(PreviewVisible()&&!locked,consumerCount,shownCards,scene.texts.size()+scene.ink.size());
+            CloudFailure(L"virtual_camera",FAILED(outputError)?L"virtual_camera_start_failed":L"virtual_camera_ready",outputError);
+            auto background=frames->latest.load();
+            if(FAILED(error)||background->header.mode!=0&&GetTickCount64()-background->header.capturedMs<750)
+                CloudFailure(L"webcam",FAILED(error)?(error==E_ACCESSDENIED?L"camera_permission_denied":L"camera_capture_failed"):L"camera_frames_resumed",error);
+            if(frames->cards)CloudFailure(L"renderer",FAILED(frames->cards->Error())?L"card_renderer_failed":L"card_renderer_ready",frames->cards->Error());
+        }
         if(shell){
             shell->Status(message,activating,!activating&&virtualCamera!=nullptr);
             auto background=frames->latest.load();
@@ -316,7 +345,7 @@ struct App {
                 !activating&&virtualCamera!=nullptr,LiveDeliveryRecent(GetTickCount64(),frames->lastLiveDelivery.load()),
                 FAILED(error)?error:outputError,message);
         }
-        if(PreviewVisible()){
+        if(PreviewVisible()&&!locked){
             if(editor&&editor->IsEditing()){
                 auto background=frames->latest.load();
                 if(GetTickCount64()-background->header.capturedMs>750)background=frames->idle;
@@ -335,11 +364,12 @@ LRESULT CALLBACK WindowProc(HWND window,UINT msg,WPARAM wp,LPARAM lp){
     try{
     static const UINT taskbarCreated=RegisterWindowMessageW(L"TaskbarCreated");
     if(msg==taskbarCreated){if(!app->tray.Recreate(window))TrayIcon::Open(window);return 0;}
-    if(app->editor){for(const auto& change:app->frames->cards->TakeStates())app->editor->ApplyCardState(change.id,change.epoch,change.html,change.state);LRESULT result;if(app->editor->Message(msg,wp,lp,result))return result;}
+    if(app->editor&&CloudAccessAllowed()){for(const auto& change:app->frames->cards->TakeStates())app->editor->ApplyCardState(change.id,change.epoch,change.html,change.state);LRESULT result;if(app->editor->Message(msg,wp,lp,result))return result;}
     switch(msg){
     case WM_CREATE:{
         app->editor=std::make_unique<TextEditorUI>(window,[app](auto overlay){app->frames->overlay=std::move(overlay);},false);
-        app->editor->SceneChanged=[app](const Scene& scene){app->frames->cards->SetScene(scene,app->editor->DocumentEpoch());};
+        app->editor->SceneChanged=[app](const Scene& scene){app->shownCards.clear();for(const auto& card:scene.cards)app->shownCards.push_back(card.id);app->frames->cards->SetScene(scene,app->editor->DocumentEpoch());};
+        app->editor->SetAnnotationObserver([app](const AnnotationChange& change){CloudAnnotation(change,app->consumerCount);});
         app->editor->CardMouse=[app](UINT msg,POINT point,WPARAM buttons){app->frames->cards->Mouse(msg,point,buttons);};
         app->editor->CardKey=[app](UINT msg,WPARAM key,LPARAM flags){app->frames->cards->Key(msg,key,flags);};
         app->editor->CardText=[app](const std::wstring& text){app->frames->cards->InsertText(text);};
@@ -360,17 +390,17 @@ LRESULT CALLBACK WindowProc(HWND window,UINT msg,WPARAM wp,LPARAM lp){
         if(dc){
             HBRUSH background=CreateSolidBrush(RGB(28,28,32));FillRect(dc,&client,background);DeleteObject(background);
             FillRect(dc,&app->stage,static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));
-            if(!app->preview.empty()){
+            if(CloudAccessAllowed()&&!app->preview.empty()){
             BITMAPINFO info{};info.bmiHeader.biSize=sizeof(BITMAPINFOHEADER);info.bmiHeader.biWidth=Width;info.bmiHeader.biHeight=-static_cast<LONG>(Height);
             info.bmiHeader.biPlanes=1;info.bmiHeader.biBitCount=32;info.bmiHeader.biCompression=BI_RGB;
             SetStretchBltMode(dc,HALFTONE);SetBrushOrgEx(dc,0,0,nullptr);
             auto r=app->stage;StretchDIBits(dc,r.left,r.top,r.right-r.left,r.bottom-r.top,0,0,Width,Height,app->preview.data(),&info,DIB_RGB_COLORS,SRCCOPY);
             }
-            if(app->editor)app->editor->PaintAdorners(dc);
+            if(app->editor&&CloudAccessAllowed())app->editor->PaintAdorners(dc);
             const auto& r=ps.rcPaint;
             BitBlt(target,r.left,r.top,r.right-r.left,r.bottom-r.top,dc,r.left,r.top,SRCCOPY);
         }
-        EndPaint(window,&ps);if(app->editor)app->editor->RefreshEdit();return 0;}
+        EndPaint(window,&ps);if(app->editor&&CloudAccessAllowed())app->editor->RefreshEdit();return 0;}
     case WM_CLOSE:
         if(app->tray.Add(window)){ShowWindow(window,SW_HIDE);app->UpdateDemand();}
         else MessageBoxW(window,L"Could not add the tray icon. Callayers will stay open so you can reach it.",L"Callayers",MB_OK|MB_ICONERROR);
@@ -395,6 +425,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR command,int show){
     HRESULT com=CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED);if(FAILED(com))return 1;
     HRESULT startup=MFStartup(MF_VERSION);if(FAILED(startup)){CoUninitialize();return 2;}
     int result=0;
+    if(!wcsstr(command,L"--headless")&&!wcsstr(command,L"--shell-only"))CloudStart();
     bool bootstrapped=false;
     winrt::Microsoft::UI::Dispatching::DispatcherQueueController dispatcher{nullptr};
     ux::Application xamlApplication{nullptr};hosting::WindowsXamlManager xamlManager{nullptr};
@@ -411,6 +442,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR command,int show){
             TextRenderer renderer;app.frames->overlay=renderer.Render(scene);
         }
         if(wcsstr(command,L"--headless")){
+            app.frames->mode=1; // Synthetic frames are reserved for headless diagnostics.
             if(wcsstr(command,L"--demo-cards")){Scene scene;scene.cards={SampleCard(),SampleCard(true)};app.frames->cards->SetScene(scene);}
             if(wcsstr(command,L"--webcam")){
                 if(app.devices.empty())throw HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
@@ -427,7 +459,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR command,int show){
             HWND window=CreateWindowW(wc.lpszClassName,L"Callayers",WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,CW_USEDEFAULT,CW_USEDEFAULT,1280,850,nullptr,nullptr,instance,&app);
             if(!window)throw HRESULT_FROM_WIN32(GetLastError());ShowWindow(window,show);
             if(wcsstr(command,L"--smoke-test"))SetTimer(window,2,1500,nullptr);
-            if((wcsstr(command,L"--webcam")||app.shell->SetupActive())&&!app.devices.empty()){
+            if(!app.devices.empty()&&(app.cameraIndex==0||wcsstr(command,L"--webcam"))){
                 app.cameraIndex=1;app.shell->CameraIndex(1);app.Select();
             }
             if(wcsstr(command,L"--demo-cards")){app.editor->AddSampleCard();app.editor->AddSampleCard();}
@@ -444,5 +476,5 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR command,int show){
     catch(...){result=3;}
     if(xamlManager)xamlManager.Close();xamlManager=nullptr;xamlApplication=nullptr;
     if(dispatcher){auto shutdown=dispatcher.ShutdownQueueAsync();while(shutdown.Status()==winrt::Windows::Foundation::AsyncStatus::Started){MSG message;while(PeekMessageW(&message,nullptr,0,0,PM_REMOVE)){TranslateMessage(&message);DispatchMessageW(&message);}MsgWaitForMultipleObjects(0,nullptr,FALSE,10,QS_ALLINPUT);}dispatcher=nullptr;}
-    if(bootstrapped)MddBootstrapShutdown();MFShutdown();CoUninitialize();return result;
+    CloudStop();if(bootstrapped)MddBootstrapShutdown();MFShutdown();CoUninitialize();return result;
 }

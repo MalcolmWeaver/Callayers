@@ -1,4 +1,5 @@
 #include "ai_client.h"
+#include "cloud_client.h"
 #include <winhttp.h>
 #include <wincred.h>
 #include <shlobj.h>
@@ -166,12 +167,14 @@ GeneratedCard ParseCardResponse(const std::string& bytes){
 struct AiJob::State {std::mutex mutex;std::optional<AiResult> result;std::atomic<bool> canceled=false;};
 AiJob::~AiJob(){Cancel();}
 void AiJob::Cancel(){if(state)state->canceled=true;state.reset();}
-void AiJob::Start(const AiSettings& settings,const CardRequestTarget& target,const std::wstring& prompt){
-    BuildCardRequest(settings,target,prompt);auto url=WebsiteUrl(prompt);auto key=ReadKey();if(key.empty())throw std::runtime_error("Add your OpenAI API key in AI settings first.");
+void AiJob::Start(const AiSettings& settings,const CardRequestTarget& target,const std::wstring& prompt,const std::string& requestId){
+    BuildCardRequest(settings,target,prompt);auto url=WebsiteUrl(prompt);auto key=CloudEnabled()?std::wstring{}:ReadKey();
+    if(CloudEnabled()){if(!CloudGetAccount().signedIn)throw std::runtime_error("Sign in with Google to generate cards.");}
+    else if(key.empty())throw std::runtime_error("The online service is not configured. Developer builds can use an API key in Settings.");
     Cancel();state=std::make_shared<State>();
     // The worker owns every object it uses. Cancel/close immediately discard the
     // result; a bounded in-flight HTTP request can finish without touching the UI.
-    std::thread([current=state,settings,target=CompactCardRequest(target),prompt,url=std::move(url),key=std::move(key)]()mutable{
+    std::thread([current=state,settings,target=CompactCardRequest(target),prompt,url=std::move(url),key=std::move(key),requestId=requestId.empty()?CloudRequestId():requestId]()mutable{
         CoInitializeEx(nullptr,COINIT_MULTITHREADED);AiResult result;
         try{
             std::optional<WebsiteSource> source;if(!url.empty())source=FetchWebsite(url,current->canceled);
@@ -181,7 +184,8 @@ void AiJob::Start(const AiSettings& settings,const CardRequestTarget& target,con
                 result.notice=source->notice;
             }
             if(!current->canceled){
-                auto response=Send(BuildCardRequest(settings,target,prompt,source),key);result.usage=ParseCardUsage(response,settings.model);
+                auto body=BuildCardRequest(settings,target,prompt,source);
+                auto response=CloudEnabled()?CloudGenerate(body,requestId):Send(body,key);result.usage=ParseCardUsage(response,settings.model);
                 auto card=ParseCardResponse(response);card.assets=SelectCardAssets(card.html,available);card.usage=result.usage;result.card=std::move(card);
             }
         }

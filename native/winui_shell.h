@@ -1,16 +1,17 @@
 #pragma once
 #include "text_editor_ui.h"
 #include "ai_client.h"
+#include "cloud_client.h"
 #include "card_host.h"
+#ifdef GetCurrentTime
+#undef GetCurrentTime
+#endif
 #include <winrt/Microsoft.UI.Xaml.Media.Imaging.h>
 #include <winrt/Windows.Storage.Streams.h>
 #include <robuffer.h>
 #include <MddBootstrap.h>
 #include <winrt/Microsoft.UI.Interop.h>
 #include <Microsoft.UI.Dispatching.Interop.h>
-#ifdef GetCurrentTime
-#undef GetCurrentTime
-#endif
 #include <winrt/Microsoft.UI.Dispatching.h>
 #include <winrt/Microsoft.UI.Content.h>
 #include <winrt/Microsoft.UI.Xaml.h>
@@ -26,6 +27,7 @@
 #include <winrt/Windows.UI.Xaml.Interop.h>
 #include <dwmapi.h>
 #include "setup_panel.h"
+#include "admin_panel.h"
 
 namespace callayers {
 namespace ux=winrt::Microsoft::UI::Xaml;
@@ -45,6 +47,10 @@ class WinUIShell {
     TextEditorUI& editor;
     hosting::DesktopWindowXamlSource top{nullptr},bottom{nullptr},settingsIsland{nullptr};
     controls::ContentDialog settingsDialog{nullptr};
+    controls::TextBlock accountStatus{nullptr};
+    controls::Button accountSignin{nullptr},accountCancel{nullptr};
+    bool accountGate=false;
+    std::unique_ptr<AdminPanel> adminPanel;
     controls::Border colorPanel{nullptr};
     RECT colorPanelRegion{};
     std::shared_ptr<int> lifetime=std::make_shared<int>(0);
@@ -55,6 +61,7 @@ class WinUIShell {
     std::vector<controls::CheckBox> showChecks;
     AiJob job;
     std::unique_ptr<SetupPanel> setup;
+    std::optional<std::wstring> setupIdentity;
     void ShowSetup(int step){
         auto grid=footer.as<controls::Grid>();for(auto child:grid.Children())child.Visibility(ux::Visibility::Collapsed);
         setup->Begin(step);
@@ -65,6 +72,12 @@ class WinUIShell {
     }
     std::optional<CardRequestTarget> lastTarget;
     std::wstring lastPrompt;
+    std::string generationRequestId;
+    void GenerationEvent(const wchar_t* state){
+        using namespace winrt::Windows::Data::Json;JsonObject p;
+        p.SetNamedValue(L"state",JsonValue::CreateStringValue(state));p.SetNamedValue(L"operation",JsonValue::CreateStringValue(lastTarget&&lastTarget->creating?L"create":L"revise"));
+        if(!generationRequestId.empty())p.SetNamedValue(L"request_id",JsonValue::CreateStringValue(winrt::to_hstring(generationRequestId)));CloudTrack(L"card_generation",p);
+    }
     template<class T> T Bottom(const wchar_t* name){return footer.FindName(name).as<T>();}
     void AiMessage(const std::wstring& message){Bottom<controls::TextBlock>(L"AiStatus").Text(message);}
     void RefreshComposer(){
@@ -81,7 +94,9 @@ class WinUIShell {
             if(generating)return;
             if(!retry){lastTarget=editor.GenerationTarget();lastPrompt=Bottom<controls::TextBox>(L"Prompt").Text();}
             if(!lastTarget||!editor.TargetCurrent(*lastTarget)){AiMessage(L"The original card or scene changed. Select a card and start a new request.");return;}
-            job.Start(LoadAiSettings(),*lastTarget,lastPrompt);generating=true;
+            // Retry is a deliberate new generation. Transport retries within CloudGenerate
+            // recover the same server request; they never charge twice automatically.
+            generationRequestId=CloudRequestId();job.Start(LoadAiSettings(),*lastTarget,lastPrompt,generationRequestId);generating=true;GenerationEvent(L"started");
             Bottom<controls::Button>(L"RetryGeneration").Visibility(ux::Visibility::Collapsed);
             AiMessage(!WebsiteUrl(lastPrompt).empty()?L"Reading the website and creating your card…":lastTarget->creating?L"Creating your card…":L"Updating “"+lastTarget->card.name+L"”… Your current card stays visible.");RefreshComposer();
         }catch(const std::exception& e){AiMessage(std::wstring(winrt::to_hstring(e.what())));Bottom<controls::Button>(L"RetryGeneration").Visibility(ux::Visibility::Visible);}
@@ -92,14 +107,16 @@ class WinUIShell {
         generating=false;
         try{
         if(result->card){
+            GenerationEvent(L"succeeded");
             if(lastTarget&&editor.AcceptGenerated(*lastTarget,result->card->html,result->card->name,result->card->assets,result->card->usage)){composerOpen=true;AiMessage(std::wstring(editor.IsCardShown(lastTarget->card.id)?L"Card updated on camera. ":lastTarget->creating?L"Card ready. Check it to show on camera. ":L"Card updated. ")+UsageSummary(result->usage)+(result->notice.empty()?L"":L" · "+result->notice));if(Bottom<controls::TextBox>(L"Prompt").Text()==lastPrompt)Bottom<controls::TextBox>(L"Prompt").Text(L"");}
-            else AiMessage(L"The original card or scene changed. The late result was not applied.");
-        }else{AiMessage(result->error+L" "+UsageSummary(result->usage));Bottom<controls::Button>(L"RetryGeneration").Visibility(ux::Visibility::Visible);}
+            else {GenerationEvent(L"discarded");AiMessage(L"The original card or scene changed. The late result was not applied.");}
+        }else{GenerationEvent(L"failed");AiMessage(result->error+L" "+UsageSummary(result->usage));Bottom<controls::Button>(L"RetryGeneration").Visibility(ux::Visibility::Visible);}
         }catch(const std::exception& e){AiMessage(std::wstring(winrt::to_hstring(e.what())));Bottom<controls::Button>(L"RetryGeneration").Visibility(ux::Visibility::Visible);}
         catch(...){AiMessage(L"Could not apply this card. Retry with fewer images.");Bottom<controls::Button>(L"RetryGeneration").Visibility(ux::Visibility::Visible);}
         RefreshComposer();
     }
     void ShowAiSettings(){
+        if(CloudEnabled()){ShowAccount();return;}
         if(settingsIsland)return;
         auto settings=LoadAiSettings();settingsIsland=hosting::DesktopWindowXamlSource();settingsIsland.Initialize(winrt::Microsoft::UI::GetWindowIdFromWindow(window));
         controls::Grid root;root.Background(ux::Media::SolidColorBrush(winrt::Windows::UI::Color{255,28,28,32}));settingsIsland.Content(root);
@@ -122,6 +139,46 @@ class WinUIShell {
             if(weak.expired())return;
             header.DispatcherQueue().TryEnqueue([this,weak]{if(weak.expired())return;settingsDialog=nullptr;if(settingsIsland)settingsIsland.Close();settingsIsland=nullptr;SetFocus(window);});
         });
+        dialog.ShowAsync();
+    }
+
+    void ShowAccount(){
+        if(settingsIsland)return;
+        settingsIsland=hosting::DesktopWindowXamlSource();settingsIsland.Initialize(winrt::Microsoft::UI::GetWindowIdFromWindow(window));
+        controls::Grid root;root.Background(ux::Media::SolidColorBrush(winrt::Windows::UI::Color{255,28,28,32}));settingsIsland.Content(root);
+        RECT bounds;GetClientRect(window,&bounds);settingsIsland.SiteBridge().MoveAndResize({0,0,bounds.right,bounds.bottom});
+        SetWindowPos(winrt::Microsoft::UI::GetWindowFromWindowId(settingsIsland.SiteBridge().WindowId()),HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
+        controls::ContentDialog dialog;settingsDialog=dialog;dialog.XamlRoot(root.XamlRoot());dialog.RequestedTheme(ux::ElementTheme::Dark);accountGate=!CloudAccessAllowed();dialog.Title(winrt::box_value(accountGate?L"Welcome to Callayers":L"Settings"));dialog.CloseButtonText(accountGate?L"":L"Close");
+        dialog.Closing([weak=std::weak_ptr<int>(lifetime)](auto&&,controls::ContentDialogClosingEventArgs const& args){if(!weak.expired()&&!CloudAccessAllowed())args.Cancel(true);});
+        controls::StackPanel panel;panel.Spacing(12);panel.MinWidth(400);accountStatus=controls::TextBlock();accountStatus.TextWrapping(ux::TextWrapping::Wrap);panel.Children().Append(accountStatus);
+        accountSignin=controls::Button();accountSignin.Content(winrt::box_value(L"Continue with Google"));accountSignin.HorizontalAlignment(ux::HorizontalAlignment::Stretch);accountSignin.Click([](auto&&,auto&&){CloudSignIn();});panel.Children().Append(accountSignin);
+        accountCancel=controls::Button();accountCancel.Content(winrt::box_value(L"Cancel sign-in"));accountCancel.Click([this](auto&&,auto&&){CloudSignOut();SyncAccess();});panel.Children().Append(accountCancel);
+        dialog.Content(panel);dialog.Closed([this,weak=std::weak_ptr<int>(lifetime)](auto&&,auto&&){if(weak.expired())return;header.DispatcherQueue().TryEnqueue([this,weak]{if(weak.expired())return;accountStatus=nullptr;accountSignin=nullptr;accountCancel=nullptr;settingsDialog=nullptr;if(settingsIsland)settingsIsland.Close();settingsIsland=nullptr;SetFocus(window);});});
+        UpdateSignIn();dialog.ShowAsync();
+    }
+
+    void UpdateSignIn(){
+        if(!accountStatus)return;auto a=CloudGetAccount();
+        auto text=a.signedIn?L"Signed in as "+a.email+L"\n"+a.message:a.message;
+        if(accountStatus.Text()!=text)accountStatus.Text(text);
+        accountSignin.Visibility(a.signedIn?ux::Visibility::Collapsed:ux::Visibility::Visible);
+        accountSignin.IsEnabled(CloudEnabled()&&!a.busy);
+        accountSignin.Content(winrt::box_value(a.busy?L"Waiting for Google…":L"Continue with Google"));
+        accountCancel.Content(winrt::box_value(a.signedIn?L"Sign out":L"Cancel"));
+        accountCancel.Visibility(a.busy||a.signedIn?ux::Visibility::Visible:ux::Visibility::Collapsed);
+    }
+
+    void ShowAdmin(){
+        auto account=CloudGetAccount();if(settingsIsland||!account.signedIn||!account.administrator)return;
+        // Construct before creating the island so a request startup error leaves no modal behind.
+        auto panel=std::make_unique<AdminPanel>();
+        settingsIsland=hosting::DesktopWindowXamlSource();settingsIsland.Initialize(winrt::Microsoft::UI::GetWindowIdFromWindow(window));
+        controls::Grid root;root.Background(ux::Media::SolidColorBrush(winrt::Windows::UI::Color{255,28,28,32}));settingsIsland.Content(root);
+        RECT bounds;GetClientRect(window,&bounds);settingsIsland.SiteBridge().MoveAndResize({0,0,bounds.right,bounds.bottom});
+        SetWindowPos(winrt::Microsoft::UI::GetWindowFromWindowId(settingsIsland.SiteBridge().WindowId()),HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
+        controls::ContentDialog dialog;settingsDialog=dialog;dialog.XamlRoot(root.XamlRoot());dialog.RequestedTheme(ux::ElementTheme::Dark);
+        dialog.Title(winrt::box_value(L"Callayers administration"));dialog.CloseButtonText(L"Close");dialog.Content(panel->Root);adminPanel=std::move(panel);
+        dialog.Closed([this,weak=std::weak_ptr<int>(lifetime)](auto&&,auto&&){if(weak.expired())return;header.DispatcherQueue().TryEnqueue([this,weak]{if(weak.expired())return;adminPanel.reset();settingsDialog=nullptr;if(settingsIsland)settingsIsland.Close();settingsIsland=nullptr;SetFocus(window);});});
         dialog.ShowAsync();
     }
 
@@ -235,7 +292,7 @@ public:
    <TextBlock x:Name="SaveState" Text="No unsaved changes" Foreground="#AAA8B2" FontSize="11"/>
   </StackPanel>
   <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-   <Button x:Name="FileButton" Content="File"><Button.Flyout><MenuFlyout><MenuFlyoutItem x:Name="NewDeck" Text="New deck"/><MenuFlyoutItem x:Name="OpenDeck" Text="Open…"/><MenuFlyoutSeparator/><MenuFlyoutItem x:Name="SaveDeck" Text="Save"/><MenuFlyoutItem x:Name="SaveAsDeck" Text="Save as…"/><MenuFlyoutSeparator/><MenuFlyoutItem x:Name="AiSettings" Text="Settings…"/></MenuFlyout></Button.Flyout></Button>
+   <Button x:Name="FileButton" Content="File"><Button.Flyout><MenuFlyout><MenuFlyoutItem x:Name="NewDeck" Text="New deck"/><MenuFlyoutItem x:Name="OpenDeck" Text="Open…"/><MenuFlyoutSeparator/><MenuFlyoutItem x:Name="SaveDeck" Text="Save"/><MenuFlyoutItem x:Name="SaveAsDeck" Text="Save as…"/><MenuFlyoutSeparator/><MenuFlyoutItem x:Name="Administration" Text="Administration…" Visibility="Collapsed"/><MenuFlyoutItem x:Name="Account" Text="Sign out"/><MenuFlyoutItem x:Name="AiSettings" Text="Settings…"/></MenuFlyout></Button.Flyout></Button>
    <Button x:Name="Annotate" Content="✎  Annotate" ToolTipService.ToolTip="Show or hide the annotation toolbar"/>
    <Button x:Name="Save" Content="Save" ToolTipService.ToolTip="Save deck (Ctrl+S)"/>
   </StackPanel>
@@ -294,9 +351,9 @@ public:
         for(auto pair:{std::pair{L"NewDeck",TextEditorUI::NewIdControl},{L"OpenDeck",TextEditorUI::OpenId},{L"SaveDeck",TextEditorUI::SaveId}})
             Find<controls::MenuFlyoutItem>(pair.first).Click([this,id=pair.second](auto&&,auto&&){try{editor.Command(id);}catch(...){EditorError(window);}});
         Find<controls::MenuFlyoutItem>(L"SaveAsDeck").Click([this](auto&&,auto&&){try{editor.SaveAs();}catch(...){EditorError(window);}});
-        auto sources=Find<controls::ComboBox>(L"Camera");sources.Items().Append(winrt::box_value(L"Test pattern"));
-        for(auto& device:devices)sources.Items().Append(winrt::box_value(device.name));sources.SelectedIndex(0);
-        sources.SelectionChanged([this,camera](auto&&,auto&&){if(!syncing)try{int index=Find<controls::ComboBox>(L"Camera").SelectedIndex();camera(index);if(setup)setup->CameraIndex(index);}catch(...){EditorError(window);}});
+        auto sources=Find<controls::ComboBox>(L"Camera");sources.PlaceholderText(L"No cameras found");
+        for(auto& device:devices)sources.Items().Append(winrt::box_value(device.name));sources.SelectedIndex(devices.empty()?-1:0);
+        sources.SelectionChanged([this,camera](auto&&,auto&&){if(!syncing)try{int index=Find<controls::ComboBox>(L"Camera").SelectedIndex();camera(index+1);if(setup)setup->CameraIndex(index+1);}catch(...){EditorError(window);}});
         Action(L"Output",output);
         Action(L"Annotate",[this]{annotating=!annotating;editor.SetAnnotationMode(annotating);Refresh();Relayout();});
         Action(L"Pen",[this]{editor.SetDrawingTool(TextEditorUI::DrawTool::Pen);});
@@ -311,14 +368,19 @@ public:
         Bottom<controls::Button>(L"HideCard").Click([this](auto&&,auto&&){try{editor.HideCard();}catch(...){EditorError(window);}});
         Bottom<controls::Button>(L"Generate").Click([this](auto&&,auto&&){Generate();});
         Bottom<controls::Button>(L"RetryGeneration").Click([this](auto&&,auto&&){Generate(true);});
-        Bottom<controls::Button>(L"CancelGeneration").Click([this](auto&&,auto&&){job.Cancel();generating=false;AiMessage(L"Canceled. Your cards are unchanged.");RefreshComposer();});
+        Bottom<controls::Button>(L"CancelGeneration").Click([this](auto&&,auto&&){GenerationEvent(L"canceled");job.Cancel();generating=false;AiMessage(L"Canceled locally. An AI request already submitted may still use your allowance. Your cards are unchanged.");RefreshComposer();});
+        Find<controls::MenuFlyoutItem>(L"Account").Text(L"Sign out");
+        Find<controls::MenuFlyoutItem>(L"Account").Visibility(CloudEnabled()?ux::Visibility::Visible:ux::Visibility::Collapsed);
+        Find<controls::MenuFlyoutItem>(L"Account").Click([this](auto&&,auto&&){try{CloudSignOut();SyncAccess();}catch(...){EditorError(window);}});
+        Find<controls::MenuFlyoutItem>(L"Administration").Click([this](auto&&,auto&&){try{ShowAdmin();}catch(...){EditorError(window);}});
+        Find<controls::MenuFlyoutItem>(L"AiSettings").Visibility(ux::Visibility::Visible);
         Find<controls::MenuFlyoutItem>(L"AiSettings").Click([this](auto&&,auto&&){try{ShowAiSettings();}catch(...){EditorError(window);}});
         Bottom<controls::TextBox>(L"Prompt").KeyDown([this](auto&&,ux::Input::KeyRoutedEventArgs const& args){if(args.Key()==winrt::Windows::System::VirtualKey::Enter&&(GetKeyState(VK_CONTROL)&0x8000)){Generate();args.Handled(true);}});
-        setup=std::make_unique<SetupPanel>(window,editor,devices,[this,camera](int index){syncing=true;Find<controls::ComboBox>(L"Camera").SelectedIndex(index);syncing=false;camera(index);},output,[this]{CloseSetup();});
+        setup=std::make_unique<SetupPanel>(window,editor,devices,[this,camera](int index){syncing=true;Find<controls::ComboBox>(L"Camera").SelectedIndex(index-1);syncing=false;camera(index);},output,[this]{CloseSetup();});
         controls::Grid::SetRowSpan(setup->Root,4);footer.as<controls::Grid>().Children().Append(setup->Root);
         Bottom<controls::Button>(L"UseInCall").Click([this](auto&&,auto&&){ShowSetup(2);});
         editor.StateChanged=[this]{Refresh();};Refresh();
-        if(!SetupFinished())ShowSetup(0);
+        SyncAccess();
         BOOL dark=TRUE;DwmSetWindowAttribute(window,DWMWA_USE_IMMERSIVE_DARK_MODE,&dark,sizeof(dark));
     }
     ~WinUIShell(){lifetime.reset();job.Cancel();editor.StateChanged={};if(settingsDialog)settingsDialog.Hide();if(settingsIsland)settingsIsland.Close();if(top)top.Close();if(bottom)bottom.Close();}
@@ -333,7 +395,7 @@ public:
         bottom.SiteBridge().MoveAndResize({0,headerHeight,sidebar,std::max(1,height-headerHeight)});
     }
     int HeaderHeight()const{return annotating?128:72;}
-    void CameraIndex(int index){syncing=true;Find<controls::ComboBox>(L"Camera").SelectedIndex(index);syncing=false;if(setup)setup->CameraIndex(index);}
+    void CameraIndex(int index){syncing=true;Find<controls::ComboBox>(L"Camera").SelectedIndex(index-1);syncing=false;if(setup)setup->CameraIndex(index);}
     bool SetupActive()const{return setup&&setup->Active();}
     void SetupStatus(bool fresh,bool running,bool live,HRESULT failure,const std::wstring& message){
         setup->Update(fresh,running,live,failure,message);
@@ -342,7 +404,34 @@ public:
         if(FAILED(failure))text=L"Camera needs attention";
         if(label.Text()!=text)label.Text(text);
     }
+    void SyncAccess(){
+        if(CloudTakeSignInReturn()){
+            ShowWindow(window,IsIconic(window)?SW_RESTORE:SW_SHOW);
+            if(!SetForegroundWindow(window)){FLASHWINFO flash{sizeof(FLASHWINFO),window,FLASHW_TRAY,3,0};FlashWindowEx(&flash);}
+        }
+        const bool allowed=CloudAccessAllowed();
+        const auto visibility=allowed?ux::Visibility::Visible:ux::Visibility::Collapsed;
+        header.Visibility(visibility);footer.Visibility(visibility);
+        if(!allowed){
+            if(setupIdentity){setup->Suspend();CloseSetup();setupIdentity.reset();}
+            if(generating){job.Cancel();generating=false;RefreshComposer();}
+            if(accountStatus){accountGate=true;settingsDialog.Title(winrt::box_value(L"Welcome to Callayers"));settingsDialog.CloseButtonText(L"");}
+            else if(settingsDialog)settingsDialog.Hide();
+            else if(colorPanel)CloseColorPicker();
+            else if(!settingsIsland)ShowAccount();
+        }else{
+            const auto uid=CloudEnabled()?CloudGetAccount().uid:std::wstring{};
+            if(!setupIdentity||*setupIdentity!=uid){
+                auto step=setup->Restore(uid);CloseSetup();setupIdentity=uid;
+                if(!setup->Complete())ShowSetup(step);
+            }
+            if(accountStatus&&accountGate){accountGate=false;settingsDialog.CloseButtonText(L"Close");settingsDialog.Hide();}
+        }
+    }
     void Status(const std::wstring& message,bool busy,bool running){
+        UpdateSignIn();
+        auto account=CloudGetAccount();Find<controls::MenuFlyoutItem>(L"Administration").Visibility(account.signedIn&&account.administrator?ux::Visibility::Visible:ux::Visibility::Collapsed);
+        if(adminPanel)adminPanel->Poll();
         PollGeneration();
         auto status=footer.FindName(L"Status").as<controls::TextBlock>();if(status.Text()!=message)status.Text(message);
         auto button=Find<controls::Button>(L"Output");button.IsEnabled(!busy&&!running);
@@ -370,6 +459,7 @@ public:
         RefreshCards();syncing=false;RefreshComposer();
     }
     bool Key(const MSG& message){
+        if(!CloudAccessAllowed())return false;
         if(message.message!=WM_KEYDOWN)return false;
         if(editor.Interacting()&&GetFocus()==window){
             if(message.wParam==VK_ESCAPE){editor.SetInteract(false);return true;}
