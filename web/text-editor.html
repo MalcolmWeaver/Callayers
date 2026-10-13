@@ -1,0 +1,59 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<style>
+/*CALLAYERS_TEXT_STYLE*/
+html,body { margin:0; padding:0; overflow:hidden; background:transparent; }
+#surface { position:absolute; transform-origin:top left; }
+#text { display:block; resize:none; outline:0; min-width:0; min-height:0; overflow:hidden; background:transparent; }
+#measure { position:absolute; top:0; left:0; visibility:hidden; pointer-events:none; }
+#outline { position:absolute; box-sizing:border-box; border-style:solid; border-color:#6dd3ff; pointer-events:none; }
+#handle { position:absolute; background:#6dd3ff; pointer-events:none; }
+</style></head><body><div id="outline"></div><div id="handle"></div><div id="surface"><textarea id="text" class="annotation-text" maxlength="2000" spellcheck="false" aria-label="Annotation text"></textarea><div id="measure" class="annotation-text" aria-hidden="true"></div></div>
+<script>
+'use strict';
+const text=document.getElementById('text');
+const surface=document.getElementById('surface');
+const measure=document.getElementById('measure');
+const outline=document.getElementById('outline');
+const handle=document.getElementById('handle');
+let format;
+function report() {
+  if(!format)return;
+  // Measure independently, without collapsing the focused field. The sentinel
+  // gives an empty final line its height immediately after Enter.
+  measure.textContent=text.value+'\u200b';
+  const height=Math.max(format.font*1.2,measure.scrollHeight);
+  text.style.height=height+'px';
+  text.scrollTop=0;text.scrollLeft=0;
+  const offset=format.inset,unit=format.dpi;
+  const pad=Math.round(3*unit),half=Math.round(6*unit);
+  Object.assign(outline.style,{left:(offset-pad)+'px',top:(offset-pad)+'px',width:(format.width*format.scale+2*pad)+'px',height:(height*format.scale+2*pad)+'px',borderWidth:Math.round(2*unit)+'px'});
+  Object.assign(handle.style,{left:(offset+format.width*format.scale-half)+'px',top:(offset+height*format.scale-half)+'px',width:(2*half)+'px',height:(2*half)+'px'});
+  window.chrome.webview.postMessage({type:'draft',text:text.value,height});
+}
+window.beginTextEdit = options => {
+  format=options;
+  surface.style.width=options.width+'px';
+  surface.style.transform=`scale(${options.scale})`;
+  surface.style.left=options.inset+'px';surface.style.top=options.inset+'px';
+  text.style.width=options.width+'px';
+  text.style.fontSize=options.font+'px';
+  text.style.color=options.color;
+  text.style.caretColor=options.color;
+  measure.style.width=options.width+'px';measure.style.fontSize=options.font+'px';
+  text.value=options.text;
+  report();
+  text.focus();
+  text.setSelectionRange(text.value.length,text.value.length);
+};
+text.addEventListener('input',()=>{report();requestAnimationFrame(report);});
+text.addEventListener('keyup',event=>{if(event.key==='Enter')report();});
+text.addEventListener('keydown',event=>{
+  if(event.isComposing)return;
+  if(event.key==='Escape' || event.key==='Tab' || (event.key==='Enter' && event.ctrlKey)) {
+    event.preventDefault();report();
+    window.chrome.webview.postMessage({type:'finish',commit:event.key!=='Escape'});
+  }
+});
+</script></body></html>

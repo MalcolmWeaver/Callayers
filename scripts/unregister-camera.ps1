@@ -1,15 +1,7 @@
-# First run build\Release\CameraProbe.exe --remove as the user who created the camera.
-# Then run this script elevated. Installed DLL is retained if Windows has it loaded.
 $ErrorActionPreference = 'Stop'
-$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-if (-not ([Security.Principal.WindowsPrincipal]::new($identity)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    throw 'Run in Administrator PowerShell after removing the current-user camera with CameraProbe --remove.'
-}
-$classKey = 'HKLM:\SOFTWARE\Classes\CLSID\{A487A33B-6EC3-43F1-A894-CA2D937619F0}'
-if (Test-Path -LiteralPath "$classKey\InprocServer32") { Remove-Item -LiteralPath "$classKey\InprocServer32" }
-if (Test-Path -LiteralPath $classKey) { Remove-Item -LiteralPath $classKey }
-$installDirectory = Join-Path $env:ProgramFiles 'Callayers Development'
-if (Test-Path -LiteralPath $installDirectory) {
-    Get-ChildItem -LiteralPath $installDirectory -Filter 'CallayersCamera*.dll' -File | ForEach-Object { Remove-Item -LiteralPath $_.FullName }
-}
-Write-Output 'Removed Callayers development source registration.'
+if (-not [Environment]::Is64BitProcess) { throw 'Use 64-bit PowerShell.' }
+$camera = Join-Path (Split-Path $PSScriptRoot -Parent) 'build\x64\Release\CallayersCamera.dll'
+if (-not (Test-Path -LiteralPath $camera)) { throw 'The camera DLL is missing. Rebuild before unregistering.' }
+$registration = Start-Process -FilePath "$env:WINDIR\System32\regsvr32.exe" -ArgumentList @('/s', '/u', ('"' + $camera + '"')) -Wait -PassThru -WindowStyle Hidden
+if ($registration.ExitCode -ne 0) { throw "Camera unregistration failed ($($registration.ExitCode))." }
+Write-Host 'The foundation camera was unregistered for this Windows user. Saved cards and previous camera registrations were not changed.'

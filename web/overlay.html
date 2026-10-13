@@ -1,0 +1,89 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; frame-src about:; connect-src 'none'; media-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; worker-src 'none'">
+<style>
+/*CALLAYERS_TEXT_STYLE*/
+html,body{margin:0;width:1280px;height:720px;overflow:hidden;background:transparent}
+iframe{position:absolute;border:0;background:transparent;pointer-events:none;transform-origin:top left}
+svg{position:absolute;inset:0;width:1280px;height:720px;pointer-events:none;z-index:10}
+</style></head><body><div id="cards"></div><svg id="ink" viewBox="0 0 1280 720"></svg>
+<script>
+'use strict';
+const policies = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; frame-src 'none'; media-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; worker-src 'none'">`;
+const base = `<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent;font-family:Segoe UI,sans-serif;color:white;box-sizing:border-box}*{box-sizing:border-box}.box{height:100%;padding:18px 24px;border-radius:18px;background:rgba(19,25,40,.91);border:2px solid rgba(255,255,255,.25)}h1,p{margin:0}h1{font-size:32px}p{font-size:22px;color:#cbd5e1}</style>`;
+const documents = [
+  `<div class="box"><h1>Callayers</h1><p>Your ideas, in the picture.</p></div>`,
+  `<style>@keyframes travel{from{transform:translateX(0)}to{transform:translateX(210px)}}.dot{height:24px;width:24px;border-radius:50%;background:#6ee7b7;animation:travel 2s ease-in-out infinite alternate}.track{margin-top:18px}</style><div class="box"><h1>Live ideas</h1><div class="track"><div class="dot"></div></div></div>`,
+  `<div class="box"><p>Time remaining</p><h1 id="time" style="font-size:48px;font-variant-numeric:tabular-nums">05:00</h1></div><script>const start=performance.now();setInterval(()=>{const left=Math.max(0,300-Math.floor((performance.now()-start)/1000));document.getElementById('time').textContent=Math.floor(left/60)+':'+String(left%60).padStart(2,'0')},100);<\/script>`
+];
+const frames = new Map();
+let privateTextId=0;
+window.preparePrivatePreview=(id,serial)=>{
+  privateTextId=id;
+  for(const text of document.querySelectorAll('#ink [data-text-id]'))text.style.visibility=Number(text.dataset.textId)===id?'hidden':'visible';
+  window.privatePreviewReady=0;
+  window.privatePreviewSerial=serial;
+  const ready=()=>{if(window.privatePreviewSerial===serial)window.privatePreviewReady=serial;};
+  requestAnimationFrame(()=>requestAnimationFrame(ready));
+  // Offscreen pages may defer animation callbacks. The capture still needs a
+  // bounded opportunity to paint, without stopping the camera publication.
+  setTimeout(ready,100);
+};
+window.stopScene = () => { privateTextId=0;document.getElementById('cards').replaceChildren(); frames.clear(); document.getElementById('ink').replaceChildren(); };
+window.setScene = scene => {
+  if (!scene || !Array.isArray(scene.cards) || !Array.isArray(scene.annotations)) return;
+  const visible = new Set();
+  for (const c of scene.cards) {
+    if (!Number.isInteger(c.id) || c.id<0 || c.id>=documents.length || !c.visible) continue;
+    if (![c.x,c.y,c.w,c.h,c.contentW,c.contentH].every(Number.isFinite) || c.w<=0 || c.h<=0 || c.contentW<=0 || c.contentH<=0) continue;
+    visible.add(c.id);
+    let iframe=frames.get(c.id);
+    if (!iframe) {
+      iframe=document.createElement('iframe');
+      iframe.setAttribute('sandbox','allow-scripts');
+      iframe.setAttribute('allow',"camera 'none'; microphone 'none'; geolocation 'none'; clipboard-read 'none'; clipboard-write 'none'; fullscreen 'none'; autoplay 'none'");
+      iframe.referrerPolicy='no-referrer';
+      iframe.srcdoc='<!doctype html><html><head><meta charset="utf-8">'+policies+base+'</head><body>'+documents[c.id]+'</body></html>';
+      frames.set(c.id,iframe);document.getElementById('cards').append(iframe);
+    }
+    // Keep the document viewport fixed. Scaling the existing frame transforms
+    // text, graphics, borders and spacing together without reloading its scripts.
+    for(const [name,value] of Object.entries({left:c.x,top:c.y,width:c.contentW,height:c.contentH})) iframe.style[name]=value+'px';
+    iframe.style.transform=`scale(${Math.min(c.w/c.contentW,c.h/c.contentH)})`;
+    iframe.style.zIndex=String(c.id);
+  }
+  for (const [id,frame] of frames) if(!visible.has(id)){frame.remove();frames.delete(id)}
+  const ink=document.getElementById('ink');ink.replaceChildren();
+  const ns='http://www.w3.org/2000/svg';
+  const create=kind=>document.createElementNS(ns,kind);
+  const widths=[3,6,10];
+  for(const a of scene.annotations){
+    if(!a || !Number.isInteger(a.kind) || a.kind<1 || a.kind>6 || !/^#[0-9a-f]{6}$/i.test(a.color) || !Number.isInteger(a.size) || a.size<0 || a.size>2)continue;
+    if (![a.x,a.y,a.w,a.h].every(Number.isFinite) || a.w<0 || a.h<0)continue;
+    let shape;
+    if(a.kind===1 || a.kind===4 || a.kind===5){
+      if(!Array.isArray(a.points) || a.points.length<2 || !a.points.every(p=>Array.isArray(p)&&p.length===2&&p.every(Number.isFinite)))continue;
+      shape=create('polyline');shape.setAttribute('points',a.points.map(p=>p.join(',')).join(' '));
+    }else if(a.kind===2){
+      shape=create('rect');
+      shape.setAttribute('x',a.x);shape.setAttribute('y',a.y);shape.setAttribute('width',Math.max(0,a.w));shape.setAttribute('height',Math.max(0,a.h));
+    }else if(a.kind===3){
+      shape=create('ellipse');shape.setAttribute('cx',a.x+a.w/2);shape.setAttribute('cy',a.y+a.h/2);shape.setAttribute('rx',Math.max(0,a.w/2));shape.setAttribute('ry',Math.max(0,a.h/2));
+    }else{
+      if(typeof a.text!=='string'||!Number.isFinite(a.font)||a.font<8||a.font>600)continue;
+      shape=create('foreignObject');shape.setAttribute('x',a.x);shape.setAttribute('y',a.y);shape.setAttribute('width',a.w);shape.setAttribute('height',a.h);
+      shape.dataset.textId=String(a.id);shape.style.visibility=a.id===privateTextId?'hidden':'visible';
+      const text=document.createElementNS('http://www.w3.org/1999/xhtml','div');
+      text.classList.add('annotation-text');text.style.fontSize=a.font+'px';text.style.color=a.color;
+      text.textContent=a.text;shape.append(text);
+    }
+    shape.setAttribute('fill',a.kind===2 || a.kind===3?a.color:'none');shape.setAttribute('stroke',a.kind===6?'none':a.color);shape.setAttribute('stroke-width',widths[a.size]);shape.setAttribute('stroke-linecap','round');shape.setAttribute('stroke-linejoin','round');ink.append(shape);
+    if(a.kind===5){
+      const [start,end]=a.points,angle=Math.atan2(end[1]-start[1],end[0]-start[0]),length=16+widths[a.size]*2;
+      const head=create('polyline');
+      const points=[-.5,0,.5].map((side,i)=>i===1?end:[end[0]-length*Math.cos(angle+side),end[1]-length*Math.sin(angle+side)]);
+      head.setAttribute('points',points.map(p=>p.join(',')).join(' '));head.setAttribute('fill',a.color);head.setAttribute('stroke',a.color);head.setAttribute('stroke-width',widths[a.size]);head.setAttribute('stroke-linecap','round');head.setAttribute('stroke-linejoin','round');ink.append(head);
+    }
+  }
+};
+</script></body></html>
