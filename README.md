@@ -23,7 +23,7 @@ To preserve the accepted executable during the workspace walkthrough, build and 
 & .\build\workspace-x64\Release\Callayers.exe
 ```
 
-Close any other Callayers instance before launching. The already registered foundation camera shares the same video bridge; no new registration is necessary on this workspace. For a new PC, first build/register the standard output with `Start Callayers.cmd`. Workspace verification evidence is preserved in Git. Give future improvements their own temporary checklist and follow [AGENTS.md](AGENTS.md). Use `-WorkspaceBuild` with the measurement helper to count the correct executable.
+Close any other Callayers instance before launching. The already registered foundation camera shares the same video bridge; no new registration is necessary on this workspace. For a new PC, first build/register the standard output with `Start Callayers.cmd`. Workspace verification evidence is preserved in Git. Follow [AGENTS.md](AGENTS.md#feature-verification) for verification in the feature-ready chat response. Use `-WorkspaceBuild` with the measurement helper to count the correct executable.
 
 The user performs every runtime check. The foundation and current resource cost have been accepted for the MVP; final evidence is preserved in Git. Follow [the delivery plan](spec-v2/README.md) and [feature verification guidance](AGENTS.md) for the next improvement. Compilation alone does not establish that video, transparency, minimize behavior, DirectShow discovery, or performance work.
 
