@@ -31,6 +31,13 @@ int wmain(int argc,wchar_t** argv){
         Require(NeedsCameraFrames(false,1,500,2500),"persistent stream was expired by legacy timeout");
         Require(NeedsCameraFrames(true,0),"visible preview must keep capture");
         Require(NeedsCameraFrames(true,2),"preview and streams must keep capture");
+        Require(!ShouldProduceFrames(true,true,false,0,0,1500),"empty setup started frame production");
+        Require(ShouldProduceFrames(true,true,true,0,0,1500),"selected source did not start visible preview");
+        Require(!ShouldProduceFrames(true,false,true,0,0,1500),"hidden source kept idle capture running");
+        Require(ShouldProduceFrames(true,false,false,1,0,1500),"meeting app lost hidden output");
+        Require(ShouldProduceFrames(true,false,false,0,500,1499),"legacy output request was ignored");
+        Require(!ShouldProduceFrames(true,false,false,0,500,1500),"legacy output demand did not expire");
+        Require(!ShouldProduceFrames(false,true,true,1,500,600),"locked account kept frames running");
         {
             CameraDemandClient abandoned;
             Eventually([&]{abandoned.Update(true,name.c_str());return server->Poll()==1;},"abandoned stream did not connect");

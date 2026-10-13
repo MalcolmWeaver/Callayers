@@ -71,4 +71,9 @@ public:
 inline bool NeedsCameraFrames(bool previewVisible,size_t streams,ULONGLONG lastRequest=0,ULONGLONG now=GetTickCount64()){
     return previewVisible||streams!=0||(lastRequest&&now-lastRequest<1000);
 }
+inline bool ShouldProduceFrames(bool accessAllowed,bool previewVisible,bool hasSourceOrContent,
+                                size_t streams,ULONGLONG lastRequest,ULONGLONG now=GetTickCount64()){
+    return accessAllowed&&((previewVisible&&hasSourceOrContent)||streams!=0||
+        (lastRequest&&now-lastRequest<1000));
+}
 }

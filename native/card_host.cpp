@@ -22,6 +22,7 @@ using winrt::Windows::Graphics::DirectX::DirectXPixelFormat;
 struct CardHost::Impl {
     std::atomic<bool> stopping=false;
     std::atomic<bool> active=true;
+    std::atomic<bool> hasCards=false;
     std::atomic<HRESULT> error=S_OK;
     std::atomic<uint64_t> count=0;
     std::atomic<std::shared_ptr<const TextOverlay>> latest;
@@ -77,8 +78,10 @@ struct CardHost::Impl {
         session=pool.CreateCaptureSession(item);session.IsCursorCaptureEnabled(false);session.StartCapture();
     }
     void Poll(){
-        if(!active){
+        if(!active||!hasCards){
             if(session)session.Close();if(pool)pool.Close();session=nullptr;pool=nullptr;
+            staging.Reset();
+            if(!hasCards)latest=nullptr;
             return;
         }
         if(!pool&&composition)StartCapture();
@@ -124,7 +127,6 @@ struct CardHost::Impl {
                     Check(controller->put_Bounds({0,0,Width,Height}));Check(controller->put_IsVisible(TRUE));
                     ComPtr<ICoreWebView2Controller2> transparent;Check(controller.As(&transparent));Check(transparent->put_DefaultBackgroundColor({0,0,0,0}));
                     Check(composition->put_RootVisualTarget(winrt::get_unknown(visual)));
-                    StartCapture();
                     ComPtr<ICoreWebView2Settings> settings;Check(web->get_Settings(&settings));
                     Check(settings->put_AreDevToolsEnabled(FALSE));Check(settings->put_AreDefaultContextMenusEnabled(FALSE));
                     Check(settings->put_AreHostObjectsAllowed(FALSE));Check(settings->put_IsWebMessageEnabled(TRUE));
@@ -216,7 +218,7 @@ CardHost::CardHost(bool thumbnails):impl(std::make_unique<Impl>(thumbnails)){}
 void CardHost::SetActive(bool active){impl->active=active;}
 std::shared_ptr<const std::vector<BYTE>> CardHost::ThumbnailPixels()const{return impl->thumbnailPixels.load();}
 CardHost::~CardHost()=default;
-void CardHost::SetScene(const Scene& scene,uint64_t epoch){std::lock_guard lock(impl->sceneMutex);if(impl->pending==scene.cards&&impl->pendingEpoch==epoch)return;impl->pending=scene.cards;impl->pendingEpoch=epoch;impl->changed=true;}
+void CardHost::SetScene(const Scene& scene,uint64_t epoch){std::lock_guard lock(impl->sceneMutex);if(impl->pending==scene.cards&&impl->pendingEpoch==epoch)return;impl->pending=scene.cards;impl->pendingEpoch=epoch;impl->changed=true;impl->hasCards=!scene.cards.empty();}
 std::vector<CardStateChange> CardHost::TakeStates(){std::lock_guard lock(impl->sceneMutex);std::vector<CardStateChange> changes;changes.swap(impl->stateChanges);return changes;}
 void CardHost::Mouse(UINT message,POINT point,WPARAM buttons){
     impl->Enqueue([host=impl.get(),message,point,buttons]{if(!host->ready)return;

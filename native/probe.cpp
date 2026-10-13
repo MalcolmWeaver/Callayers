@@ -32,6 +32,11 @@ void TraceSource(){
 uint64_t Hash(const BYTE* bytes,size_t length){uint64_t h=1469598103934665603ull;for(size_t i=0;i<length;i+=113){h^=bytes[i];h*=1099511628211ull;}return h;}
 void Require(bool condition,const char* message){if(!condition){std::cerr<<message<<"\n";throw E_FAIL;}}
 void SelfTest(){
+    Require(CameraModeScore(1920,1080,120,1)==0,"camera selection accepted unsafe 120 fps mode");
+    Require(CameraModeScore(1920,1080,60,1)>0,"camera selection rejected 60 fps fallback");
+    Require(CameraModeScore(1280,720,30,1)>CameraModeScore(1920,1080,60,1),"camera selection preferred 60 fps over 30 fps");
+    Require(CameraModeScore(1920,1080,30,1)>CameraModeScore(1280,720,30,1),"camera selection lost 1080p30 preference");
+    Require(CameraModeScore(1920,1080,30000,1001)>0,"camera selection rejected 29.97 fps");
     auto idle=Pattern(0,true),a=Pattern(1),b=Pattern(9);
     Require(Valid(a->header),"valid frame rejected");auto malformed=a->header;malformed.bytes=1;
     Require(!Valid(malformed),"invalid size accepted");

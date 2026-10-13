@@ -6,6 +6,14 @@ See [Telemetry and product questions](docs/telemetry.md) for what we want to lea
 
 The account/backend implementation and manual setup walkthrough are in [docs/cloud-rollout.md](docs/cloud-rollout.md). It adds Google sign-in, automatic seven-day AI trials, manual paid entitlements, AI spending limits, PostHog events, and a small admin page. Cloud accounts have not been created or deployed yet. The implementing agent is building only; runtime verification is intentionally left to the owner.
 
+### Auth (branch feature/auth-signin-signup)
+
+The backend serves `/signin` and `/signup` for Firebase email/password web accounts. Successful submissions open `/home`; the web session survives reloads and can be ended with **Sign out**. The existing `/` Google redirect flow remains the entry point for connecting the Windows app. Email/password accounts do not yet sign in to the Windows app or receive its Google-backed service entitlements.
+
+Enable the Firebase **Email/Password** provider for the same project used by the backend. Configuration is supplied through `GOOGLE_CLOUD_PROJECT`, `FIREBASE_WEB_API_KEY`, and `PUBLIC_ORIGIN` (see `backend/env.example.yaml`); no credentials belong in source. To use a different identity provider later, replace the Firebase calls in `backend/web/auth-service.ts` while keeping its `signIn`, `signUp`, `signOut`, `getCurrentUser`, and `onAuthChange` interface, and update `/v1/client-config` if the new provider needs different public configuration.
+
+Run the web validation and page tests from `backend` with `node --test scripts/account-pages.test.mjs`. Build the service with `npm run build` after `npm ci`.
+
 For a cloud-connected build, pass `-ServiceUrl` (Cloud Run HTTPS origin; also serves browser sign-in) to `scripts/build.ps1 -SkipTests`. Cloud-connected builds require Google sign-in before editor or camera use. File → Sign out returns to the welcome screen without discarding the deck. Settings shows the signed-in identity and allowance; Administration is available to authorized accounts. New users complete camera, first-card, and calling-app setup after sign-in. Setup progress and completion are stored in the Firestore account record and follow the signed-in user across computers. Camera selection stays device-specific. Firebase Hosting is no longer deployed. See [the manual rollout walkthrough](docs/cloud-rollout.md). A configured cloud build routes generation through the service and never falls back to a personal API key. Without a service address, the existing developer API-key flow below remains available. The installer is a separate follow-up.
 
 Fresh implementation of the camera, text editor, WinUI shell, live cards, and OpenAI card generation in [mvp-dev-plan.md](mvp-dev-plan.md).
