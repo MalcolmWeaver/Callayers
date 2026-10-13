@@ -74,9 +74,7 @@ The app must be open to supply live video, but its window need not be visible. T
 
 ## Build order
 
-1. Build the new video foundation: webcam, a few fixed test cards in iframes (one animated), annotations, shared preview/output, and the minimize/quit behavior. Use 720p at 30 fps from the start. This is the first part of the product, not a disposable prototype; it does not depend on AI generation, backend work, or the full editor.
-2. Run the minimum checks below and compare performance with the existing measurements. Fix failures in this path before expanding the app.
-3. Build the remaining MVP around that foundation. Once sign-in, generation, and saving are connected, check that sign-out stops output and generating/saving during a call does not freeze video.
+Follow the [consolidated plan](README.md#consolidated-plan--session-handoff). The foundation is accepted for continued development; the real WinUI workspace is next. Preserve the working video engine while building the product UI.
 
 ## Minimum verification
 
