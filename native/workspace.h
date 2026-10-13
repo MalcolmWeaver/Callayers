@@ -31,7 +31,7 @@ public:
     bool finishText(bool commit=true);
     bool editingText() const;
     void focus(bool reverse);
-    void state(const std::wstring& status, const std::wstring& help, bool fresh, bool privacy, bool retryPreference=false);
+    void state(const std::wstring& status, const std::wstring& help, bool fresh, bool privacy, bool retryPreference=false, bool cameraChoices=true);
     void layout(int width, int height, float dpi, const RECT& preview);
     int toolbarHeight() const;
 };

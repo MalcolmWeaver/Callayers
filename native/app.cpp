@@ -52,6 +52,8 @@ struct App {
     unsigned preferenceRevision=0, preferenceAttemptedVersion=0;
     HRESULT preferenceLoadError=S_OK;
     bool preferenceSaveFailed=false;
+    ULONGLONG pictureWaitSince=0;
+    static constexpr ULONGLONG PictureWaitMs=15000;
     std::atomic<unsigned> commandVersion{1};
     std::atomic<bool> demand{false}, quitting{false};
     std::atomic<HRESULT> captureError{S_OK};
@@ -109,6 +111,7 @@ struct App {
         choose();
     }
     void choose() {
+        pictureWaitSince=0;
         invalidateOutput();
         { std::lock_guard lock(previewMutex); preview.reset(); }
         // An absent device retains the requested identity. Only explicit camera
@@ -144,6 +147,7 @@ struct App {
     void updateDemand() {
         bool wanted = selectedCamera >= 0 && (!IsIconic(window) || bridge.consumerActive());
         bool was = demand.exchange(wanted);
+        if(was!=wanted)pictureWaitSince=0;
         if (was && !wanted) invalidateOutput();
         overlay.enable(wanted);
     }
@@ -367,6 +371,11 @@ struct App {
         { std::lock_guard lock(previewMutex); frame=preview; }
         HRESULT error=captureError.load();
         bool fresh=frame && frame->live && frame->version==commandVersion && GetTickCount64()-frame->tick<FreshMs && demand && SUCCEEDED(error) && !overlay.state->failed;
+        // Give an opening camera time to deliver a picture before offering
+        // recovery. Reset after live video or a pause so a resume gets its own wait.
+        if(fresh || !demand)pictureWaitSince=0;
+        else if(!pictureWaitSince)pictureWaitSince=GetTickCount64();
+        bool pictureTimedOut=pictureWaitSince && GetTickCount64()-pictureWaitSince>=PictureWaitMs;
         rememberWorkingCamera(fresh);
         if(annotationRevision){auto saved=annotationStore.result();if(saved.revision==annotationRevision){annotationSaveFailed=FAILED(saved.error);annotationRevision=0;}}
         if(IsIconic(window))return; // Persist a working choice even in a minimized call, without updating hidden XAML.
@@ -380,13 +389,15 @@ struct App {
         else if(error==E_ACCESSDENIED) {state=L"Camera access blocked";message=L"Camera access blocked.\nOpen Camera privacy settings. Turn on Camera access and Let desktop apps access your camera, then Retry.";}
         else if(error==HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION)) {state=L"Camera in use";message=L"Camera in use.\nYour webcam is being used by another app. Close that app's camera preview or stop its video, then Retry.";}
         else if(FAILED(error)) {state=L"Camera not readable";message=L"Camera not readable.\nClose other apps using your webcam (the webcam light should turn off), then Retry.";}
-        else if(!fresh) {state=L"Opening your webcam";message=opening?L"Opening your webcam…":L"Waiting for a picture. If it doesn't appear, choose Retry.";}
+        else if(!fresh && pictureTimedOut) {state=L"Preview unavailable";message=L"A picture hasn't arrived. Choose Retry, or choose another camera.";}
+        else if(!fresh) {state=L"Opening your webcam";message=L"Opening your webcam…";}
         else state=bridge.consumerActive()?L"Video is reaching your calling app":L"Ready for your call";
         if(fresh && preferenceSaveFailed)state=L"Couldn't remember webcam";
         if(fresh && annotationSaveFailed)state=L"Couldn't save annotations";
         if(fresh && FAILED(annotationRestoreError))state=L"Couldn't restore annotations";
         status=state;
-        if(workspace)workspace->state(state,message,fresh,error==E_ACCESSDENIED,fresh && (preferenceSaveFailed || annotationSaveFailed || FAILED(annotationRestoreError)));
+        bool cameraChoices=!fresh && (selectedCamera<0 || overlay.state->failed || FAILED(error) || pictureTimedOut);
+        if(workspace)workspace->state(state,message,fresh,error==E_ACCESSDENIED,fresh && (preferenceSaveFailed || annotationSaveFailed || FAILED(annotationRestoreError)),cameraChoices);
     }
     static void compose(const CameraImage& camera, const OverlayImage& overlay, std::vector<uint8_t>& output) {
         StageTimer timing(VideoStage::Compose);
@@ -510,7 +521,7 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam
             actions.layout=[app]{app->layout();};
             app->restoreAnnotations();
             app->workspace=std::make_unique<Workspace>(window,std::move(actions));
-            app->dpi=GetDpiForWindow(window)/96.0f;app->buildFonts();app->layout();app->enumerate(true);app->syncCards();app->syncAnnotationControls();
+            app->dpi=GetDpiForWindow(window)/96.0f;app->buildFonts();app->enumerate(true);app->refreshWorkspace();app->layout();app->syncCards();app->syncAnnotationControls();
             app->overlay.update(app->scene());app->overlay.initialize(GetModuleHandleW(nullptr));
             app->worker=std::thread([app]{app->videoLoop();});SetTimer(window,1,33,nullptr);return 0;
         } catch(winrt::hresult_error const& error) {Resources().event("workspace_controls_failed hresult="+std::to_string(error.code().value));MessageBoxW(window,L"Couldn't open the workspace. Close and reopen Callayers.",L"Callayers",MB_OK|MB_ICONERROR);return -1;}

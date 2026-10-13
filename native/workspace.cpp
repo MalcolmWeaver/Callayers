@@ -123,6 +123,7 @@ struct Workspace::Impl {
     std::shared_ptr<int> lifetime=std::make_shared<int>(0);
     bool syncing = false, annotating = LoadAnnotationBarOpen();
     bool lastFresh = true, lastPrivacy = false;
+    bool lastCameraChoices = false;
     bool lastRetryPreference = false;
     bool listedVisible[3]{true,true,true};
     std::wstring lastStatus, lastHelp;
@@ -136,7 +137,10 @@ struct Workspace::Impl {
         if(visible)island.SiteBridge().Show();else island.SiteBridge().Hide();
     }
     std::vector<hosting::DesktopWindowXamlSource> focusOrder() {
-        if(!lastFresh)return {headerIsland,helpIsland};
+        if(!lastFresh) {
+            if(lastCameraChoices)return {headerIsland,helpIsland};
+            return {headerIsland};
+        }
         if(annotating)return {headerIsland,sidebarIsland,toolbarIsland};
         return {headerIsland,sidebarIsland};
     }
@@ -190,15 +194,15 @@ struct Workspace::Impl {
  <TextBlock x:Name="ToolHelp" Text="Draw on the picture. Select to move or resize." Foreground="#BBB9C8" FontSize="12" VerticalAlignment="Center" Margin="10,0,0,0"/>
 </StackPanel></Grid>)");
         help = load(LR"(<Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Background="#151519"><StackPanel MaxWidth="460" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="18" Margin="24">
- <TextBlock x:Name="Help" Text="Choose your webcam" FontSize="20" TextAlignment="Center" TextWrapping="Wrap"/>
- <ComboBox x:Name="HelpCamera" PlaceholderText="Choose your webcam" HorizontalAlignment="Stretch" AutomationProperties.Name="Choose your webcam"/>
- <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Center"><Button x:Name="Retry" Content="Retry"/><Button x:Name="Privacy" Content="Camera privacy settings" Visibility="Collapsed"/></StackPanel>
+ <TextBlock x:Name="Help" FontSize="20" TextAlignment="Center" TextWrapping="Wrap"/>
+ <ComboBox x:Name="HelpCamera" PlaceholderText="Choose your webcam" HorizontalAlignment="Stretch" AutomationProperties.Name="Choose your webcam" Visibility="Collapsed"/>
+ <StackPanel x:Name="HelpActions" Orientation="Horizontal" Spacing="12" HorizontalAlignment="Center" Visibility="Collapsed"><Button x:Name="Retry" Content="Retry"/><Button x:Name="Privacy" Content="Camera privacy settings" Visibility="Collapsed"/></StackPanel>
 </StackPanel></Grid>)");
         sidebarGate.Content(sidebar); toolbarGate.Content(toolbar);
         toolbarGate.Visibility(annotating?ux::Visibility::Visible:ux::Visibility::Collapsed);
         find<controls::Primitives::ToggleButton>(header,L"Annotate").IsChecked(annotating);
         for(auto gate:{sidebarGate,toolbarGate}) {gate.HorizontalContentAlignment(ux::HorizontalAlignment::Stretch);gate.VerticalContentAlignment(ux::VerticalAlignment::Stretch);}
-        attach(headerIsland, header); attach(sidebarIsland, sidebarGate); attach(toolbarIsland, toolbarGate,false); attach(helpIsland, help);
+        attach(headerIsland, header); attach(sidebarIsland, sidebarGate); attach(toolbarIsland, toolbarGate,false); attach(helpIsland, help,false);
         StartupTrace("islands-ready");
         for(auto island:{headerIsland,sidebarIsland,toolbarIsland,helpIsland}) {
             island.TakeFocusRequested([this](auto&& sender,auto&& args){
@@ -315,10 +319,16 @@ void Workspace::textBackdrop(bool clean){impl_->editor.backdrop(clean);}
 void Workspace::focus(bool reverse) {
     auto order=impl_->focusOrder();impl_->focusTarget(reverse?order.back():order.front(),reverse);
 }
-void Workspace::state(const std::wstring& status,const std::wstring& message,bool fresh,bool privacy,bool retryPreference) {
+void Workspace::state(const std::wstring& status,const std::wstring& message,bool fresh,bool privacy,bool retryPreference,bool cameraChoices) {
     auto& ui=*impl_;
     if(ui.lastStatus!=status){ui.find<controls::TextBlock>(ui.header,L"Status").Text(status);ui.lastStatus=status;}
     if(ui.lastHelp!=message){ui.find<controls::TextBlock>(ui.help,L"Help").Text(message);ui.lastHelp=message;}
+    if(ui.lastCameraChoices!=cameraChoices){
+        auto visibility=cameraChoices?ux::Visibility::Visible:ux::Visibility::Collapsed;
+        ui.find<controls::ComboBox>(ui.help,L"HelpCamera").Visibility(visibility);
+        ui.find<controls::StackPanel>(ui.help,L"HelpActions").Visibility(visibility);
+        ui.lastCameraChoices=cameraChoices;
+    }
     if(ui.lastPrivacy!=privacy){ui.find<controls::Button>(ui.help,L"Privacy").Visibility(privacy?ux::Visibility::Visible:ux::Visibility::Collapsed);ui.lastPrivacy=privacy;}
     if(ui.lastRetryPreference!=retryPreference){ui.find<controls::Button>(ui.header,L"RetryChoice").Visibility(retryPreference?ux::Visibility::Visible:ux::Visibility::Collapsed);ui.lastRetryPreference=retryPreference;}
     if(ui.lastFresh!=fresh){
