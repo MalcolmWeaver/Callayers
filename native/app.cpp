@@ -32,7 +32,7 @@ struct Card {
     // changes presentation scale, so scripts/animation and text layout survive.
     double contentW = w, contentH = h;
 };
-struct PresentedFrame { std::vector<uint8_t> pixels; bool live = false; ULONGLONG tick = 0; unsigned version = 0; };
+struct PresentedFrame { std::vector<uint8_t> pixels; bool live = false; ULONGLONG tick = 0; unsigned version = 0; uint64_t hiddenTextId=0; };
 struct App {
     HWND window = nullptr;
     std::unique_ptr<Workspace> workspace;
@@ -213,29 +213,30 @@ struct App {
         a.box.w=w;a.box.h=h;a.box.x=std::clamp(a.box.x,0.0,Width-w);a.box.y=std::clamp(a.box.y,0.0,Height-h);return true;
     }
     bool commitText(std::wstring value,bool commit,double height) {
-        if(!commit){editingAnnotationId=0;return true;}
+        if(!commit){editingAnnotationId=0;overlay.privatePreview(0);return true;}
         auto found=std::find_if(annotations.begin(),annotations.end(),[&](const auto& a){return a.id==editingAnnotationId;});
         bool empty=value.empty() || std::all_of(value.begin(),value.end(),[](wchar_t c){return std::iswspace(c)!=0;});
-        if(empty){if(found!=annotations.end())eraseAnnotation(int(found-annotations.begin()));editingAnnotationId=0;return true;}
+        if(empty){overlay.privatePreview(0);if(found!=annotations.end())eraseAnnotation(int(found-annotations.begin()));editingAnnotationId=0;return true;}
         Annotation a=editingTextDraft;
         if(found==annotations.end()){if(annotations.size()>=MaxAnnotations){MessageBoxW(window,L"There are too many annotations. Remove a few to continue.",L"Annotations",MB_OK);return false;}a.id=nextAnnotationId;}
         if(!std::isfinite(height) || height<=0 || height>Height-a.box.y){MessageBoxW(window,L"This text runs past the bottom of the picture. Shorten it before finishing.",L"Text doesn't fit",MB_OK|MB_ICONINFORMATION);return false;}
         a.text=std::move(value);a.box.h=height;
         if(found!=annotations.end()){selectedAnnotation=int(found-annotations.begin());*found=std::move(a);}
         else {++nextAnnotationId;annotations.push_back(std::move(a));selectedAnnotation=int(annotations.size())-1;}
-        editingAnnotationId=0;changed();syncAnnotationControls();saveAnnotations();return true;
+        editingAnnotationId=0;overlay.privatePreview(0);changed();syncAnnotationControls();saveAnnotations();return true;
     }
     void beginText(InkPoint p,int existing=-1) {
         if(workspace && !workspace->finishText())return;
         finishGesture();
         editingAnnotationId=existing>=0?annotations[existing].id:0;
+        overlay.privatePreview(editingAnnotationId);
         if(existing>=0)editingTextDraft=annotations[existing];
         else {editingTextDraft=Annotation{};editingTextDraft.kind=AnnotationTool::Text;editingTextDraft.color=inkColor;editingTextDraft.size=inkSize;editingTextDraft.font=TextSizes[inkSize];editingTextDraft.box={std::clamp(p.x,0.0,Width-480.0),std::clamp(p.y,0.0,Height-editingTextDraft.font*1.2),480,editingTextDraft.font*1.2};}
         selectedAnnotation=existing;
         selectedCard=-1;syncCards();syncAnnotationControls();
         auto at=inkRect(editingTextDraft.box);double scale=double(previewRect.right-previewRect.left)/Width;
         at.right=at.left+int(std::ceil(editingTextDraft.box.w*scale));at.bottom=previewRect.bottom;
-        workspace->editText(at,editingTextDraft.text,editingTextDraft.font,editingTextDraft.color,editingTextDraft.box.w,scale,editingTextDraft.box.h);
+        workspace->editText(at,editingTextDraft.text,editingTextDraft.font,editingTextDraft.color,editingTextDraft.box.w,scale,editingTextDraft.box.h,existing>=0);
         InvalidateRect(window,nullptr,FALSE);
     }
     void setTool(AnnotationTool chosen) {
@@ -313,6 +314,7 @@ struct App {
     void doubleClick(int x,int y){POINT at{x,y};if(!PtInRect(&previewRect,at) || !demand || FAILED(captureError.load()))return;InkPoint p=canvasPoint(x,y);int hit=annotationAt(p);if((tool==AnnotationTool::Select || tool==AnnotationTool::Text)&&hit>=0&&annotations[hit].kind==AnnotationTool::Text){finishGesture();beginText(p,hit);}else pointerDown(x,y);}
     void text(HDC dc, const std::wstring& value, RECT rect, UINT flags = DT_LEFT | DT_WORDBREAK) { DrawTextW(dc, value.c_str(), -1, &rect, flags); }
     void paintAnnotationControls(HDC dc) {
+        if(workspace && workspace->editingText())return;
         int index=tool==AnnotationTool::Eraser?hoveredAnnotation:tool==AnnotationTool::Select?selectedAnnotation:-1;
         if(index<0 || index>=int(annotations.size()))return;
         const auto& a=annotations[index];auto b=Bounds(a);RECT r=inkRect(b);
@@ -358,6 +360,7 @@ struct App {
             paintAnnotationControls(dc);
         }
         BitBlt(target,0,0,client.right,client.bottom,dc,0,0,SRCCOPY); EndPaint(window,&ps);
+        if(workspace)workspace->textBackdrop(fresh && (!editingAnnotationId || frame->hiddenTextId==editingAnnotationId));
     }
     void refreshWorkspace() {
         std::shared_ptr<const PresentedFrame> frame;
@@ -409,13 +412,14 @@ struct App {
         {
             Capture camera;
             unsigned version=0; bool started=false, attempted=false; LONG64 session=0;
-            std::shared_ptr<OverlayImage> overlayFrame;
+            std::shared_ptr<OverlayImage> overlayFrame,privateOverlayFrame;
+            uint64_t privateTextId=0;
             auto next=std::chrono::steady_clock::now();
             while(!quitting) {
                 unsigned requested=commandVersion;
                 if(requested!=version || !demand) {
                     if(started || attempted) { bridge.stop(); camera.stop(); }
-                    started=false; attempted=false; overlayFrame.reset(); version=requested;
+                    started=false; attempted=false; overlayFrame.reset();privateOverlayFrame.reset(); version=requested;
                 }
                 if(demand && !attempted) {
                     std::wstring identity; {std::lock_guard lock(commandMutex);identity=wantedIdentity;}
@@ -434,11 +438,16 @@ struct App {
                         bridge.stop();camera.stop();started=false;
                     }
                     else {
-                        std::vector<uint8_t> png; ULONGLONG tick=0; unsigned epoch=0;
-                        {std::lock_guard lock(overlay.state->mutex);png.swap(overlay.state->png);tick=overlay.state->tick;epoch=overlay.state->epoch;}
+                        std::vector<uint8_t> png,privatePng; ULONGLONG tick=0; unsigned epoch=0;uint64_t textId=0;
+                        {std::lock_guard lock(overlay.state->mutex);png.swap(overlay.state->png);privatePng.swap(overlay.state->privatePng);tick=overlay.state->tick;epoch=overlay.state->epoch;textId=overlay.state->privateTextId;}
                         if(!png.empty() && epoch==overlay.state->currentEpoch) {
                             auto decoded=DecodeOverlay(png,tick);
-                            if(decoded && epoch==overlay.state->currentEpoch) overlayFrame=std::move(decoded);
+                            auto privateDecoded=privatePng.empty()?nullptr:DecodeOverlay(privatePng,tick);
+                            if(decoded && epoch==overlay.state->currentEpoch){
+                                overlayFrame=std::move(decoded);
+                                if(privateDecoded){privateOverlayFrame=std::move(privateDecoded);privateTextId=textId;}
+                                else if(!privateTextId || privateTextId!=overlay.state->requestedPrivateTextId){privateOverlayFrame.reset();privateTextId=0;}
+                            }
                         }
                         std::shared_ptr<const CameraImage> image;
                         {std::lock_guard lock(camera.state->mutex);image=camera.state->latest;}
@@ -450,6 +459,9 @@ struct App {
                             result->tick=std::min(image->tick,overlayFrame->tick);
                             if(version==commandVersion && demand && !quitting) {
                                 { StageTimer timing(VideoStage::Publish); bridge.publish(result->pixels,session,result->tick); }
+                                // The completed overlay alone crosses the camera bridge. Only
+                                // this window's preview hides the text being privately edited.
+                                if(privateOverlayFrame && privateTextId && privateTextId==overlay.state->requestedPrivateTextId){compose(*image,*privateOverlayFrame,result->pixels);result->hiddenTextId=privateTextId;}
                                 std::lock_guard lock(previewMutex);preview=std::move(result);
                             }
                         } else {
@@ -522,6 +534,7 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam
     case WM_MOUSELEAVE:app->hoveredAnnotation=-1;InvalidateRect(window,nullptr,FALSE);return 0;
     case WM_SETCURSOR:if(reinterpret_cast<HWND>(wParam)==window && LOWORD(lParam)==HTCLIENT){POINT at{};GetCursorPos(&at);ScreenToClient(window,&at);if(PtInRect(&app->previewRect,at)){SetCursor(LoadCursorW(nullptr,app->tool==AnnotationTool::Text?IDC_IBEAM:app->tool==AnnotationTool::Select?IDC_ARROW:IDC_CROSS));return TRUE;}}break;
     case WM_ERASEBKGND:return 1;
+    case WM_PRINTCLIENT:if(app->backDC){RECT client{};GetClientRect(window,&client);BitBlt(reinterpret_cast<HDC>(wParam),0,0,client.right,client.bottom,app->backDC,0,0,SRCCOPY);}return 0;
     case WM_CTLCOLORSTATIC:
     case WM_CTLCOLORBTN:SetTextColor(reinterpret_cast<HDC>(wParam),RGB(230,235,245));SetBkColor(reinterpret_cast<HDC>(wParam),RGB(18,22,31));return reinterpret_cast<LRESULT>(app->background);
     case WM_PAINT:app->paint();return 0;

@@ -17,7 +17,19 @@ const documents = [
   `<div class="box"><p>Time remaining</p><h1 id="time" style="font-size:48px;font-variant-numeric:tabular-nums">05:00</h1></div><script>const start=performance.now();setInterval(()=>{const left=Math.max(0,300-Math.floor((performance.now()-start)/1000));document.getElementById('time').textContent=Math.floor(left/60)+':'+String(left%60).padStart(2,'0')},100);<\/script>`
 ];
 const frames = new Map();
-window.stopScene = () => { document.getElementById('cards').replaceChildren(); frames.clear(); document.getElementById('ink').replaceChildren(); };
+let privateTextId=0;
+window.preparePrivatePreview=(id,serial)=>{
+  privateTextId=id;
+  for(const text of document.querySelectorAll('#ink [data-text-id]'))text.style.visibility=Number(text.dataset.textId)===id?'hidden':'visible';
+  window.privatePreviewReady=0;
+  window.privatePreviewSerial=serial;
+  const ready=()=>{if(window.privatePreviewSerial===serial)window.privatePreviewReady=serial;};
+  requestAnimationFrame(()=>requestAnimationFrame(ready));
+  // Offscreen pages may defer animation callbacks. The capture still needs a
+  // bounded opportunity to paint, without stopping the camera publication.
+  setTimeout(ready,100);
+};
+window.stopScene = () => { privateTextId=0;document.getElementById('cards').replaceChildren(); frames.clear(); document.getElementById('ink').replaceChildren(); };
 window.setScene = scene => {
   if (!scene || !Array.isArray(scene.cards) || !Array.isArray(scene.annotations)) return;
   const visible = new Set();
@@ -60,6 +72,7 @@ window.setScene = scene => {
     }else{
       if(typeof a.text!=='string'||!Number.isFinite(a.font)||a.font<8||a.font>600)continue;
       shape=create('foreignObject');shape.setAttribute('x',a.x);shape.setAttribute('y',a.y);shape.setAttribute('width',a.w);shape.setAttribute('height',a.h);
+      shape.dataset.textId=String(a.id);shape.style.visibility=a.id===privateTextId?'hidden':'visible';
       const text=document.createElementNS('http://www.w3.org/1999/xhtml','div');
       text.classList.add('annotation-text');text.style.fontSize=a.font+'px';text.style.color=a.color;
       text.textContent=a.text;shape.append(text);

@@ -26,7 +26,8 @@ public:
     void cameras(const std::vector<std::wstring>& names, int selected, const std::wstring& missingName=L"");
     void card(int selected, const bool* visible);
     void annotationControls(AnnotationTool tool,const std::wstring& color,int size);
-    void editText(const RECT& area,const std::wstring& value,double font,const std::wstring& color,double width,double scale,double minimumHeight);
+    void editText(const RECT& area,const std::wstring& value,double font,const std::wstring& color,double width,double scale,double minimumHeight,bool waitForBackdrop);
+    void textBackdrop(bool clean);
     bool finishText(bool commit=true);
     bool editingText() const;
     void focus(bool reverse);

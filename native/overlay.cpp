@@ -33,6 +33,7 @@ void Overlay::retry(HINSTANCE instance) {
     close();
     alive_ = std::make_shared<bool>(true);
     pending_ = false;
+    previewPhase_=PreviewPhase::Idle;pollingPreview_=false;capturedOutput_.clear();capturedPrivate_.clear();
     state->ready = false; state->failed = false;
     ++state->currentEpoch;
     { std::lock_guard lock(state->mutex); state->png.clear(); state->tick = 0; }
@@ -198,6 +199,7 @@ void Overlay::configure(ICoreWebView2Environment* environment) {
     if (FAILED(hr)) fail("create-controller", hr);
 }
 void Overlay::update(const std::wstring& json) {
+    ++sceneRevision_;
     scene_ = json;
     if (view_ && state->ready && enabled_ && !json.empty())
         view_->ExecuteScript((L"window.setScene(" + json + L")").c_str(), nullptr);
@@ -228,33 +230,67 @@ void Overlay::enable(bool enabled) {
         }).Get());
     }
 }
-void Overlay::capture() {
-    if (!view_ || !state->ready || state->failed || !enabled_ || pending_) return;
+void Overlay::privatePreview(uint64_t textId){state->requestedPrivateTextId=textId;}
+void Overlay::preparePrivateFrame(uint64_t id,PreviewPhase phase) {
+    previewPhase_=phase;pollingPreview_=false;++previewSerial_;
+    auto script=L"window.preparePrivatePreview("+std::to_wstring(id)+L","+std::to_wstring(previewSerial_)+L")";
+    if(FAILED(view_->ExecuteScript(script.c_str(),nullptr))){fail("prepare-private-preview",E_FAIL);finishCapture(false);}
+}
+void Overlay::finishCapture(bool keep) {
+    bool privateValid=!captureTextId_ || (!capturedPrivate_.empty() && captureRevision_==sceneRevision_ && captureTextId_==state->requestedPrivateTextId);
+    if(keep && !capturedOutput_.empty() && enabled_ && captureEpoch_==state->currentEpoch){
+        std::lock_guard lock(state->mutex);
+        state->png=std::move(capturedOutput_);state->privatePng=privateValid?std::move(capturedPrivate_):std::vector<uint8_t>{};
+        state->tick=captureTick_;state->epoch=captureEpoch_;state->privateTextId=privateValid?captureTextId_:0;
+    }
+    capturedOutput_.clear();capturedPrivate_.clear();previewPhase_=PreviewPhase::Idle;pollingPreview_=false;pending_=false;
+}
+void Overlay::captureFrame(bool privateFrame) {
     ComPtr<IStream> stream;
-    if (FAILED(CreateStreamOnHGlobal(nullptr, TRUE, &stream))) return;
-    pending_ = true;
-    auto alive = alive_; auto output = state;
-    unsigned epoch = state->currentEpoch;
-    ULONGLONG tick = GetTickCount64();
+    if (FAILED(CreateStreamOnHGlobal(nullptr, TRUE, &stream))){if(privateFrame)preparePrivateFrame(0,PreviewPhase::RestoreText);else finishCapture(false);return;}
+    auto alive = alive_;
     auto captureStart = DiagnosticClock::now();
     HRESULT hr = view_->CapturePreview(COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG, stream.Get(),
-        Callback<ICoreWebView2CapturePreviewCompletedHandler>([this, alive, output, stream, epoch, tick, captureStart](HRESULT result) -> HRESULT {
+        Callback<ICoreWebView2CapturePreviewCompletedHandler>([this, alive, stream, privateFrame, captureStart](HRESULT result) -> HRESULT {
             if (!*alive) return S_OK;
-            pending_ = false;
-            if (FAILED(result) || epoch != output->currentEpoch || !enabled_) return S_OK;
             RecordDuration(VideoStage::OverlayCapture, captureStart);
             HGLOBAL global = nullptr; STATSTG stat{};
-            if (FAILED(GetHGlobalFromStream(stream.Get(), &global)) || FAILED(stream->Stat(&stat, STATFLAG_NONAME))) return S_OK;
-            if (stat.cbSize.QuadPart > 32 * 1024 * 1024) return S_OK;
-            auto data = static_cast<const uint8_t*>(GlobalLock(global));
-            if (data) {
-                std::lock_guard lock(output->mutex);
-                output->png.assign(data, data + size_t(stat.cbSize.QuadPart)); output->tick = tick; output->epoch = epoch;
-                GlobalUnlock(global);
+            auto& png=privateFrame?capturedPrivate_:capturedOutput_;
+            if(SUCCEEDED(result) && enabled_ && captureEpoch_==state->currentEpoch &&
+                SUCCEEDED(GetHGlobalFromStream(stream.Get(),&global)) && SUCCEEDED(stream->Stat(&stat,STATFLAG_NONAME)) && stat.cbSize.QuadPart<=32*1024*1024){
+                auto data=static_cast<const uint8_t*>(GlobalLock(global));
+                if(data){png.assign(data,data+size_t(stat.cbSize.QuadPart));GlobalUnlock(global);}
+            }
+            if(!enabled_){finishCapture(false);return S_OK;}
+            if(privateFrame)preparePrivateFrame(0,PreviewPhase::RestoreText);
+            else if(!png.empty() && captureTextId_ && captureTextId_==state->requestedPrivateTextId && captureRevision_==sceneRevision_)preparePrivateFrame(captureTextId_,PreviewPhase::HideText);
+            else finishCapture(!png.empty());
+            return S_OK;
+        }).Get());
+    if (FAILED(hr)){if(privateFrame)preparePrivateFrame(0,PreviewPhase::RestoreText);else finishCapture(false);}
+}
+void Overlay::capture() {
+    if(!view_ || !state->ready || state->failed || !enabled_)return;
+    if(pending_){
+        if(previewPhase_==PreviewPhase::Idle || pollingPreview_)return;
+        if(previewPhase_==PreviewPhase::HideText && (captureEpoch_!=state->currentEpoch || captureRevision_!=sceneRevision_ || captureTextId_!=state->requestedPrivateTextId)){
+            preparePrivateFrame(0,PreviewPhase::RestoreText);return;
+        }
+        pollingPreview_=true;auto alive=alive_;unsigned serial=previewSerial_;
+        auto script=L"window.privatePreviewReady === "+std::to_wstring(serial);
+        HRESULT hr=view_->ExecuteScript(script.c_str(),Callback<ICoreWebView2ExecuteScriptCompletedHandler>([this,alive,serial](HRESULT result,LPCWSTR value)->HRESULT {
+            if(!*alive || serial!=previewSerial_)return S_OK;pollingPreview_=false;
+            if(FAILED(result)){fail("private-preview-ready",result);finishCapture(false);return S_OK;}
+            if(value && wcscmp(value,L"true")==0){
+                if(previewPhase_==PreviewPhase::HideText){previewPhase_=PreviewPhase::Idle;captureFrame(true);}
+                else if(previewPhase_==PreviewPhase::RestoreText)finishCapture(true);
             }
             return S_OK;
         }).Get());
-    if (FAILED(hr)) pending_ = false;
+        if(FAILED(hr)){pollingPreview_=false;fail("private-preview-ready",hr);finishCapture(false);}return;
+    }
+    pending_=true;captureEpoch_=state->currentEpoch;captureTick_=GetTickCount64();captureRevision_=sceneRevision_;captureTextId_=state->requestedPrivateTextId;
+    capturedOutput_.clear();capturedPrivate_.clear();captureFrame(false);
 }
 std::shared_ptr<OverlayImage> DecodeOverlay(const std::vector<uint8_t>& png, ULONGLONG tick) {
     StageTimer timing(VideoStage::OverlayDecode);

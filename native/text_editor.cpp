@@ -12,27 +12,47 @@ namespace callayers {
 using Microsoft::WRL::Callback;
 using namespace winrt::Windows::Data::Json;
 TextEditor::~TextEditor(){close();}
+LRESULT CALLBACK TextEditor::HostProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam) {
+    auto editor=reinterpret_cast<TextEditor*>(GetWindowLongPtrW(window,GWLP_USERDATA));
+    if(message==WM_NCCREATE){editor=static_cast<TextEditor*>(reinterpret_cast<CREATESTRUCTW*>(lParam)->lpCreateParams);SetWindowLongPtrW(window,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(editor));}
+    if(editor && message==WM_ERASEBKGND)return 1;
+    if(editor && message==WM_PAINT){
+        PAINTSTRUCT paint{};HDC dc=BeginPaint(window,&paint);RECT bounds{};GetWindowRect(window,&bounds);MapWindowPoints(nullptr,editor->parent_,reinterpret_cast<POINT*>(&bounds),2);
+        int saved=SaveDC(dc);SetViewportOrgEx(dc,-bounds.left,-bounds.top,nullptr);
+        SendMessageW(editor->parent_,WM_PRINTCLIENT,reinterpret_cast<WPARAM>(dc),PRF_CLIENT);RestoreDC(dc,saved);EndPaint(window,&paint);return 0;
+    }
+    return DefWindowProcW(window,message,wParam,lParam);
+}
 void TextEditor::close() {
-    *alive_=false;ready_=false;
+    *alive_=false;ready_=shown_=false;
     if(controller_)controller_->Close();
     view_.Reset();controller_.Reset();
     if(host_)DestroyWindow(host_);host_=nullptr;finish_={};
 }
 void TextEditor::resize() {
     if(!host_)return;
-    int width=std::max(1L,area_.right-area_.left);
-    int height=std::clamp(int(std::ceil(std::max(minimumHeight_,height_)*scale_)),1,int(std::max(1L,area_.bottom-area_.top)));
-    SetWindowPos(host_,HWND_TOP,area_.left,area_.top,width,height,SWP_NOACTIVATE);
-    if(controller_){RECT bounds{0,0,width,height};controller_->put_Bounds(bounds);}
+    int width=std::max(1L,area_.right-area_.left)+2*inset_;
+    int height=std::clamp(int(std::ceil(height_*scale_)),1,int(std::max(1L,area_.bottom-area_.top)))+2*inset_;
+    RECT current{};GetWindowRect(host_,&current);MapWindowPoints(nullptr,parent_,reinterpret_cast<POINT*>(&current),2);
+    RECT desired{area_.left-inset_,area_.top-inset_,area_.left-inset_+width,area_.top-inset_+height};
+    if(!EqualRect(&current,&desired))SetWindowPos(host_,HWND_TOP,desired.left,desired.top,width,height,SWP_NOACTIVATE);
+    if(controller_){RECT bounds{0,0,width,height},previous{};if(FAILED(controller_->get_Bounds(&previous)) || !EqualRect(&previous,&bounds))controller_->put_Bounds(bounds);}
+}
+void TextEditor::backdrop(bool clean) {
+    if(!host_)return;backdropReady_=backdropReady_ || clean;
+    if(ready_ && backdropReady_ && !shown_){shown_=true;ShowWindow(host_,SW_SHOWNOACTIVATE);controller_->put_IsVisible(TRUE);focus();}
+    if(shown_)InvalidateRect(host_,nullptr,FALSE);
 }
 void TextEditor::focus(){if(controller_)controller_->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);}
 void TextEditor::failed(){if(*alive_ && !unavailable_){unavailable_=true;if(finish_)finish_(false);}}
-void TextEditor::open(HWND parent,const RECT& area,const std::wstring& text,double font,const std::wstring& color,double width,double scale,double minimumHeight,std::function<void(bool)> finish) {
-    close();parent_=parent;area_=area;text_=text;scale_=scale;height_=minimumHeight;minimumHeight_=minimumHeight;unavailable_=false;finish_=std::move(finish);alive_=std::make_shared<bool>(true);
+void TextEditor::open(HWND parent,const RECT& area,const std::wstring& text,double font,const std::wstring& color,double width,double scale,double minimumHeight,bool waitForBackdrop,std::function<void(bool)> finish) {
+    close();parent_=parent;area_=area;text_=text;scale_=scale;height_=minimumHeight;unavailable_=false;finish_=std::move(finish);alive_=std::make_shared<bool>(true);
+    double dpi=GetDpiForWindow(parent)/96.0;inset_=int(std::ceil(6*dpi));backdropReady_=!waitForBackdrop;
     JsonObject options;options.SetNamedValue(L"text",JsonValue::CreateStringValue(text));options.SetNamedValue(L"color",JsonValue::CreateStringValue(color));
-    options.SetNamedValue(L"font",JsonValue::CreateNumberValue(font));options.SetNamedValue(L"width",JsonValue::CreateNumberValue(width));options.SetNamedValue(L"scale",JsonValue::CreateNumberValue(scale));options_=options.Stringify();
-    WNDCLASSW wc{};wc.lpfnWndProc=DefWindowProcW;wc.hInstance=GetModuleHandleW(nullptr);wc.lpszClassName=L"CallayersPrivateTextEditor";RegisterClassW(&wc);
-    host_=CreateWindowExW(0,wc.lpszClassName,L"Annotation text",WS_CHILD|WS_CLIPSIBLINGS,0,0,1,1,parent_,nullptr,wc.hInstance,nullptr);
+    options.SetNamedValue(L"font",JsonValue::CreateNumberValue(font));options.SetNamedValue(L"width",JsonValue::CreateNumberValue(width));options.SetNamedValue(L"scale",JsonValue::CreateNumberValue(scale));
+    options.SetNamedValue(L"dpi",JsonValue::CreateNumberValue(dpi));options.SetNamedValue(L"inset",JsonValue::CreateNumberValue(inset_));options_=options.Stringify();
+    WNDCLASSW wc{};wc.lpfnWndProc=HostProc;wc.hInstance=GetModuleHandleW(nullptr);wc.lpszClassName=L"CallayersPrivateTextEditor";RegisterClassW(&wc);
+    host_=CreateWindowExW(0,wc.lpszClassName,L"Annotation text",WS_CHILD|WS_CLIPSIBLINGS,0,0,1,1,parent_,nullptr,wc.hInstance,this);
     if(!host_){failed();return;}resize();
     PWSTR local=nullptr;HRESULT hr=SHGetKnownFolderPath(FOLDERID_LocalAppData,0,nullptr,&local);
     if(FAILED(hr) || !local){CoTaskMemFree(local);failed();return;}
@@ -53,11 +73,13 @@ void TextEditor::configure(ICoreWebView2Environment* environment) {
         Microsoft::WRL::ComPtr<ICoreWebView2Controller3> scale;
         if(SUCCEEDED(controller_.As(&scale))){scale->put_ShouldDetectMonitorScaleChanges(FALSE);scale->put_RasterizationScale(1.0);scale->put_BoundsMode(COREWEBVIEW2_BOUNDS_MODE_USE_RAW_PIXELS);}
         controller_->put_ZoomFactor(1.0);resize();
+        Microsoft::WRL::ComPtr<ICoreWebView2Controller2> transparent;
+        if(FAILED(controller_.As(&transparent)) || FAILED(transparent->put_DefaultBackgroundColor({0,0,0,0}))){failed();return S_OK;}
         Microsoft::WRL::ComPtr<ICoreWebView2Settings> settings;view_->get_Settings(&settings);
         if(!settings){failed();return S_OK;}
         settings->put_AreDevToolsEnabled(FALSE);settings->put_AreHostObjectsAllowed(FALSE);settings->put_IsWebMessageEnabled(TRUE);settings->put_IsZoomControlEnabled(FALSE);settings->put_IsStatusBarEnabled(FALSE);settings->put_AreDefaultScriptDialogsEnabled(FALSE);
         EventRegistrationToken token{};
-        controller_->add_LostFocus(Callback<ICoreWebView2FocusChangedEventHandler>([this,alive](ICoreWebView2Controller*,IUnknown*)->HRESULT {if(*alive && ready_ && finish_)finish_(true);return S_OK;}).Get(),&token);
+        controller_->add_LostFocus(Callback<ICoreWebView2FocusChangedEventHandler>([this,alive](ICoreWebView2Controller*,IUnknown*)->HRESULT {if(*alive && shown_ && finish_)finish_(true);return S_OK;}).Get(),&token);
         view_->add_WebMessageReceived(Callback<ICoreWebView2WebMessageReceivedEventHandler>([this,alive](ICoreWebView2*,ICoreWebView2WebMessageReceivedEventArgs* args)->HRESULT {
             if(!*alive)return S_OK;PWSTR json=nullptr;
             if(SUCCEEDED(args->get_WebMessageAsJson(&json)) && json)try {
@@ -81,7 +103,7 @@ void TextEditor::configure(ICoreWebView2Environment* environment) {
             if(!*alive)return S_OK;BOOL success=FALSE;args->get_IsSuccess(&success);if(!success){failed();return S_OK;}
             auto script=L"window.beginTextEdit("+options_+L")";
             HRESULT executed=view_->ExecuteScript(script.c_str(),Callback<ICoreWebView2ExecuteScriptCompletedHandler>([this,alive](HRESULT result,LPCWSTR)->HRESULT {
-                if(!*alive)return S_OK;if(FAILED(result)){failed();return S_OK;}ShowWindow(host_,SW_SHOWNOACTIVATE);controller_->put_IsVisible(TRUE);ready_=true;focus();return S_OK;
+                if(!*alive)return S_OK;if(FAILED(result)){failed();return S_OK;}ready_=true;backdrop(false);return S_OK;
             }).Get());if(FAILED(executed))failed();return S_OK;
         }).Get(),&token);
         try{auto html=ReadTextDocument(L"text-editor.html");if(FAILED(view_->NavigateToString(html.c_str())))failed();}catch(...){failed();}

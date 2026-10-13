@@ -298,10 +298,10 @@ bool Workspace::finishText(bool commit) {
     if(!accepted && ui.editor.active())ui.editor.focus();
     return accepted;
 }
-void Workspace::editText(const RECT& area,const std::wstring& value,double font,const std::wstring& color,double width,double scale,double minimumHeight) {
+void Workspace::editText(const RECT& area,const std::wstring& value,double font,const std::wstring& color,double width,double scale,double minimumHeight,bool waitForBackdrop) {
     auto& ui=*impl_;if(!finishText())return;
     auto token=++ui.editorToken;auto weak=std::weak_ptr<int>(ui.lifetime);
-    ui.editor.open(ui.window,area,value,font,color,width,scale,minimumHeight,[this,weak,token](bool commit){
+    ui.editor.open(ui.window,area,value,font,color,width,scale,minimumHeight,waitForBackdrop,[this,weak,token](bool commit){
         if(weak.expired())return;
         impl_->header.DispatcherQueue().TryEnqueue([this,weak,token,commit]{
             if(weak.expired() || impl_->editorToken!=token)return;
@@ -311,6 +311,7 @@ void Workspace::editText(const RECT& area,const std::wstring& value,double font,
         });
     });
 }
+void Workspace::textBackdrop(bool clean){impl_->editor.backdrop(clean);}
 void Workspace::focus(bool reverse) {
     auto order=impl_->focusOrder();impl_->focusTarget(reverse?order.back():order.front(),reverse);
 }
