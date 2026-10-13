@@ -1,8 +1,0 @@
-node_modules
-.npm-cache
-web-dist
-dist
-*.local.*
-.env*
-service-account*.json
-firebase-debug.log
