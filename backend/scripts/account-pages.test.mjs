@@ -13,6 +13,9 @@ test('sign-in and sign-up pages include accessible fields and cross-links', () =
   ]) {
     const source = html(page);
     assert.match(source, new RegExp(`href="${target}"`));
+    assert.match(source, /id="google-signin"[^>]+type="button"/);
+    assert.match(source, /href="\/auth\.css"/);
+    assert.doesNotMatch(source, /twitch/i);
     assert.match(source, new RegExp(`<form[^>]+method="post"[^>]+action="/${page}"`));
     assert.match(source, /<button class="primary-button" type="submit">/);
     for (const [name, autocomplete] of Object.entries(fields)) {
@@ -22,6 +25,8 @@ test('sign-in and sign-up pages include accessible fields and cross-links', () =
     }
   }
   assert.match(html('home'), /id="signout"/);
+  assert.match(html('login'), /id="web-options"/);
+  assert.doesNotMatch(html('login'), /twitch/i);
 });
 
 test('validation reports required, format, length and confirmation errors', () => {

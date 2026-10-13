@@ -29,9 +29,11 @@ void handle(async () => {
   }
   if (!pending) {
     $('signin').hidden = true;
+    $('web-options').hidden = false;
     status('Open Callayers and choose Continue with Google to sign in.');
     return;
   }
+  $('web-options').hidden = true;
   const response = await fetch('/v1/client-config');
   if (!response.ok) throw new Error('Sign-in configuration is not complete yet.');
   const auth = getAuth(initializeApp(await response.json()));
@@ -64,6 +66,6 @@ void handle(async () => {
     form.submit();
     return;
   }
-  if (incoming) { $('signin').hidden = true; $('signin').click(); }
+  if (incoming) status('Choose Continue with Google to finish connecting the Windows app.');
   else status('Sign-in did not finish. Choose Continue with Google to try again.');
 })();

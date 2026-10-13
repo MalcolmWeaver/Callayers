@@ -33,7 +33,8 @@ for (const [route, file, type] of [
   ['/home', 'home.html', 'text/html; charset=utf-8'],
   ['/app.js', 'app.js', 'text/javascript; charset=utf-8'],
   ['/account.js', 'account.js', 'text/javascript; charset=utf-8'],
-  ['/style.css', 'style.css', 'text/css; charset=utf-8']
+  ['/style.css', 'style.css', 'text/css; charset=utf-8'],
+  ['/auth.css', 'auth.css', 'text/css; charset=utf-8']
 ] as const) {
   const bytes = readFileSync(new URL('../web-dist/' + file, import.meta.url));
   app.get(route, async (_req, reply) => reply.type(type)

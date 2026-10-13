@@ -1,4 +1,4 @@
-import { getCurrentUser, onAuthChange, signIn, signOut, signUp, type AccountUser } from './auth-service';
+import { finishGoogleSignIn, getCurrentUser, onAuthChange, signIn, signInWithGoogle, signOut, signUp, type AccountUser } from './auth-service';
 import { submitSignIn, submitSignUp, type SubmitResult } from './account-flow';
 import { validateSignIn, validateSignUp, type SignInFields, type SignUpFields } from './validation';
 
@@ -57,15 +57,25 @@ function showResult<T extends SignInFields | SignUpFields>(result: SubmitResult<
 
 function setBusy(form: HTMLFormElement, busy: boolean, label: string) {
   for (const control of form.querySelectorAll<HTMLInputElement | HTMLButtonElement>('input, button')) control.disabled = busy;
+  byId<HTMLButtonElement>('google-signin').disabled = busy;
   const button = form.querySelector<HTMLButtonElement>('button[type=submit]')!;
   button.textContent = busy ? `${label}…` : label;
 }
 
 async function initializeForm() {
   const form = byId<HTMLFormElement>('auth-form');
+  const googleButton = byId<HTMLButtonElement>('google-signin');
   const label = page === 'signup' ? 'Create account' : 'Sign in';
+  googleButton.addEventListener('click', async () => {
+    googleButton.disabled = true;
+    status.textContent = '';
+    try { await signInWithGoogle(); }
+    catch { status.textContent = 'Google sign-in did not start. Please try again.'; googleButton.disabled = false; }
+  });
+  try { await finishGoogleSignIn(); }
+  catch { status.textContent = 'Google sign-in did not finish. Please try again.'; }
   try { if (await getCurrentUser()) { location.replace('/home'); return; } }
-  catch { status.textContent = 'Sign-in configuration is unavailable. Please try again later.'; }
+  catch { if (!status.textContent) status.textContent = 'Sign-in configuration is unavailable. Please try again later.'; }
   form.addEventListener('submit', async event => {
     event.preventDefault();
     if (page === 'signup') {

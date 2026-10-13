@@ -1,7 +1,8 @@
 import { getApps, initializeApp } from 'firebase/app';
 import {
   browserLocalPersistence, createUserWithEmailAndPassword, getAuth,
-  onAuthStateChanged, setPersistence, signInWithEmailAndPassword,
+  getRedirectResult, GoogleAuthProvider, onAuthStateChanged, setPersistence,
+  signInWithEmailAndPassword, signInWithRedirect,
   signOut as firebaseSignOut, updateProfile, type Auth, type Unsubscribe, type User
 } from 'firebase/auth';
 
@@ -39,6 +40,19 @@ function authError(error: unknown): AuthServiceError {
 
 export async function signIn({ email, password }: { email: string; password: string }): Promise<AccountUser> {
   try { return account((await signInWithEmailAndPassword(await clientAuth(), email.trim(), password)).user); }
+  catch (error) { throw authError(error); }
+}
+
+export async function signInWithGoogle(): Promise<void> {
+  try {
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
+    await signInWithRedirect(await clientAuth(), provider);
+  } catch (error) { throw authError(error); }
+}
+
+export async function finishGoogleSignIn(): Promise<void> {
+  try { await getRedirectResult(await clientAuth()); }
   catch (error) { throw authError(error); }
 }
 

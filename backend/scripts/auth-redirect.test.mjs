@@ -41,11 +41,22 @@ async function browser({ hash = '', pending, credential = null, failure = false 
 }
 const pending = { port: 49152, state, started: Date.now(), redirecting: true };
 const credential = { user: { refreshToken: 'private-refresh-credential' } };
-test('new desktop link opens account picker and saves tab state', async () => {
+test('new desktop link waits for a deliberate Google click and saves tab state', async () => {
   const r = await browser({ hash: '#port=49152&state=' + state });
+  assert.ok(!r.calls.includes('redirect'));
+  assert.equal(r.elements.get('web-options').hidden, true);
+  r.elements.get('signin').click();
+  await new Promise(resolve => setImmediate(resolve));
   assert.ok(r.calls.includes('redirect'));
   assert.equal(JSON.parse(r.storage.get('callayers.google-redirect')).redirecting, true);
   assert.equal(r.submitted, undefined);
+});
+test('a direct website visit offers the email route without starting desktop sign-in', async () => {
+  const r = await browser();
+  assert.equal(r.elements.get('signin').hidden, true);
+  assert.equal(r.elements.get('web-options').hidden, false);
+  assert.equal(r.submitted, undefined);
+  assert.ok(!r.calls.includes('redirect'));
 });
 test('fresh result posts credential only to loopback, clearing browser auth first', async () => {
   const r = await browser({ pending, credential });
