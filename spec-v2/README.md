@@ -20,7 +20,7 @@ Goal: a usable MVP that meets [APP.md](APP.md), delivered through small improvem
 
 The user completed the video-foundation walkthrough: webcam/cards/annotations reach Meet, editing handles stay private, minimized calls continue, idle capture stops, reconnection and camera Retry work, and normal quit supplies unavailable output and releases the tracked processes. Preserve the working video engine. The current Win32 harness still needs the proper WinUI workspace.
 
-Resource measurements are complete; active performance is **not yet accepted**. Preview averaged about 12.25% whole-machine CPU and 206 MiB private memory. Minimized Callayers + Brave averaged 16.42% CPU, versus 3.45% for direct-webcam Meet under the comparison conditions: about 13 percentage points extra. Minimized idle measured 0% CPU and 154 MiB retained memory; quit left no tracked Callayers/renderer processes. Decide whether to accept the active cost for this milestone or scope a focused reduction. These samples do not establish a universal performance limit.
+Resource measurements and the focused investigation are complete. On October 13, 2026, the user confirmed the current experience feels acceptable and accepted its resource cost for the MVP. Matched rechecks measured about 9.54 extra whole-machine CPU percentage points with the original 1080p webcam and 5.27 with the smaller 720p webcam. Diagnostic runs confirmed the capture dimensions and approximately 30 camera frames per second. No performance optimization was implemented. Minimized idle measured 0% CPU and 154 MiB retained memory; quit left no tracked Callayers/renderer processes. These samples and this acceptance apply to the observed setup, not a universal performance limit. Revisit performance if later changes or a concrete usability problem justify it; CPU compositor optimization and GPU overlay/composition experiments are deferred from the current MVP work.
 
 ### Remaining delivery order
 
@@ -41,7 +41,7 @@ Follow [AGENTS.md](../AGENTS.md): explain the few high-level outcomes first, the
 
 Use one temporary verification file per meaningful improvement. While work is active, it holds the checklist and results. When closed, commit the final outcome and tested build, carry unresolved issues into focused follow-up work, then remove the file from the working tree in a subsequent commit. Git preserves historical evidence; completed checks do not become enduring product requirements.
 
-The current [foundation verification file](../docs/feature-verification.md) stays active only for the resource-acceptance decision. Its process review is complete. Resolve and close that record rather than extending it with the remaining MVP features.
+The foundation and resource investigation are closed. Their tested builds, measurements and acceptance are preserved in Git; give the WinUI workspace its own focused verification checklist.
 
 The assistant may stop this workspace's running development app to rebuild after giving notice. Start with the WinUI workspace; decide and state any change in priority before treating it as the new plan.
 

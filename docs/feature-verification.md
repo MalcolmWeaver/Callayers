@@ -2,7 +2,7 @@
 
 Goal: show webcam, cards, and annotations in Meet reliably, at a reasonable resource cost.
 
-Progress: **Walkthrough and measurements complete. Picture and lifecycle confirmed; active resource cost still needs an acceptance decision. Process feedback is next.**
+Progress: **Closed October 13, 2026. Picture and lifecycle confirmed; user confirmed the experience feels acceptable and accepted the measured resource cost for the MVP. Resource rechecks and diagnostic build evidence are recorded in resource-usage-verification.md.**
 Results below are the user's observations and user-run measurements from this walkthrough, not inherited results or agent-run tests. Preview report records revision `da5c1d9`, executable SHA256 `51529BD073156504D575EEB1FDFDB03A8B513C92229920BC9DD0280A341E54B1`.
 
 - [x] **1. The picture works**
@@ -14,12 +14,12 @@ Results below are the user's observations and user-run measurements from this wa
   - [x] Reconnect Meet while Callayers stays minimized: video returns and the timer restarts.
   - [x] Quit during output: user confirmed the expected quit/unavailable-output behavior; Meet does not retain the last webcam picture.
   - [x] Reopen, unplug/reconnect the webcam, and Retry: unavailable output on disconnect; webcam and cards return after Retry.
-- [ ] **3. Resource usage is reasonable**
+- [x] **3. Resource usage is reasonable**
   - [x] Preview with cards, no Meet consumer: Callayers including renderers averaged **12.25% CPU, 205.79 MiB private memory** over 30 seconds. Recorded, not yet judged acceptable. Report: `20261013-134432-PreviewCards-625f52-summary.json`. Brave process churn produced warnings; Callayers and its six renderer identities remained stable in the saved samples.
   - [x] Meet receiving, Callayers minimized: measured **10.92% CPU / 211.38 MiB** for Callayers, **5.50% CPU / 3962.77 MiB** for all Brave processes; **16.42% combined CPU**, no sampling warnings. Direct-webcam Meet measured **3.45% CPU / 3900.27 MiB** for Brave, no warnings: roughly **13 percentage points extra CPU** with Callayers, conditional on comparable call/browser conditions. Reports: `20261013-134615-MinimizedMeet-56a782-summary.json`, `20261013-134814-RawCameraMeet-22b70a-summary.json`.
   - [x] Minimized with no consumer: **0% measured CPU, 154.35 MiB private memory**, seven retained desktop/renderer processes, no warnings over 31 seconds. Idle suspension works; memory is retained until quit. Report: `20261013-135051-MinimizedIdle-426aca-summary.json`.
   - [x] Quit: direct-webcam sample after quitting recorded zero tracked Callayers/renderer processes, CPU and private memory. This also covers quit cleanup; no separate duplicate measurement needed.
-  - [ ] Review the numbers together and decide whether the resource cost is acceptable or needs a specific fix.
+  - [x] Reviewed measurements and camera comparisons; user confirmed “i think it feels accepteable.” Accepted for the current MVP setup, without claiming an optimization or universal resource limit.
 
 ## Commands for this workspace
 

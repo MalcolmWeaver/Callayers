@@ -14,6 +14,7 @@
 #include "capture.h"
 #include "overlay.h"
 #include "frame_bridge.h"
+#include "resource_diagnostics.h"
 
 using namespace callayers;
 namespace {
@@ -218,6 +219,7 @@ struct App {
         BitBlt(target,0,0,client.right,client.bottom,dc,0,0,SRCCOPY); EndPaint(window,&ps);
     }
     static void compose(const CameraImage& camera, const OverlayImage& overlay, std::vector<uint8_t>& output) {
+        StageTimer timing(VideoStage::Compose);
         output.assign(PixelBytes,0);
         double scale=std::min(double(Width)/camera.width,double(Height)/camera.height);
         int w=std::max(1,int(camera.width*scale)), h=std::max(1,int(camera.height*scale));
@@ -275,7 +277,7 @@ struct App {
                             compose(*image,*overlayFrame,result->pixels); result->live=true; result->version=version;
                             result->tick=std::min(image->tick,overlayFrame->tick);
                             if(version==commandVersion && demand && !quitting) {
-                                bridge.publish(result->pixels,session,result->tick);
+                                { StageTimer timing(VideoStage::Publish); bridge.publish(result->pixels,session,result->tick); }
                                 std::lock_guard lock(previewMutex);preview=std::move(result);
                             }
                         } else {

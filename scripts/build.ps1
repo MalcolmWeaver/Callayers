@@ -1,4 +1,4 @@
-param([ValidateSet('Debug','Release')][string]$Configuration = 'Release')
+param([ValidateSet('Debug','Release')][string]$Configuration = 'Release', [switch]$DiagnosticsBuild)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
@@ -19,7 +19,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $sdk 'include\WebView2.h'))) {
     }
     $sdk = Join-Path $unpacked 'build\native'
 }
-$build = Join-Path $repo 'build\x64'
+$build = Join-Path $repo $(if ($DiagnosticsBuild) { 'build\diagnostics-x64' } else { 'build\x64' })
 & cmake -S $repo -B $build -G $generator -A x64 "-DCMAKE_GENERATOR_INSTANCE=$($installation.installationPath)" "-DWEBVIEW2_ROOT=$sdk"
 if ($LASTEXITCODE -ne 0) { throw 'Build configuration failed.' }
 & cmake --build $build --config $Configuration --parallel 4

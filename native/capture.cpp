@@ -1,4 +1,6 @@
 #include "capture.h"
+#include "resource_diagnostics.h"
+#include <sstream>
 #include <mferror.h>
 #include <algorithm>
 #include <cstdlib>
@@ -9,6 +11,11 @@ using Microsoft::WRL::ComPtr;
 namespace callayers {
 static constexpr DWORD VideoStream = static_cast<DWORD>(MF_SOURCE_READER_FIRST_VIDEO_STREAM);
 static constexpr DWORD AllStreams = static_cast<DWORD>(MF_SOURCE_READER_ALL_STREAMS);
+static std::string GuidText(const wchar_t* text) {
+    char ascii[40]{};
+    WideCharToMultiByte(CP_UTF8, 0, text, -1, ascii, 40, nullptr, nullptr);
+    return ascii;
+}
 std::vector<CameraDevice> EnumerateCameras() {
     std::vector<CameraDevice> devices;
     ComPtr<IMFAttributes> attributes;
@@ -66,6 +73,7 @@ public:
                 bool locked2D = SUCCEEDED(buffer.As(&twoD)) && SUCCEEDED(twoD->Lock2D(&bytes, &stride));
                 if (locked2D || SUCCEEDED(hr = buffer->Lock(&bytes, nullptr, &size))) {
                     if (locked2D || size >= size_t(std::abs(stride)) * height_) {
+                        StageTimer timing(VideoStage::CameraCopy);
                         auto image = std::make_shared<CameraImage>();
                         image->width = width_; image->height = height_; image->tick = GetTickCount64();
                         image->pixels.resize(size_t(width_) * height_ * 4);
@@ -121,7 +129,27 @@ HRESULT Capture::start(const std::wstring& identity) {
         double score = std::abs(double(w) - 1280) + std::abs(double(h) - 720) + 100 * std::abs(fps - 30);
         if (score < bestScore) { bestScore = score; best = type; }
     }
-    if (best) reader_->SetCurrentMediaType(VideoStream, nullptr, best.Get());
+    if (best) {
+        UINT32 w=0,h=0,n=0,d=1; GUID format{}; wchar_t formatText[40]{};
+        MFGetAttributeSize(best.Get(), MF_MT_FRAME_SIZE, &w, &h);
+        MFGetAttributeRatio(best.Get(), MF_MT_FRAME_RATE, &n, &d);
+        best->GetGUID(MF_MT_SUBTYPE, &format); StringFromGUID2(format, formatText, 40);
+        HRESULT selected = reader_->SetCurrentMediaType(VideoStream, nullptr, best.Get());
+        std::ostringstream line; line << "camera_native_requested width=" << w << " height=" << h
+            << " fps=" << n << '/' << d << " subtype=" << GuidText(formatText)
+            << " selection_hresult=0x" << std::hex << static_cast<unsigned long>(selected);
+        Resources().event(line.str());
+    }
+    ComPtr<IMFMediaType> nativeActual;
+    if (SUCCEEDED(reader_->GetCurrentMediaType(VideoStream, &nativeActual))) {
+        UINT32 w=0,h=0,n=0,d=1; GUID format{}; wchar_t formatText[40]{};
+        MFGetAttributeSize(nativeActual.Get(), MF_MT_FRAME_SIZE, &w, &h);
+        MFGetAttributeRatio(nativeActual.Get(), MF_MT_FRAME_RATE, &n, &d);
+        nativeActual->GetGUID(MF_MT_SUBTYPE, &format); StringFromGUID2(format, formatText, 40);
+        std::ostringstream line; line << "camera_native_actual width=" << w << " height=" << h
+            << " fps=" << n << '/' << d << " subtype=" << GuidText(formatText);
+        Resources().event(line.str());
+    }
     ComPtr<IMFMediaType> rgb;
     if (FAILED(hr = MFCreateMediaType(&rgb))) { stop(); return hr; }
     rgb->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
@@ -135,6 +163,10 @@ HRESULT Capture::start(const std::wstring& identity) {
     if (SUCCEEDED(actual->GetUINT32(MF_MT_DEFAULT_STRIDE, &rawStride))) stride = LONG(rawStride);
     else MFGetStrideForBitmapInfoHeader(MFVideoFormat_RGB32.Data1, width, &stride);
     cb->configure(width, height, stride);
+    UINT32 rateN=0,rateD=1; MFGetAttributeRatio(actual.Get(), MF_MT_FRAME_RATE, &rateN, &rateD);
+    std::ostringstream mode; mode << "camera_reader_actual width=" << width << " height=" << height
+        << " fps=" << rateN << '/' << rateD << " subtype=RGB32 stride=" << stride;
+    Resources().event(mode.str());
     cb->attach(reader_.Get());
     state->running = true;
     hr = reader_->ReadSample(VideoStream, 0, nullptr, nullptr, nullptr, nullptr);

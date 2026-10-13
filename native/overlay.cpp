@@ -1,6 +1,7 @@
 #include "overlay.h"
 #include "frame_bridge.h"
 #include "renderer_log.h"
+#include "resource_diagnostics.h"
 #include <WebView2EnvironmentOptions.h>
 #include <shlobj.h>
 #include <shlwapi.h>
@@ -242,11 +243,13 @@ void Overlay::capture() {
     auto alive = alive_; auto output = state;
     unsigned epoch = state->currentEpoch;
     ULONGLONG tick = GetTickCount64();
+    auto captureStart = DiagnosticClock::now();
     HRESULT hr = view_->CapturePreview(COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG, stream.Get(),
-        Callback<ICoreWebView2CapturePreviewCompletedHandler>([this, alive, output, stream, epoch, tick](HRESULT result) -> HRESULT {
+        Callback<ICoreWebView2CapturePreviewCompletedHandler>([this, alive, output, stream, epoch, tick, captureStart](HRESULT result) -> HRESULT {
             if (!*alive) return S_OK;
             pending_ = false;
             if (FAILED(result) || epoch != output->currentEpoch || !enabled_) return S_OK;
+            RecordDuration(VideoStage::OverlayCapture, captureStart);
             HGLOBAL global = nullptr; STATSTG stat{};
             if (FAILED(GetHGlobalFromStream(stream.Get(), &global)) || FAILED(stream->Stat(&stat, STATFLAG_NONAME))) return S_OK;
             if (stat.cbSize.QuadPart > 32 * 1024 * 1024) return S_OK;
@@ -261,6 +264,7 @@ void Overlay::capture() {
     if (FAILED(hr)) pending_ = false;
 }
 std::shared_ptr<OverlayImage> DecodeOverlay(const std::vector<uint8_t>& png, ULONGLONG tick) {
+    StageTimer timing(VideoStage::OverlayDecode);
     if (png.empty()) return {};
     ComPtr<IWICImagingFactory> factory;
     if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory)))) return {};

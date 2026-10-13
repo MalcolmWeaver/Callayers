@@ -7,11 +7,13 @@ param(
     [string]$Scenario,
     [ValidateRange(5, 600)][int]$Seconds = 30,
     [ValidateRange(0, 120)][int]$DelaySeconds = 5,
-    [string]$Notes = ''
+    [string]$Notes = '',
+    [switch]$DiagnosticsBuild
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
-$appPath = [IO.Path]::GetFullPath((Join-Path $repo 'build\x64\Release\Callayers.exe'))
+$appRelativePath = if ($DiagnosticsBuild) { 'build\diagnostics-x64\Release\Callayers.exe' } else { 'build\x64\Release\Callayers.exe' }
+$appPath = [IO.Path]::GetFullPath((Join-Path $repo $appRelativePath))
 $profilePath = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'Callayers\Foundation\WebView2'))
 $profilePattern = '(?i)(?:^|\s)"?--user-data-dir=(?:"' + [regex]::Escape($profilePath) + '"|' + [regex]::Escape($profilePath) + ')"?(?:\s|$)'
 $shellProcess = [Diagnostics.Process]::GetCurrentProcess()
@@ -212,7 +214,7 @@ $report = [ordered]@{
     CpuMethod = 'Delta process CPU seconds / elapsed seconds / logical processors * 100. 100% means the whole machine; not frequency-adjusted Task Manager utilization.'
     MemoryMethod = 'Process.PrivateMemorySize64, summed by group; MiB = bytes / 1048576. Not working set.'
     Scope = 'This build desktop + attributed WebView2 descendants/profile. All Brave processes in this Windows session, not only Meet. Other WebView2 apps excluded.'
-    Revision = $revision; ExecutableSha256 = $appHash; BraveVersion = $braveVersion
+    Revision = $revision; ExecutableSha256 = $appHash; AppPath = $appPath; BraveVersion = $braveVersion
     VerificationStatus = 'Measurement only. User observation required; no automatic pass/fail.'
     Warnings = @($warnings | Sort-Object); Summary = @($summaryRows)
 }

@@ -74,7 +74,7 @@ The app must be open to supply live video, but its window need not be visible. T
 
 ## Build order
 
-Follow the [consolidated plan](README.md#consolidated-plan--session-handoff). The foundation is accepted for continued development; the real WinUI workspace is next. Preserve the working video engine while building the product UI.
+Follow the [consolidated plan](README.md#consolidated-plan--session-handoff). The foundation and current resource cost are accepted for the MVP; the real WinUI workspace is next. Preserve the working video engine while building the product UI. Revisit performance when a concrete usability issue or an affected later change warrants it.
 
 ## Minimum verification
 
