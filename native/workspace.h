@@ -4,12 +4,16 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "annotations.h"
 
 namespace callayers {
 struct WorkspaceActions {
     std::function<void(int)> camera, selectCard;
     std::function<void(int, bool)> visibility;
-    std::function<void(bool)> pen;
+    std::function<void(AnnotationTool)> tool;
+    std::function<void(std::wstring)> color;
+    std::function<void(int)> size;
+    std::function<bool(std::wstring,bool)> text;
     std::function<void()> retry, privacy, hideAll, clear, quit, layout;
 };
 // All XAML and callbacks stay on the UI thread. Video workers never touch WinUI.
@@ -21,7 +25,10 @@ public:
     ~Workspace();
     void cameras(const std::vector<std::wstring>& names, int selected, const std::wstring& missingName=L"");
     void card(int selected, const bool* visible);
-    void penMode(bool pen);
+    void annotationControls(AnnotationTool tool,const std::wstring& color,int size);
+    void editText(const RECT& bounds,const std::wstring& value,double font,const std::wstring& color);
+    bool finishText(bool commit=true);
+    bool editingText() const;
     void focus(bool reverse);
     void state(const std::wstring& status, const std::wstring& help, bool fresh, bool privacy, bool retryPreference=false);
     void layout(int width, int height, float dpi, const RECT& preview);

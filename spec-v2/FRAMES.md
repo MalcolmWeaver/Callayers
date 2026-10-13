@@ -57,6 +57,12 @@ Minimizing the app while a calling app is consuming video does not hide cards or
 
 This is a fresh implementation. Git history provides design references and evidence that transparent iframe cards, minimized animation, and virtual-camera delivery worked previously; do not restore or port the old implementation. The previous output used Media Foundation, so it does not establish DirectShow compatibility or a performance advantage. Verify the new output in one chosen calling app. Optimize the browser handoff or frame transport only when measurements identify a problem.
 
+## Consumer identity (implement with telemetry)
+
+When implementing telemetry, extend the consumer-side DirectShow source and local camera bridge to report the host application for the active consumer. Resolve identity when consumption starts, outside the per-frame delivery work, and expose a normalized app label to the desktop for `video_state_changed`; see [DATA.md](DATA.md#telemetry-implement-later). Verify identity in the target calling apps because helper or broker processes may obscure the application. Report `unknown` when attribution is unreliable and clear identity to `none` when consumption stops or its heartbeat expires. Identity failure must not interrupt video.
+
+Keep the existing one-consumer MVP assumption. Identify browsers as browsers, without trying to identify the calling website. This work is deferred with telemetry: no consumer-identity implementation, bridge changes, or new network heartbeat is required before then. The existing local consumer heartbeat continues to support video lifecycle behavior.
+
 ## Open, minimized, and closed
 
 A consumer means an app actively requesting Callayers video, not merely listing available cameras.

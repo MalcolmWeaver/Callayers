@@ -18,7 +18,7 @@ const documents = [
 const frames = new Map();
 window.stopScene = () => { document.getElementById('cards').replaceChildren(); frames.clear(); document.getElementById('ink').replaceChildren(); };
 window.setScene = scene => {
-  if (!scene || !Array.isArray(scene.cards) || !Array.isArray(scene.strokes)) return;
+  if (!scene || !Array.isArray(scene.cards) || !Array.isArray(scene.annotations)) return;
   const visible = new Set();
   for (const c of scene.cards) {
     if (!Number.isInteger(c.id) || c.id<0 || c.id>=documents.length || !c.visible) continue;
@@ -41,11 +41,35 @@ window.setScene = scene => {
   }
   for (const [id,frame] of frames) if(!visible.has(id)){frame.remove();frames.delete(id)}
   const ink=document.getElementById('ink');ink.replaceChildren();
-  for(const stroke of scene.strokes){
-    if(!Array.isArray(stroke)||!stroke.length)continue;
-    const points=stroke.filter(p=>Array.isArray(p)&&p.length===2&&p.every(Number.isFinite)).map(p=>p.join(',')).join(' ');
-    const line=document.createElementNS('http://www.w3.org/2000/svg','polyline');
-    line.setAttribute('points',points);line.setAttribute('fill','none');line.setAttribute('stroke','#ffd166');line.setAttribute('stroke-width','6');line.setAttribute('stroke-linecap','round');line.setAttribute('stroke-linejoin','round');ink.append(line);
+  const ns='http://www.w3.org/2000/svg';
+  const create=kind=>document.createElementNS(ns,kind);
+  const widths=[3,6,10];
+  for(const a of scene.annotations){
+    if(!a || !Number.isInteger(a.kind) || a.kind<1 || a.kind>6 || !/^#[0-9a-f]{6}$/i.test(a.color) || !Number.isInteger(a.size) || a.size<0 || a.size>2)continue;
+    if (![a.x,a.y,a.w,a.h].every(Number.isFinite) || a.w<0 || a.h<0)continue;
+    let shape;
+    if(a.kind===1 || a.kind===4 || a.kind===5){
+      if(!Array.isArray(a.points) || a.points.length<2 || !a.points.every(p=>Array.isArray(p)&&p.length===2&&p.every(Number.isFinite)))continue;
+      shape=create('polyline');shape.setAttribute('points',a.points.map(p=>p.join(',')).join(' '));
+    }else if(a.kind===2){
+      shape=create('rect');
+      shape.setAttribute('x',a.x);shape.setAttribute('y',a.y);shape.setAttribute('width',Math.max(0,a.w));shape.setAttribute('height',Math.max(0,a.h));
+    }else if(a.kind===3){
+      shape=create('ellipse');shape.setAttribute('cx',a.x+a.w/2);shape.setAttribute('cy',a.y+a.h/2);shape.setAttribute('rx',Math.max(0,a.w/2));shape.setAttribute('ry',Math.max(0,a.h/2));
+    }else{
+      if(typeof a.text!=='string'||!Number.isFinite(a.font)||a.font<8||a.font>600)continue;
+      shape=create('foreignObject');shape.setAttribute('x',a.x);shape.setAttribute('y',a.y);shape.setAttribute('width',a.w);shape.setAttribute('height',a.h);
+      const text=document.createElementNS('http://www.w3.org/1999/xhtml','div');
+      text.style.cssText=`font-family:Segoe UI,sans-serif;font-size:${a.font}px;line-height:1.2;color:${a.color};white-space:pre-wrap;overflow-wrap:break-word;margin:0;padding:0`;
+      text.textContent=a.text;shape.append(text);
+    }
+    shape.setAttribute('fill',a.kind===2 || a.kind===3?a.color:'none');shape.setAttribute('stroke',a.kind===6?'none':a.color);shape.setAttribute('stroke-width',widths[a.size]);shape.setAttribute('stroke-linecap','round');shape.setAttribute('stroke-linejoin','round');ink.append(shape);
+    if(a.kind===5){
+      const [start,end]=a.points,angle=Math.atan2(end[1]-start[1],end[0]-start[0]),length=16+widths[a.size]*2;
+      const head=create('polyline');
+      const points=[-.5,0,.5].map((side,i)=>i===1?end:[end[0]-length*Math.cos(angle+side),end[1]-length*Math.sin(angle+side)]);
+      head.setAttribute('points',points.map(p=>p.join(',')).join(' '));head.setAttribute('fill',a.color);head.setAttribute('stroke',a.color);head.setAttribute('stroke-width',widths[a.size]);head.setAttribute('stroke-linecap','round');head.setAttribute('stroke-linejoin','round');ink.append(head);
+    }
   }
 };
 </script></body></html>

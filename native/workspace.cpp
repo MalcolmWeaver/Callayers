@@ -20,9 +20,11 @@
 #include <winrt/Windows.UI.Xaml.Interop.h>
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Foundation.Collections.h>
+#include <winrt/Windows.System.h>
 #include <dwmapi.h>
 #include <algorithm>
 #include <cwctype>
+#include <cwchar>
 
 namespace callayers {
 namespace ux = winrt::Microsoft::UI::Xaml;
@@ -96,7 +98,12 @@ struct Workspace::Impl {
     hosting::DesktopWindowXamlSource headerIsland, sidebarIsland, toolbarIsland, helpIsland;
     ux::FrameworkElement header{nullptr}, sidebar{nullptr}, toolbar{nullptr}, help{nullptr};
     controls::ContentControl sidebarGate, toolbarGate;
-    bool syncing = false, annotating = true;
+    hosting::DesktopWindowXamlSource editorIsland{nullptr};
+    controls::TextBox editor{nullptr};
+    bool finishingText=false;
+    unsigned editorToken=0;
+    std::shared_ptr<int> lifetime=std::make_shared<int>(0);
+    bool syncing = false, annotating = false;
     bool lastFresh = true, lastPrivacy = false;
     bool lastRetryPreference = false;
     bool listedVisible[3]{true,true,true};
@@ -105,12 +112,13 @@ struct Workspace::Impl {
     static constexpr const wchar_t* names[] = {L"Name card", L"Animated card", L"Five-minute timer"};
     template<class T> T find(ux::FrameworkElement const& root, const wchar_t* name) { return root.FindName(name).as<T>(); }
     static ux::FrameworkElement load(const wchar_t* xaml) { return ux::Markup::XamlReader::Load(xaml).as<ux::FrameworkElement>(); }
-    void attach(hosting::DesktopWindowXamlSource const& island, ux::FrameworkElement const& content) {
+    void attach(hosting::DesktopWindowXamlSource const& island, ux::FrameworkElement const& content,bool visible=true) {
         island.Initialize(winrt::Microsoft::UI::GetWindowIdFromWindow(window));
         content.RequestedTheme(ux::ElementTheme::Dark); island.Content(content);
-        island.SiteBridge().Show();
+        if(visible)island.SiteBridge().Show();else island.SiteBridge().Hide();
     }
     std::vector<hosting::DesktopWindowXamlSource> focusOrder() {
+        if(editorIsland){if(annotating)return {headerIsland,sidebarIsland,toolbarIsland,editorIsland};return {headerIsland,sidebarIsland,editorIsland};}
         if(!lastFresh)return {headerIsland,helpIsland};
         if(annotating)return {headerIsland,sidebarIsland,toolbarIsland};
         return {headerIsland,sidebarIsland};
@@ -124,9 +132,9 @@ struct Workspace::Impl {
  <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
  <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center"><Image x:Name="Logo" Width="32" Height="32" AutomationProperties.Name="Callayers logo"/><TextBlock Text="Callayers" FontSize="21" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,16,0"/></StackPanel>
  <Button Grid.Column="1" Content="File" VerticalAlignment="Center"><Button.Flyout><MenuFlyout><MenuFlyoutItem x:Name="Quit" Text="Quit"/></MenuFlyout></Button.Flyout></Button>
- <ToggleButton Grid.Column="2" x:Name="Annotate" Content="✎  Annotate" IsChecked="True" VerticalAlignment="Center"/>
+ <ToggleButton Grid.Column="2" x:Name="Annotate" Content="✎  Annotate" IsChecked="False" VerticalAlignment="Center"/>
  <ComboBox Grid.Column="3" x:Name="Camera" PlaceholderText="Choose your webcam" Width="220" HorizontalAlignment="Right" VerticalAlignment="Center" AutomationProperties.Name="Webcam"/>
- <StackPanel Grid.Column="4" Width="180" VerticalAlignment="Center" Spacing="2"><TextBlock x:Name="Status" FontSize="12" Foreground="#BBB9C8" TextWrapping="Wrap"/><Button x:Name="RetryChoice" Content="Retry" Visibility="Collapsed" ToolTipService.ToolTip="Remember this webcam again"/></StackPanel>
+ <StackPanel Grid.Column="4" Width="180" VerticalAlignment="Center" Spacing="2"><TextBlock x:Name="Status" FontSize="12" Foreground="#BBB9C8" TextWrapping="Wrap"/><Button x:Name="RetryChoice" Content="Retry" Visibility="Collapsed" ToolTipService.ToolTip="Try again"/></StackPanel>
 </Grid>)");
         sidebar = load(LR"(<Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Background="#242428" Padding="20" RowSpacing="16">
  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
@@ -143,15 +151,26 @@ struct Workspace::Impl {
  </StackPanel>
  <TextBlock x:Name="NoResults" Text="No matching cards" Foreground="#BBB9C8" Visibility="Collapsed"/>
  <Border Background="#303036" CornerRadius="8" Padding="12"><StackPanel Spacing="8"><TextBlock x:Name="Selection" Text="Select a card" FontWeight="SemiBold" TextWrapping="Wrap"/><TextBlock x:Name="SelectionHelp" Text="Check a box to show a card. Select its name to work with it." Foreground="#BBB9C8" TextWrapping="Wrap" FontSize="12"/></StackPanel></Border>
- <TextBlock Text="These sample cards and edits are temporary." FontSize="12" Foreground="#BBB9C8" TextWrapping="Wrap"/>
+ <TextBlock Text="Sample cards are temporary. Annotations save automatically." FontSize="12" Foreground="#BBB9C8" TextWrapping="Wrap"/>
  </StackPanel></ScrollViewer>
  <StackPanel Grid.Row="2" Spacing="8"><Button x:Name="UseInCall" Content="Use in a call" HorizontalAlignment="Stretch"><Button.Flyout><Flyout><TextBlock Text="In your calling app, choose Callayers as your camera." TextWrapping="Wrap" Width="240"/></Flyout></Button.Flyout></Button><TextBlock Text="In your calling app, choose Callayers" FontSize="12" Foreground="#BBB9C8" TextWrapping="Wrap"/></StackPanel>
 </Grid>)");
-        toolbar = load(LR"(<Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Background="#1D1D21" Padding="20,0"><StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
- <ToggleButton x:Name="Select" Content="↖  Select" IsChecked="True" ToolTipService.ToolTip="Select, move or resize a card"/>
- <ToggleButton x:Name="Pen" Content="✎  Pen" ToolTipService.ToolTip="Draw on the presentation"/>
- <Button x:Name="Clear" Content="Clear annotations"/>
- <TextBlock x:Name="ToolHelp" Text="Drag a card to move it; drag its corner to resize." Foreground="#BBB9C8" FontSize="12" VerticalAlignment="Center" Margin="12,0,0,0"/>
+        toolbar = load(LR"(<Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Background="#1D1D21" Padding="16,0"><StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+ <ToggleButton x:Name="Select" Content="↖" MinWidth="40" ToolTipService.ToolTip="Select and move or resize" AutomationProperties.Name="Select" IsChecked="True"/>
+ <ToggleButton x:Name="Pen" Content="✎" MinWidth="40" ToolTipService.ToolTip="Pen" AutomationProperties.Name="Pen"/>
+ <DropDownButton x:Name="Shapes" MinWidth="62" ToolTipService.ToolTip="Shapes" AutomationProperties.Name="Shapes"><Viewbox Width="22" Height="22"><Grid Width="24" Height="24"><Rectangle Width="12" Height="12" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="2,2,0,0" Stroke="#E6EBF5" StrokeThickness="1.7" RadiusX="1" RadiusY="1"/><Ellipse Width="12" Height="12" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="10,10,0,0" Stroke="#E6EBF5" StrokeThickness="1.7"/></Grid></Viewbox><DropDownButton.Flyout><MenuFlyout>
+ <MenuFlyoutItem x:Name="Rectangle" Text="Rectangle"/><MenuFlyoutItem x:Name="Ellipse" Text="Ellipse"/><MenuFlyoutItem x:Name="Line" Text="Line"/><MenuFlyoutItem x:Name="Arrow" Text="Arrow"/>
+ </MenuFlyout></DropDownButton.Flyout></DropDownButton>
+ <ToggleButton x:Name="Text" Content="T" MinWidth="40" ToolTipService.ToolTip="Text; double-click existing text to edit" AutomationProperties.Name="Text"/>
+ <Button x:Name="Color" ToolTipService.ToolTip="Annotation color" AutomationProperties.Name="Annotation color"><Border x:Name="ColorSwatch" Width="22" Height="22" Background="#FFD166" CornerRadius="3" BorderBrush="#B0B0B0" BorderThickness="1"/><Button.Flyout><Flyout><StackPanel Spacing="8">
+ <TextBlock Text="Annotation color" FontWeight="SemiBold"/>
+ <StackPanel Orientation="Horizontal" Spacing="6"><Button x:Name="Color0" Background="#000000" Width="32" Height="32" BorderBrush="#999999" ToolTipService.ToolTip="Black" AutomationProperties.Name="Black"/><Button x:Name="Color1" Background="#808080" Width="32" Height="32" ToolTipService.ToolTip="Gray" AutomationProperties.Name="Gray"/><Button x:Name="Color2" Background="#FFFFFF" Width="32" Height="32" ToolTipService.ToolTip="White" AutomationProperties.Name="White"/><Button x:Name="Color3" Background="#FF0000" Width="32" Height="32" ToolTipService.ToolTip="Red" AutomationProperties.Name="Red"/><Button x:Name="Color4" Background="#FF8000" Width="32" Height="32" ToolTipService.ToolTip="Orange" AutomationProperties.Name="Orange"/><Button x:Name="Color5" Background="#FFD166" Width="32" Height="32" ToolTipService.ToolTip="Yellow" AutomationProperties.Name="Yellow"/></StackPanel>
+ <StackPanel Orientation="Horizontal" Spacing="6"><Button x:Name="Color6" Background="#00AA00" Width="32" Height="32" ToolTipService.ToolTip="Green" AutomationProperties.Name="Green"/><Button x:Name="Color7" Background="#00BFFF" Width="32" Height="32" ToolTipService.ToolTip="Cyan" AutomationProperties.Name="Cyan"/><Button x:Name="Color8" Background="#0000FF" Width="32" Height="32" ToolTipService.ToolTip="Blue" AutomationProperties.Name="Blue"/><Button x:Name="Color9" Background="#8000FF" Width="32" Height="32" ToolTipService.ToolTip="Purple" AutomationProperties.Name="Purple"/><Button x:Name="Color10" Background="#FF00FF" Width="32" Height="32" ToolTipService.ToolTip="Pink" AutomationProperties.Name="Pink"/><Button x:Name="Color11" Background="#804000" Width="32" Height="32" ToolTipService.ToolTip="Brown" AutomationProperties.Name="Brown"/></StackPanel>
+ </StackPanel></Flyout></Button.Flyout></Button>
+ <ComboBox x:Name="Size" Width="106" SelectedIndex="1" AutomationProperties.Name="Annotation size" ToolTipService.ToolTip="Annotation size"><ComboBoxItem Content="Small"/><ComboBoxItem Content="Medium"/><ComboBoxItem Content="Large"/></ComboBox>
+ <ToggleButton x:Name="Eraser" MinWidth="40" ToolTipService.ToolTip="Erase a whole annotation" AutomationProperties.Name="Eraser"><Viewbox Width="22" Height="22"><Path Width="24" Height="24" Data="M3,14 L13,4 Q14,3 15,4 L21,10 Q22,11 21,12 L11,22 L9,22 L3,16 Q2,15 3,14 Z M9,8 L17,16 M9,22 L22,22" Stroke="#E6EBF5" StrokeThickness="1.7" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/></Viewbox></ToggleButton>
+ <Button x:Name="Clear" Content="Clear" ToolTipService.ToolTip="Clear all annotations"/>
+ <TextBlock x:Name="ToolHelp" Text="Draw on the picture. Select to move or resize." Foreground="#BBB9C8" FontSize="12" VerticalAlignment="Center" Margin="10,0,0,0"/>
 </StackPanel></Grid>)");
         help = load(LR"(<Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Background="#151519"><StackPanel MaxWidth="460" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="18" Margin="24">
  <TextBlock x:Name="Help" Text="Choose your webcam" FontSize="20" TextAlignment="Center" TextWrapping="Wrap"/>
@@ -159,8 +178,9 @@ struct Workspace::Impl {
  <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Center"><Button x:Name="Retry" Content="Retry"/><Button x:Name="Privacy" Content="Camera privacy settings" Visibility="Collapsed"/></StackPanel>
 </StackPanel></Grid>)");
         sidebarGate.Content(sidebar); toolbarGate.Content(toolbar);
+        toolbarGate.Visibility(ux::Visibility::Collapsed);
         for(auto gate:{sidebarGate,toolbarGate}) {gate.HorizontalContentAlignment(ux::HorizontalAlignment::Stretch);gate.VerticalContentAlignment(ux::VerticalAlignment::Stretch);}
-        attach(headerIsland, header); attach(sidebarIsland, sidebarGate); attach(toolbarIsland, toolbarGate); attach(helpIsland, help);
+        attach(headerIsland, header); attach(sidebarIsland, sidebarGate); attach(toolbarIsland, toolbarGate,false); attach(helpIsland, help);
         StartupTrace("islands-ready");
         for(auto island:{headerIsland,sidebarIsland,toolbarIsland,helpIsland}) {
             island.TakeFocusRequested([this](auto&& sender,auto&& args){
@@ -177,7 +197,7 @@ struct Workspace::Impl {
         find<controls::Image>(header,L"Logo").Source(ux::Media::Imaging::BitmapImage(winrt::Windows::Foundation::Uri(L"file:///"+logo)));
         BOOL dark = TRUE; DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));
         find<controls::MenuFlyoutItem>(header,L"Quit").Click([this](auto&&,auto&&){actions.quit();});
-        find<controls::Primitives::ToggleButton>(header,L"Annotate").Click([this](auto&&,auto&&){annotating = !annotating; actions.layout();});
+        find<controls::Primitives::ToggleButton>(header,L"Annotate").Click([this](auto&& sender,auto&&){annotating = sender.template as<controls::Primitives::ToggleButton>().IsChecked().GetBoolean();if(!annotating)actions.tool(AnnotationTool::Select);actions.layout();});
         auto cameraChange = [this](auto&& sender,auto&&) { if (!syncing) actions.camera(sender.template as<controls::ComboBox>().SelectedIndex()); };
         find<controls::ComboBox>(header,L"Camera").SelectionChanged(cameraChange);
         find<controls::ComboBox>(help,L"HelpCamera").SelectionChanged(cameraChange);
@@ -203,17 +223,18 @@ struct Workspace::Impl {
             }
             find<controls::TextBlock>(sidebar,L"NoResults").Visibility(any?ux::Visibility::Collapsed:ux::Visibility::Visible);
         });
-        auto tool=[this](bool pen){
-            find<controls::Primitives::ToggleButton>(toolbar,L"Select").IsChecked(!pen);
-            find<controls::Primitives::ToggleButton>(toolbar,L"Pen").IsChecked(pen); actions.pen(pen);
-        };
-        find<controls::Primitives::ToggleButton>(toolbar,L"Select").Click([tool](auto&&,auto&&){tool(false);});
-        find<controls::Primitives::ToggleButton>(toolbar,L"Pen").Click([tool](auto&&,auto&&){tool(true);});
+        for(auto entry : {std::pair{L"Select",AnnotationTool::Select}, {L"Pen",AnnotationTool::Pen}, {L"Text",AnnotationTool::Text}, {L"Eraser",AnnotationTool::Eraser}})
+            find<controls::Primitives::ToggleButton>(toolbar,entry.first).Click([this,type=entry.second](auto&&,auto&&){actions.tool(type);});
+        for(auto entry : {std::pair{L"Rectangle",AnnotationTool::Rectangle}, {L"Ellipse",AnnotationTool::Ellipse}, {L"Line",AnnotationTool::Line}, {L"Arrow",AnnotationTool::Arrow}})
+            find<controls::MenuFlyoutItem>(toolbar,entry.first).Click([this,type=entry.second](auto&&,auto&&){actions.tool(type);});
+        const wchar_t* colors[]={L"#000000",L"#808080",L"#ffffff",L"#ff0000",L"#ff8000",L"#ffd166",L"#00aa00",L"#00bfff",L"#0000ff",L"#8000ff",L"#ff00ff",L"#804000"};
+        for(int i=0;i<12;++i)find<controls::Button>(toolbar,(L"Color"+std::to_wstring(i)).c_str()).Click([this,color=std::wstring(colors[i])](auto&&,auto&&){actions.color(color);find<controls::Button>(toolbar,L"Color").Flyout().Hide();});
+        find<controls::ComboBox>(toolbar,L"Size").SelectionChanged([this](auto&& sender,auto&&){if(!syncing)actions.size(sender.template as<controls::ComboBox>().SelectedIndex());});
         find<controls::Button>(toolbar,L"Clear").Click([this](auto&&,auto&&){actions.clear();});
         Resources().event("workspace_controls_ready");
         StartupTrace("controls-ready");
     }
-    ~Impl() { helpIsland.Close(); toolbarIsland.Close(); sidebarIsland.Close(); headerIsland.Close(); }
+    ~Impl() { lifetime.reset();if(editorIsland)editorIsland.Close();helpIsland.Close(); toolbarIsland.Close(); sidebarIsland.Close(); headerIsland.Close(); }
 };
 Workspace::Workspace(HWND window,WorkspaceActions actions) : impl_(std::make_unique<Impl>(window,std::move(actions))) {}
 Workspace::~Workspace() = default;
@@ -239,10 +260,37 @@ void Workspace::card(int selected,const bool* visible) {
     ui.find<controls::TextBlock>(ui.sidebar,L"SelectionHelp").Text(selected>=0?(visible[selected]?L"Move this card in the preview or drag its corner to resize.":L"This card is hidden. Check its box to show it on camera."):L"Check a box to show a card. Select its name to work with it.");
     ui.syncing=false;
 }
-void Workspace::penMode(bool pen) {
-    auto& ui=*impl_;
-    ui.find<controls::Primitives::ToggleButton>(ui.toolbar,L"Select").IsChecked(!pen);
-    ui.find<controls::Primitives::ToggleButton>(ui.toolbar,L"Pen").IsChecked(pen);
+void Workspace::annotationControls(AnnotationTool tool,const std::wstring& color,int size) {
+    auto& ui=*impl_;ui.syncing=true;
+    for(auto entry : {std::pair{L"Select",AnnotationTool::Select}, {L"Pen",AnnotationTool::Pen}, {L"Text",AnnotationTool::Text}, {L"Eraser",AnnotationTool::Eraser}})
+        ui.find<controls::Primitives::ToggleButton>(ui.toolbar,entry.first).IsChecked(tool==entry.second);
+    bool shape=tool>=AnnotationTool::Rectangle && tool<=AnnotationTool::Arrow;
+    ui.find<controls::DropDownButton>(ui.toolbar,L"Shapes").Background(ux::Media::SolidColorBrush(shape?winrt::Windows::UI::Color{255,77,70,120}:winrt::Windows::UI::Color{255,48,48,54}));
+    unsigned value=unsigned(std::wcstoul(color.c_str()+1,nullptr,16));
+    ui.find<controls::Border>(ui.toolbar,L"ColorSwatch").Background(ux::Media::SolidColorBrush(winrt::Windows::UI::Color{255,uint8_t(value>>16),uint8_t(value>>8),uint8_t(value)}));
+    ui.find<controls::ComboBox>(ui.toolbar,L"Size").SelectedIndex(size);ui.syncing=false;
+}
+bool Workspace::editingText() const {return bool(impl_->editor);}
+bool Workspace::finishText(bool commit) {
+    auto& ui=*impl_;if(!ui.editor)return true;if(ui.finishingText)return false;
+    ui.finishingText=true;
+    bool accepted=ui.actions.text(std::wstring(ui.editor.Text()),commit);
+    if(accepted){++ui.editorToken;ui.editor=nullptr;ui.editorIsland.Close();ui.editorIsland=nullptr;}
+    ui.finishingText=false;
+    if(!accepted && ui.editor)ui.editor.Focus(ux::FocusState::Programmatic);
+    return accepted;
+}
+void Workspace::editText(const RECT& bounds,const std::wstring& value,double font,const std::wstring&) {
+    auto& ui=*impl_;if(!finishText())return;
+    ui.editorIsland=hosting::DesktopWindowXamlSource();ui.editor=controls::TextBox();
+    ui.editor.AcceptsReturn(true);ui.editor.TextWrapping(ux::TextWrapping::Wrap);ui.editor.MaxLength(2000);
+    ui.editor.FontSize(std::clamp(font,16.0,36.0));ui.editor.PlaceholderText(L"Type text. Click outside to finish.");ui.editor.Text(value);
+    auto token=++ui.editorToken;auto weak=std::weak_ptr<int>(ui.lifetime);
+    ui.editorIsland.TakeFocusRequested([this,weak,token](auto&&,auto&& args){if(weak.expired() || impl_->editorToken!=token)return;bool reverse=args.Request().Reason()==hosting::XamlSourceFocusNavigationReason::Last;impl_->focusTarget(reverse?impl_->toolbarIsland:impl_->headerIsland,reverse);});
+    ui.editor.LostFocus([this,weak,token](auto&&,auto&&){if(weak.expired())return;impl_->header.DispatcherQueue().TryEnqueue([this,weak,token]{if(!weak.expired() && impl_->editorToken==token && impl_->editor)finishText();});});
+    ui.editor.KeyDown([this](auto&&,auto&& args){if(args.Key()==winrt::Windows::System::VirtualKey::Escape){args.Handled(true);finishText(false);}else if(args.Key()==winrt::Windows::System::VirtualKey::Enter && (GetKeyState(VK_CONTROL)&0x8000)){args.Handled(true);finishText();}});
+    ui.attach(ui.editorIsland,ui.editor);ui.editorIsland.SiteBridge().MoveAndResize({bounds.left,bounds.top,bounds.right-bounds.left,bounds.bottom-bounds.top});
+    ui.editor.Focus(ux::FocusState::Programmatic);
 }
 void Workspace::focus(bool reverse) {
     auto order=impl_->focusOrder();impl_->focusTarget(reverse?order.back():order.front(),reverse);
@@ -263,7 +311,8 @@ void Workspace::layout(int width,int height,float dpi,const RECT& preview) {
     ui.headerIsland.SiteBridge().MoveAndResize({0,0,width,header});
     ui.sidebarIsland.SiteBridge().MoveAndResize({0,header,sidebar,std::max(1,height-header)});
     ui.toolbarIsland.SiteBridge().MoveAndResize({sidebar,header,std::max(1,width-sidebar),std::max(1,toolbar)});
-    ui.find<controls::TextBlock>(ui.toolbar,L"ToolHelp").Visibility(width/dpi>=1200?ux::Visibility::Visible:ux::Visibility::Collapsed);
+    ui.toolbarGate.Visibility(ui.annotating?ux::Visibility::Visible:ux::Visibility::Collapsed);
+    ui.find<controls::TextBlock>(ui.toolbar,L"ToolHelp").Visibility(width/dpi>=1450?ux::Visibility::Visible:ux::Visibility::Collapsed);
     if(toolbar)ui.toolbarIsland.SiteBridge().Show();else ui.toolbarIsland.SiteBridge().Hide();
     ui.helpIsland.SiteBridge().MoveAndResize({preview.left,preview.top,std::max(1L,preview.right-preview.left),std::max(1L,preview.bottom-preview.top)});
 }

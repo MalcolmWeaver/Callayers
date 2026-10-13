@@ -6,6 +6,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cwctype>
 #include <iomanip>
 #include <memory>
 #include <mutex>
@@ -17,6 +18,8 @@
 #include "resource_diagnostics.h"
 #include "workspace.h"
 #include "camera_preferences.h"
+#include "annotations.h"
+#include "annotation_store.h"
 #include <Microsoft.UI.Dispatching.Interop.h>
 #include <winrt/base.h>
 
@@ -29,7 +32,6 @@ struct Card {
     // changes presentation scale, so scripts/animation and text layout survive.
     double contentW = w, contentH = h;
 };
-struct Point { double x, y; };
 struct PresentedFrame { std::vector<uint8_t> pixels; bool live = false; ULONGLONG tick = 0; unsigned version = 0; };
 struct App {
     HWND window = nullptr;
@@ -57,10 +59,21 @@ struct App {
     std::thread worker;
     std::shared_ptr<const PresentedFrame> preview;
     Card cards[3]{{48, 540, 420, 128}, {870, 62, 340, 148}, {902, 470, 300, 180}};
-    std::vector<std::vector<Point>> strokes{{{70, 495}, {175, 475}, {280, 495}, {390, 470}}};
-    bool penMode = false, dragging = false, resizing = false, drawing = false;
+    std::vector<Annotation> annotations;
+    AnnotationStore annotationStore;
+    AnnotationTool tool=AnnotationTool::Select;
+    std::wstring inkColor=L"#ff0000";
+    std::wstring shapeColor=L"#ffffff";
+    int inkSize=1, selectedAnnotation=-1, hoveredAnnotation=-1;
+    uint64_t nextAnnotationId=1, editingAnnotationId=0;
+    InkPoint textAnchor{};
+    Annotation originalInk;
+    unsigned annotationRevision=0;
+    HRESULT annotationRestoreError=S_OK;
+    bool annotationSaveFailed=false, draggingAnnotation=false;
+    bool dragging=false, resizing=false, drawing=false;
     int selectedCard = -1;
-    Point dragStart{}; Card original{};
+    InkPoint dragStart{}; Card original{};
     RECT previewRect{};
     float dpi = 1;
     std::wstring status;
@@ -79,13 +92,7 @@ struct App {
             const auto& c = cards[i];
             out << L"{\"id\":" << i << L",\"x\":" << c.x << L",\"y\":" << c.y << L",\"w\":" << c.w << L",\"h\":" << c.h << L",\"contentW\":" << c.contentW << L",\"contentH\":" << c.contentH << L",\"visible\":" << (c.visible ? L"true" : L"false") << '}';
         }
-        out << L"],\"strokes\":[";
-        for (size_t i = 0; i < strokes.size(); ++i) {
-            if (i) out << ','; out << '[';
-            for (size_t j = 0; j < strokes[i].size(); ++j) { if (j) out << ','; out << '[' << strokes[i][j].x << ',' << strokes[i][j].y << ']'; }
-            out << ']';
-        }
-        out << L"]}"; return out.str();
+        out << L"],\"annotations\":" << AnnotationJson(annotations) << '}'; return out.str();
     }
     void syncCards() { if(workspace) { bool visible[3]{cards[0].visible,cards[1].visible,cards[2].visible}; workspace->card(selectedCard,visible); } }
     void changed() { overlay.update(scene()); syncCards(); InvalidateRect(window, nullptr, FALSE); }
@@ -146,6 +153,7 @@ struct App {
         titleFont = CreateFontW(-px(24), 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
     }
     void layout() {
+        if(workspace && workspace->editingText())workspace->finishText();
         RECT client; GetClientRect(window, &client);
         int left = px(324), top = px(96+(workspace?workspace->toolbarHeight():0)), availableW = std::max<int>(1, client.right - left - px(24)), availableH = std::max<int>(1, client.bottom - top - px(24));
         double scale = std::min(double(availableW) / Width, double(availableH) / Height);
@@ -154,7 +162,7 @@ struct App {
         if(workspace)workspace->layout(client.right,client.bottom,dpi,previewRect);
         InvalidateRect(window, nullptr, FALSE);
     }
-    Point canvasPoint(int x, int y) const {
+    InkPoint canvasPoint(int x, int y) const {
         return {std::clamp(double(x - previewRect.left) * Width / std::max(1L, previewRect.right-previewRect.left), 0.0, double(Width)),
                 std::clamp(double(y - previewRect.top) * Height / std::max(1L, previewRect.bottom-previewRect.top), 0.0, double(Height))};
     }
@@ -162,48 +170,165 @@ struct App {
         double sx = double(previewRect.right-previewRect.left) / Width, sy = double(previewRect.bottom-previewRect.top) / Height;
         return {previewRect.left + int(c.x*sx), previewRect.top + int(c.y*sy), previewRect.left+int((c.x+c.w)*sx), previewRect.top+int((c.y+c.h)*sy)};
     }
-    void pointerDown(int x, int y) {
-        POINT at{x, y}; if (!PtInRect(&previewRect, at)) return;
-        SetFocus(window);
-        Point p = canvasPoint(x, y);
-        if (penMode) {
-            if (strokes.size() >= 200) return;
-            strokes.push_back({p, {p.x+0.1, p.y+0.1}}); drawing = true; selectedCard = -1;
-        } else {
-            selectedCard = -1;
-            for (int i = 2; i >= 0; --i) {
-                const auto& c = cards[i];
-                if (c.visible && p.x >= c.x && p.x <= c.x+c.w && p.y >= c.y && p.y <= c.y+c.h) {
-                    selectedCard = i; original = c; dragStart = p; dragging = true;
-                    resizing = p.x > c.x+c.w-28 && p.y > c.y+c.h-28; break;
-                }
-            }
-        }
-        SetCapture(window); changed();
+    RECT inkRect(InkBounds b) const {
+        double sx=double(previewRect.right-previewRect.left)/Width,sy=double(previewRect.bottom-previewRect.top)/Height;
+        return {previewRect.left+int(b.x*sx),previewRect.top+int(b.y*sy),previewRect.left+int((b.x+b.w)*sx),previewRect.top+int((b.y+b.h)*sy)};
     }
-    void pointerMove(int x, int y) {
-        if (!drawing && !dragging) return;
-        Point p = canvasPoint(x, y);
-        if (drawing && !strokes.empty() && strokes.back().size() < 4096) {
-            auto last = strokes.back().back(); if (std::hypot(p.x-last.x, p.y-last.y) < 2) return;
-            strokes.back().push_back(p);
+    double hitTolerance() const {return double(px(7))*Width/std::max(1L,previewRect.right-previewRect.left);}
+    int annotationAt(InkPoint p) const {for(int i=int(annotations.size())-1;i>=0;--i)if(HitAnnotation(annotations[i],p,hitTolerance()))return i;return -1;}
+    static bool isShape(AnnotationTool type) {return type>=AnnotationTool::Rectangle && type<=AnnotationTool::Arrow;}
+    const std::wstring& drawingColor() const {return isShape(tool)?shapeColor:inkColor;}
+    void syncAnnotationControls() {
+        if(!workspace)return;
+        if(selectedAnnotation>=0 && selectedAnnotation<int(annotations.size()))workspace->annotationControls(tool,annotations[selectedAnnotation].color,annotations[selectedAnnotation].size);
+        else workspace->annotationControls(tool,drawingColor(),inkSize);
+    }
+    bool restoreAnnotations(bool merge=false) {
+        HRESULT error=S_OK;auto json=annotationStore.load(error);std::vector<Annotation> restored;
+        if(SUCCEEDED(error))try {restored=ParseAnnotations(json);}catch(...){error=HRESULT_FROM_WIN32(ERROR_INVALID_DATA);}
+        annotationRestoreError=error;if(FAILED(error))return false;
+        uint64_t next=1;for(const auto& a:restored)next=std::max(next,a.id+1);
+        if(merge) {
+            size_t points=0;for(const auto& a:restored)points+=a.points.size();for(const auto& a:annotations)points+=a.points.size();
+            if(restored.size()+annotations.size()>MaxAnnotations || points>MaxInkPoints){annotationRestoreError=E_FAIL;return false;}
+            for(auto a:annotations){a.id=next++;restored.push_back(std::move(a));}
         }
-        if (dragging && selectedCard >= 0) {
-            auto& c = cards[selectedCard];
-            if (resizing) {
-                // Project the corner drag onto the card's diagonal. One scale
-                // factor preserves aspect ratio even on horizontal/vertical drags.
-                double factor=1+((p.x-dragStart.x)*original.w+(p.y-dragStart.y)*original.h)/(original.w*original.w+original.h*original.h);
-                double maximum=std::min((Width-c.x)/original.w,(Height-c.y)/original.h);
-                double minimum=std::min(maximum,std::max(180.0/original.w,100.0/original.h));
-                factor=std::clamp(factor,minimum,maximum);
-                c.w=original.w*factor; c.h=original.h*factor;
-            }
-            else { c.x = std::clamp(original.x+p.x-dragStart.x, 0.0, Width-c.w); c.y = std::clamp(original.y+p.y-dragStart.y, 0.0, Height-c.h); }
+        annotations=std::move(restored);nextAnnotationId=next;selectedAnnotation=hoveredAnnotation=-1;annotationSaveFailed=false;return true;
+    }
+    void saveAnnotations() {
+        if(FAILED(annotationRestoreError))return; // Never overwrite a workspace we could not read.
+        annotationRevision=annotationStore.save(AnnotationJson(annotations));annotationSaveFailed=false;
+    }
+    void eraseAnnotation(int index) {
+        if(index<0 || index>=int(annotations.size()))return;
+        annotations.erase(annotations.begin()+index);selectedAnnotation=hoveredAnnotation=-1;changed();syncAnnotationControls();saveAnnotations();
+    }
+    bool measureText(Annotation& a) {
+        HDC dc=GetDC(window);HFONT textFont=CreateFontW(-int(std::round(a.font)),0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Segoe UI");
+        auto old=SelectObject(dc,textFont);RECT measured{0,0,int(std::max(120.0,a.box.w)),0};
+        DrawTextW(dc,a.text.c_str(),int(a.text.size()),&measured,DT_CALCRECT|DT_WORDBREAK|DT_NOPREFIX|DT_EDITCONTROL);
+        SelectObject(dc,old);DeleteObject(textFont);ReleaseDC(window,dc);
+        double h=std::max(a.font*1.3,double(measured.bottom)*1.25+4),w=std::max(120.0,double(measured.right));
+        if(h>Height || w>Width){MessageBoxW(window,L"This text is too large for the picture. Shorten it or choose a smaller size.",L"Text doesn't fit",MB_OK|MB_ICONINFORMATION);return false;}
+        a.box.w=w;a.box.h=h;a.box.x=std::clamp(a.box.x,0.0,Width-w);a.box.y=std::clamp(a.box.y,0.0,Height-h);return true;
+    }
+    bool commitText(std::wstring value,bool commit) {
+        if(!commit){editingAnnotationId=0;return true;}
+        auto found=std::find_if(annotations.begin(),annotations.end(),[&](const auto& a){return a.id==editingAnnotationId;});
+        bool empty=value.empty() || std::all_of(value.begin(),value.end(),[](wchar_t c){return std::iswspace(c)!=0;});
+        if(empty){if(found!=annotations.end())eraseAnnotation(int(found-annotations.begin()));editingAnnotationId=0;return true;}
+        Annotation a;
+        if(found!=annotations.end())a=*found;
+        else {if(annotations.size()>=MaxAnnotations){MessageBoxW(window,L"There are too many annotations. Remove a few to continue.",L"Annotations",MB_OK);return false;}a.id=nextAnnotationId;a.kind=AnnotationTool::Text;a.color=inkColor;a.size=inkSize;a.font=TextSizes[inkSize];a.box={textAnchor.x,textAnchor.y,480,60};}
+        a.text=std::move(value);if(!measureText(a))return false;
+        if(found!=annotations.end()){selectedAnnotation=int(found-annotations.begin());*found=std::move(a);}
+        else {++nextAnnotationId;annotations.push_back(std::move(a));selectedAnnotation=int(annotations.size())-1;}
+        editingAnnotationId=0;changed();syncAnnotationControls();saveAnnotations();return true;
+    }
+    void beginText(InkPoint p,int existing=-1) {
+        if(workspace && !workspace->finishText())return;
+        finishGesture();
+        textAnchor=p;editingAnnotationId=existing>=0?annotations[existing].id:0;
+        std::wstring value=existing>=0?annotations[existing].text:L"";double textSize=existing>=0?annotations[existing].font:TextSizes[inkSize];
+        selectedAnnotation=existing;
+        if(existing>=0){selectedAnnotation=existing;textAnchor={annotations[existing].box.x,annotations[existing].box.y};}
+        selectedCard=-1;syncCards();syncAnnotationControls();
+        auto at=inkRect({textAnchor.x,textAnchor.y,1,1});
+        int width=std::min(px(360),int(previewRect.right-previewRect.left)),height=std::min(px(160),int(previewRect.bottom-previewRect.top));
+        int left=std::clamp(int(at.left),int(previewRect.left),int(previewRect.right)-width),top=std::clamp(int(at.top),int(previewRect.top),int(previewRect.bottom)-height);
+        workspace->editText({left,top,left+width,top+height},value,textSize*(previewRect.right-previewRect.left)/Width/dpi,inkColor);
+        InvalidateRect(window,nullptr,FALSE);
+    }
+    void setTool(AnnotationTool chosen) {
+        finishGesture();if(workspace && !workspace->finishText()){syncAnnotationControls();return;}
+        tool=chosen;hoveredAnnotation=-1;if(tool!=AnnotationTool::Select)selectedCard=-1;
+        if(isShape(tool))selectedAnnotation=-1;
+        syncCards();syncAnnotationControls();InvalidateRect(window,nullptr,FALSE);
+    }
+    void setInkColor(std::wstring color) {
+        finishGesture();if(workspace && !workspace->finishText()){syncAnnotationControls();return;}
+        if(isShape(tool) || (selectedAnnotation>=0 && isShape(annotations[selectedAnnotation].kind)))shapeColor=color;
+        else inkColor=color;
+        if(selectedAnnotation>=0){annotations[selectedAnnotation].color=std::move(color);changed();saveAnnotations();}
+        syncAnnotationControls();
+    }
+    void setInkSize(int size) {
+        if(size<0 || size>2)return;
+        finishGesture();if(workspace && !workspace->finishText()){syncAnnotationControls();return;}
+        inkSize=size;
+        if(selectedAnnotation>=0){auto before=annotations[selectedAnnotation];auto& a=annotations[selectedAnnotation];a.size=size;
+            if(a.kind==AnnotationTool::Text){a.font=TextSizes[size];if(!measureText(a)){a=before;syncAnnotationControls();return;}}
+            changed();saveAnnotations();}
+        syncAnnotationControls();
+    }
+    void finishGesture(bool cancel=false) {
+        bool edited=drawing || draggingAnnotation;
+        if(cancel && edited && selectedAnnotation>=0){if(drawing)annotations.erase(annotations.begin()+selectedAnnotation);else annotations[selectedAnnotation]=originalInk;selectedAnnotation=-1;}
+        else if(drawing && selectedAnnotation>=0){const auto& a=annotations[selectedAnnotation];auto b=Bounds(a);if((a.kind==AnnotationTool::Rectangle || a.kind==AnnotationTool::Ellipse) && (b.w<3 || b.h<3)){annotations.erase(annotations.begin()+selectedAnnotation);selectedAnnotation=-1;}}
+        drawing=dragging=draggingAnnotation=resizing=false;
+        if(edited){changed();syncAnnotationControls();if(!cancel)saveAnnotations();}
+        if(GetCapture()==window)ReleaseCapture();
+    }
+    void pointerDown(int x,int y) {
+        if(workspace && !workspace->finishText())return;
+        POINT at{x,y};if(!PtInRect(&previewRect,at) || !demand || FAILED(captureError.load()))return;
+        SetFocus(window);InkPoint p=canvasPoint(x,y);dragStart=p;
+        if(tool==AnnotationTool::Text){int hit=annotationAt(p);beginText(p,hit>=0 && annotations[hit].kind==AnnotationTool::Text?hit:-1);return;}
+        if(tool==AnnotationTool::Eraser){eraseAnnotation(annotationAt(p));return;}
+        if(tool!=AnnotationTool::Select) {
+            size_t count=0;for(const auto& a:annotations)count+=a.points.size();
+            if(annotations.size()>=MaxAnnotations || count>=MaxInkPoints-2){MessageBoxW(window,L"There are too many annotations. Remove a few to continue.",L"Annotations",MB_OK);return;}
+            Annotation a;a.id=nextAnnotationId++;a.kind=tool;a.color=drawingColor();a.size=inkSize;a.box={p.x,p.y,0,0};
+            if(tool==AnnotationTool::Pen || tool==AnnotationTool::Line || tool==AnnotationTool::Arrow)a.points={p,{std::min(double(Width),p.x+0.1),p.y}};
+            annotations.push_back(std::move(a));selectedAnnotation=int(annotations.size())-1;selectedCard=-1;drawing=true;
+        }else {
+            // Private handles are hit before the painted objects, especially an
+            // arrow's endpoint and a stroke's empty lower-right bounding corner.
+            bool handle=false;
+            if(selectedAnnotation>=0){const auto& a=annotations[selectedAnnotation];auto b=Bounds(a);InkPoint end{b.x+b.w,b.y+b.h};if((a.kind==AnnotationTool::Line || a.kind==AnnotationTool::Arrow)&&a.points.size()==2)end=a.points[1];handle=std::hypot(p.x-end.x,p.y-end.y)<=hitTolerance()*1.8;}
+            int hit=handle?selectedAnnotation:annotationAt(p);
+            selectedAnnotation=hit;
+            if(hit>=0){selectedCard=-1;originalInk=annotations[hit];draggingAnnotation=true;resizing=handle;}
+            else {selectedCard=-1;for(int i=2;i>=0;--i){const auto& c=cards[i];if(c.visible && p.x>=c.x && p.x<=c.x+c.w && p.y>=c.y && p.y<=c.y+c.h){selectedCard=i;original=c;dragging=true;resizing=p.x>c.x+c.w-28 && p.y>c.y+c.h-28;break;}}}
         }
+        hoveredAnnotation=-1;SetCapture(window);changed();syncAnnotationControls();
+    }
+    void pointerMove(int x,int y) {
+        InkPoint p=canvasPoint(x,y);
+        if(tool==AnnotationTool::Eraser){POINT at{x,y};int hover=PtInRect(&previewRect,at)?annotationAt(p):-1;if(hover!=hoveredAnnotation){hoveredAnnotation=hover;InvalidateRect(window,nullptr,FALSE);}TRACKMOUSEEVENT track{sizeof(track),TME_LEAVE,window,0};TrackMouseEvent(&track);return;}
+        if(drawing && selectedAnnotation>=0) {
+            auto& a=annotations[selectedAnnotation];
+            if(a.kind==AnnotationTool::Pen){if(a.points.size()>=4096)return;size_t count=0;for(const auto& item:annotations)count+=item.points.size();if(count>=MaxInkPoints)return;auto last=a.points.back();if(std::hypot(p.x-last.x,p.y-last.y)<2)return;a.points.push_back(p);}
+            else if(a.kind==AnnotationTool::Line || a.kind==AnnotationTool::Arrow)a.points[1]=p;
+            else a.box={std::min(p.x,dragStart.x),std::min(p.y,dragStart.y),std::abs(p.x-dragStart.x),std::abs(p.y-dragStart.y)};
+        }else if(draggingAnnotation && selectedAnnotation>=0) {
+            if(resizing)ResizeAnnotation(annotations[selectedAnnotation],originalInk,p);
+            else MoveAnnotation(annotations[selectedAnnotation],originalInk,p.x-dragStart.x,p.y-dragStart.y);
+        }else if(dragging && selectedCard>=0) {
+            auto& c=cards[selectedCard];
+            if(resizing){double factor=1+((p.x-dragStart.x)*original.w+(p.y-dragStart.y)*original.h)/(original.w*original.w+original.h*original.h);double maximum=std::min((Width-c.x)/original.w,(Height-c.y)/original.h),minimum=std::min(maximum,std::max(180.0/original.w,100.0/original.h));factor=std::clamp(factor,minimum,maximum);c.w=original.w*factor;c.h=original.h*factor;}
+            else {c.x=std::clamp(original.x+p.x-dragStart.x,0.0,Width-c.w);c.y=std::clamp(original.y+p.y-dragStart.y,0.0,Height-c.h);}
+        }else return;
         changed();
     }
+    void doubleClick(int x,int y){POINT at{x,y};if(!PtInRect(&previewRect,at) || !demand || FAILED(captureError.load()))return;InkPoint p=canvasPoint(x,y);int hit=annotationAt(p);if((tool==AnnotationTool::Select || tool==AnnotationTool::Text)&&hit>=0&&annotations[hit].kind==AnnotationTool::Text){finishGesture();beginText(p,hit);}else pointerDown(x,y);}
     void text(HDC dc, const std::wstring& value, RECT rect, UINT flags = DT_LEFT | DT_WORDBREAK) { DrawTextW(dc, value.c_str(), -1, &rect, flags); }
+    void paintAnnotationControls(HDC dc) {
+        int index=tool==AnnotationTool::Eraser?hoveredAnnotation:tool==AnnotationTool::Select?selectedAnnotation:-1;
+        if(index<0 || index>=int(annotations.size()))return;
+        const auto& a=annotations[index];auto b=Bounds(a);RECT r=inkRect(b);
+        bool erase=tool==AnnotationTool::Eraser;COLORREF color=erase?RGB(255,130,130):RGB(109,211,255);
+        HPEN outline=CreatePen(erase?PS_DASH:PS_SOLID,erase?1:px(2),color);
+        auto oldPen=SelectObject(dc,outline),oldBrush=SelectObject(dc,GetStockObject(NULL_BRUSH));
+        Rectangle(dc,r.left-px(3),r.top-px(3),r.right+px(3),r.bottom+px(3));
+        SelectObject(dc,oldBrush);SelectObject(dc,oldPen);DeleteObject(outline);
+        if(!erase){
+            InkPoint corner{b.x+b.w,b.y+b.h};
+            if((a.kind==AnnotationTool::Line || a.kind==AnnotationTool::Arrow)&&a.points.size()==2)corner=a.points[1];
+            auto at=inkRect({corner.x,corner.y,0,0});RECT handle{at.left-px(6),at.top-px(6),at.left+px(6),at.top+px(6)};
+            HBRUSH brush=CreateSolidBrush(color);FillRect(dc,&handle,brush);DeleteObject(brush);
+        }
+    }
     void paint() {
         PAINTSTRUCT ps; HDC target = BeginPaint(window, &ps); RECT client; GetClientRect(window, &client);
         if (!backDC) backDC = CreateCompatibleDC(target);
@@ -231,6 +356,7 @@ struct App {
                 SelectObject(dc, oldBrush); SelectObject(dc, oldPen); DeleteObject(outline);
                 RECT handle{r.right-px(12),r.bottom-px(12),r.right,r.bottom}; HBRUSH b=CreateSolidBrush(RGB(109,211,255)); FillRect(dc,&handle,b); DeleteObject(b);
             }
+            paintAnnotationControls(dc);
         }
         BitBlt(target,0,0,client.right,client.bottom,dc,0,0,SRCCOPY); EndPaint(window,&ps);
     }
@@ -240,6 +366,7 @@ struct App {
         HRESULT error=captureError.load();
         bool fresh=frame && frame->live && frame->version==commandVersion && GetTickCount64()-frame->tick<FreshMs && demand && SUCCEEDED(error) && !overlay.state->failed;
         rememberWorkingCamera(fresh);
+        if(annotationRevision){auto saved=annotationStore.result();if(saved.revision==annotationRevision){annotationSaveFailed=FAILED(saved.error);annotationRevision=0;}}
         if(IsIconic(window))return; // Persist a working choice even in a minimized call, without updating hidden XAML.
         std::wstring message, state;
         if(selectedCamera<0) {
@@ -254,7 +381,10 @@ struct App {
         else if(!fresh) {state=L"Opening your webcam";message=opening?L"Opening your webcam…":L"Waiting for a picture. If it doesn't appear, choose Retry.";}
         else state=bridge.consumerActive()?L"Video is reaching your calling app":L"Ready for your call";
         if(fresh && preferenceSaveFailed)state=L"Couldn't remember webcam";
-        if(workspace)workspace->state(state,message,fresh,error==E_ACCESSDENIED,fresh && preferenceSaveFailed);
+        if(fresh && annotationSaveFailed)state=L"Couldn't save annotations";
+        if(fresh && FAILED(annotationRestoreError))state=L"Couldn't restore annotations";
+        status=state;
+        if(workspace)workspace->state(state,message,fresh,error==E_ACCESSDENIED,fresh && (preferenceSaveFailed || annotationSaveFailed || FAILED(annotationRestoreError)));
     }
     static void compose(const CameraImage& camera, const OverlayImage& overlay, std::vector<uint8_t>& output) {
         StageTimer timing(VideoStage::Compose);
@@ -348,10 +478,15 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam
         try {
             WorkspaceActions actions;
             actions.camera=[app](int index){if(index<0 || index>=int(app->devices.size()))return;app->selectedCamera=index;app->choose();};
-            actions.selectCard=[app](int index){app->selectedCard=index;app->penMode=false;app->workspace->penMode(false);app->syncCards();InvalidateRect(app->window,nullptr,FALSE);};
+            actions.selectCard=[app](int index){if(!app->workspace->finishText())return;app->finishGesture();app->selectedAnnotation=-1;app->selectedCard=index;app->setTool(AnnotationTool::Select);app->syncCards();};
             actions.visibility=[app](int index,bool show){app->cards[index].visible=show;app->changed();};
-            actions.pen=[app](bool pen){app->penMode=pen;app->dragging=app->drawing=false;ReleaseCapture();};
+            actions.tool=[app](AnnotationTool tool){app->setTool(tool);};
+            actions.color=[app](std::wstring color){app->setInkColor(std::move(color));};
+            actions.size=[app](int size){app->setInkSize(size);};
+            actions.text=[app](std::wstring text,bool commit){return app->commitText(std::move(text),commit);};
             actions.retry=[app]{
+                if(app->status==L"Couldn't restore annotations"){if(app->restoreAnnotations(!app->annotations.empty())){app->changed();app->syncAnnotationControls();app->saveAnnotations();}return;}
+                if(app->status==L"Couldn't save annotations"){app->saveAnnotations();return;}
                 if(app->preferenceSaveFailed && SUCCEEDED(app->captureError.load()) && app->demand && !app->overlay.state->failed) {
                     app->preferenceAttemptedVersion=0;app->preferenceSaveFailed=false;app->refreshWorkspace();return;
                 }
@@ -359,11 +494,12 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam
             };
             actions.privacy=[] {ShellExecuteW(nullptr,L"open",L"ms-settings:privacy-webcam",nullptr,nullptr,SW_SHOWNORMAL);};
             actions.hideAll=[app]{for(auto& card:app->cards)card.visible=false;app->changed();};
-            actions.clear=[app]{if(MessageBoxW(app->window,L"Clear all annotations? This cannot be undone.",L"Clear annotations",MB_YESNO|MB_ICONQUESTION)==IDYES){app->strokes.clear();app->changed();}};
+            actions.clear=[app]{if(!app->workspace->finishText())return;app->finishGesture();if(MessageBoxW(app->window,L"Clear all annotations? This cannot be undone.",L"Clear annotations",MB_YESNO|MB_ICONQUESTION)==IDYES){app->annotations.clear();app->selectedAnnotation=app->hoveredAnnotation=-1;app->changed();app->syncAnnotationControls();app->saveAnnotations();}};
             actions.quit=[app]{PostMessageW(app->window,WM_CLOSE,0,0);};
             actions.layout=[app]{app->layout();};
+            app->restoreAnnotations();
             app->workspace=std::make_unique<Workspace>(window,std::move(actions));
-            app->dpi=GetDpiForWindow(window)/96.0f;app->buildFonts();app->layout();app->enumerate(true);app->syncCards();
+            app->dpi=GetDpiForWindow(window)/96.0f;app->buildFonts();app->layout();app->enumerate(true);app->syncCards();app->syncAnnotationControls();
             app->overlay.update(app->scene());app->overlay.initialize(GetModuleHandleW(nullptr));
             app->worker=std::thread([app]{app->videoLoop();});SetTimer(window,1,33,nullptr);return 0;
         } catch(winrt::hresult_error const& error) {Resources().event("workspace_controls_failed hresult="+std::to_string(error.code().value));MessageBoxW(window,L"Couldn't open the workspace. Close and reopen Callayers.",L"Callayers",MB_OK|MB_ICONERROR);return -1;}
@@ -375,16 +511,24 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam
         app->dpi=HIWORD(wParam)/96.0f;app->buildFonts();auto r=reinterpret_cast<RECT*>(lParam);SetWindowPos(window,nullptr,r->left,r->top,r->right-r->left,r->bottom-r->top,SWP_NOZORDER|SWP_NOACTIVATE);app->layout();return 0;
     }
     case WM_GETMINMAXINFO: {auto limits=reinterpret_cast<MINMAXINFO*>(lParam);limits->ptMinTrackSize={app->px(1000),app->px(760)};return 0;}
-    case WM_KEYDOWN:if(wParam==VK_TAB && app->workspace){app->workspace->focus((GetKeyState(VK_SHIFT)&0x8000)!=0);return 0;}break;
+    case WM_KEYDOWN:
+        if(wParam==VK_TAB && app->workspace){app->workspace->focus((GetKeyState(VK_SHIFT)&0x8000)!=0);return 0;}
+        if(wParam==VK_ESCAPE){app->finishGesture(true);return 0;}
+        if(wParam==VK_DELETE){app->eraseAnnotation(app->selectedAnnotation);return 0;}break;
     case WM_LBUTTONDOWN:app->pointerDown(GET_X_LPARAM(lParam),GET_Y_LPARAM(lParam));return 0;
     case WM_MOUSEMOVE:app->pointerMove(GET_X_LPARAM(lParam),GET_Y_LPARAM(lParam));return 0;
-    case WM_LBUTTONUP:app->dragging=app->drawing=false;ReleaseCapture();return 0;
-    case WM_CAPTURECHANGED:app->dragging=app->drawing=false;return 0;
+    case WM_LBUTTONUP:app->finishGesture();return 0;
+    case WM_CAPTURECHANGED:app->finishGesture();return 0;
+    case WM_LBUTTONDBLCLK:app->doubleClick(GET_X_LPARAM(lParam),GET_Y_LPARAM(lParam));return 0;
+    case WM_MOUSELEAVE:app->hoveredAnnotation=-1;InvalidateRect(window,nullptr,FALSE);return 0;
+    case WM_SETCURSOR:if(reinterpret_cast<HWND>(wParam)==window && LOWORD(lParam)==HTCLIENT){POINT at{};GetCursorPos(&at);ScreenToClient(window,&at);if(PtInRect(&app->previewRect,at)){SetCursor(LoadCursorW(nullptr,app->tool==AnnotationTool::Text?IDC_IBEAM:app->tool==AnnotationTool::Select?IDC_ARROW:IDC_CROSS));return TRUE;}}break;
     case WM_ERASEBKGND:return 1;
     case WM_CTLCOLORSTATIC:
     case WM_CTLCOLORBTN:SetTextColor(reinterpret_cast<HDC>(wParam),RGB(230,235,245));SetBkColor(reinterpret_cast<HDC>(wParam),RGB(18,22,31));return reinterpret_cast<LRESULT>(app->background);
     case WM_PAINT:app->paint();return 0;
     case WM_CLOSE:
+        if(app->workspace && !app->workspace->finishText())return 0;
+        app->finishGesture();
         if(app->bridge.consumerActive() && MessageBoxW(window,L"Quit Callayers and stop video in your calling app?",L"Stop video and quit",MB_YESNO|MB_ICONQUESTION)!=IDYES)return 0;
         app->quitting=true;app->demand=false;app->bridge.stop();KillTimer(window,1);app->overlay.enable(false);app->workspace.reset();
         DestroyWindow(window);return 0;
@@ -405,7 +549,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,LPWSTR,int show) {
         App app;
         if(!app.bridge.valid()){MessageBoxW(nullptr,L"Couldn't prepare Callayers video. Close and reopen the app.",L"Callayers",MB_OK|MB_ICONERROR);result=1;}
         else {
-            WNDCLASSW wc{};wc.lpfnWndProc=WindowProc;wc.hInstance=instance;wc.lpszClassName=L"CallayersFoundation";wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);wc.hIcon=LoadIconW(instance,MAKEINTRESOURCEW(1));RegisterClassW(&wc);
+            WNDCLASSW wc{};wc.style=CS_DBLCLKS;wc.lpfnWndProc=WindowProc;wc.hInstance=instance;wc.lpszClassName=L"CallayersFoundation";wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);wc.hIcon=LoadIconW(instance,MAKEINTRESOURCEW(1));RegisterClassW(&wc);
             HWND window=CreateWindowExW(0,wc.lpszClassName,L"Callayers",WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,CW_USEDEFAULT,CW_USEDEFAULT,1280,850,nullptr,nullptr,instance,&app);
             if(window){ShowWindow(window,show);MSG message{};while(GetMessageW(&message,nullptr,0,0)>0){if(!ContentPreTranslateMessage(&message)){TranslateMessage(&message);DispatchMessageW(&message);}}}
             else {app.quitting=true;result=1;}

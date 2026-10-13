@@ -13,6 +13,8 @@
 
 **Simple approach:** keep the card files and one autosaved `workspace.json`. After sign-in and successful webcam connection, restore the workspace, including which cards and annotations appear on camera. Save after edits, not every video frame. Timer/animation behavior belongs to the card's JavaScript; no special restoration interface or saved execution state.
 
+The fresh implementation uses `%LOCALAPPDATA%\Callayers\WorkspaceV2\workspace.json`, isolated from old saved work. The annotation milestone saves annotations there now; card placement, visibility and the remaining workspace fields arrive with the saved-card milestone.
+
 An imported image is an ordinary card containing that image.
 
 Keep the previous card version locally alongside the current card; it survives restarts. Replace it only after a successful AI revision. Restoring consumes the backup and keeps the card's identity, placement, and visibility. Deleting a card deletes its backup too. No backend storage or new endpoint.
@@ -53,7 +55,9 @@ For new text annotations, count creation once when the user finishes editing non
 
 Restoring a previous card version sends no creation event and uses no AI allowance.
 
-**Video state:** include `video_state_changed` with `preview_visible` and `output_active`, sent once at session start and only when either changes. Output means fresh video is reaching at least one consumer, including camera-only use. No frame-by-frame events or new endpoint.
+**Video state:** include `video_state_changed` with `preview_visible`, `output_active`, and `consumer_app`, sent once at session start and whenever any of these changes. Output means fresh video is reaching at least one consumer, including camera-only use. No frame-by-frame events or new endpoint.
+
+**Consumer app (implement with telemetry):** identify the host application requesting video using a normalized label, such as `zoom`, `brave`, or `chrome`. Use `unknown` when identity cannot be established reliably and `none` when no consumer is active. Browser-based services are reported as the browser: Brave does not establish whether the user is using Google Meet or another website. Active consumption can also be a camera-settings preview; it does not prove a meeting is underway. Send no executable paths, process IDs, window titles, or browsing information. A consumer-app change sends a video-state event even if output remains active. The local identity mechanism is deferred along with telemetry; it is not a prerequisite for the runnable MVP. See [FRAMES.md](FRAMES.md#consumer-identity-implement-with-telemetry).
 
 Include account ID, card ID where applicable, timestamp, and app version. These events also show whether people return. No signup funnel, editor activity, error events, prompts, contents, images, or webcam footage. Count each action once; retries do not create new actions.
 
