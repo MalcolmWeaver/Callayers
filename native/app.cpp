@@ -15,18 +15,20 @@
 #include "overlay.h"
 #include "frame_bridge.h"
 #include "resource_diagnostics.h"
+#include "workspace.h"
+#include <Microsoft.UI.Dispatching.Interop.h>
+#include <winrt/base.h>
 
 using namespace callayers;
 namespace {
-constexpr UINT CameraId = 101, RetryId = 102, SelectId = 103, PenId = 104, ClearId = 105, PrivacyId = 106, CardId = 110;
 struct Card { double x, y, w, h; bool visible = true; };
 struct Point { double x, y; };
 struct PresentedFrame { std::vector<uint8_t> pixels; bool live = false; ULONGLONG tick = 0; unsigned version = 0; };
 struct App {
-    HWND window = nullptr, combo = nullptr, retry = nullptr, select = nullptr, pen = nullptr, clear = nullptr, privacy = nullptr;
-    HWND checks[3]{};
+    HWND window = nullptr;
+    std::unique_ptr<Workspace> workspace;
     HFONT font = nullptr, titleFont = nullptr;
-    HBRUSH background = CreateSolidBrush(RGB(18, 22, 31));
+    HBRUSH background = CreateSolidBrush(RGB(29, 29, 33));
     HDC backDC = nullptr; HBITMAP backBitmap = nullptr; HGDIOBJ oldBitmap = nullptr;
     int backWidth = 0, backHeight = 0;
     FrameBridge bridge;
@@ -72,12 +74,12 @@ struct App {
         }
         out << L"]}"; return out.str();
     }
-    void changed() { overlay.update(scene()); InvalidateRect(window, nullptr, FALSE); }
+    void syncCards() { if(workspace) { bool visible[3]{cards[0].visible,cards[1].visible,cards[2].visible}; workspace->card(selectedCard,visible); } }
+    void changed() { overlay.update(scene()); syncCards(); InvalidateRect(window, nullptr, FALSE); }
     void enumerate(bool initial = false) {
-        std::wstring previous = selectedCamera >= 0 && selectedCamera < int(devices.size()) ? devices[selectedCamera].identity : L"";
-        devices = EnumerateCameras(); selectedCamera = -1; SendMessageW(combo, CB_RESETCONTENT, 0, 0);
+        std::wstring previous; { std::lock_guard lock(commandMutex); previous=wantedIdentity; }
+        devices = EnumerateCameras(); selectedCamera = -1;
         for (size_t i = 0; i < devices.size(); ++i) {
-            SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(devices[i].name.c_str()));
             if (devices[i].identity == previous) selectedCamera = int(i);
         }
         if (initial) {
@@ -85,7 +87,8 @@ struct App {
             for (size_t i = 0; i < devices.size(); ++i) if (devices[i].name == L"USB Camera") { selectedCamera = int(i); ++matches; }
             if (matches != 1) selectedCamera = -1;
         }
-        SendMessageW(combo, CB_SETCURSEL, selectedCamera, 0);
+        std::vector<std::wstring> names; for(const auto& device:devices)names.push_back(device.name);
+        if(workspace)workspace->cameras(names,selectedCamera);
         choose();
     }
     void choose() {
@@ -105,21 +108,14 @@ struct App {
         if (font) DeleteObject(font); if (titleFont) DeleteObject(titleFont);
         font = CreateFontW(-px(15), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
         titleFont = CreateFontW(-px(24), 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
-        for (HWND control : {combo, retry, select, pen, clear, privacy, checks[0], checks[1], checks[2]}) SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     }
     void layout() {
         RECT client; GetClientRect(window, &client);
-        MoveWindow(combo, px(284), px(20), px(260), px(300), TRUE);
-        MoveWindow(retry, px(558), px(20), px(90), px(32), TRUE);
-        MoveWindow(privacy, px(20), px(472), px(230), px(34), TRUE);
-        for (int i = 0; i < 3; ++i) MoveWindow(checks[i], px(20), px(155 + i * 46), px(230), px(34), TRUE);
-        MoveWindow(select, px(20), px(330), px(110), px(34), TRUE);
-        MoveWindow(pen, px(140), px(330), px(110), px(34), TRUE);
-        MoveWindow(clear, px(20), px(378), px(230), px(34), TRUE);
-        int left = px(280), top = px(105), availableW = std::max<int>(1, client.right - left - px(24)), availableH = std::max<int>(1, client.bottom - top - px(70));
+        int left = px(324), top = px(96+(workspace?workspace->toolbarHeight():0)), availableW = std::max<int>(1, client.right - left - px(24)), availableH = std::max<int>(1, client.bottom - top - px(24));
         double scale = std::min(double(availableW) / Width, double(availableH) / Height);
         int w = int(Width * scale), h = int(Height * scale);
         previewRect = {left + (availableW-w)/2, top + (availableH-h)/2, left + (availableW+w)/2, top + (availableH+h)/2};
+        if(workspace)workspace->layout(client.right,client.bottom,dpi,previewRect);
         InvalidateRect(window, nullptr, FALSE);
     }
     Point canvasPoint(int x, int y) const {
@@ -132,6 +128,7 @@ struct App {
     }
     void pointerDown(int x, int y) {
         POINT at{x, y}; if (!PtInRect(&previewRect, at)) return;
+        SetFocus(window);
         Point p = canvasPoint(x, y);
         if (penMode) {
             if (strokes.size() >= 200) return;
@@ -173,14 +170,6 @@ struct App {
             backBitmap = CreateCompatibleBitmap(target, backWidth, backHeight); oldBitmap = SelectObject(backDC, backBitmap);
         }
         HDC dc = backDC; FillRect(dc, &client, background); SetBkMode(dc, TRANSPARENT); SetTextColor(dc, RGB(237,241,249));
-        SelectObject(dc, titleFont); text(dc, L"Callayers", {px(20),px(18),px(250),px(62)});
-        SelectObject(dc, font);
-        SetTextColor(dc, RGB(167,180,204));
-        text(dc, L"VIDEO FOUNDATION", {px(20),px(85),px(250),px(120)});
-        text(dc, L"Fixed test cards", {px(20),px(122),px(250),px(151)});
-        text(dc, L"Annotate", {px(20),px(293),px(250),px(323)});
-        text(dc, L"Select a card to move it. Drag its lower-right corner to resize.", {px(20),px(530),px(250),px(620)});
-        text(dc, L"Changes in this foundation build are temporary.", {px(20),px(640),px(250),px(705)});
         std::shared_ptr<const PresentedFrame> frame;
         { std::lock_guard lock(previewMutex); frame = preview; }
         bool fresh = frame && frame->live && frame->version == commandVersion && GetTickCount64()-frame->tick < FreshMs && demand && SUCCEEDED(captureError.load());
@@ -198,25 +187,23 @@ struct App {
                 SelectObject(dc, oldBrush); SelectObject(dc, oldPen); DeleteObject(outline);
                 RECT handle{r.right-px(12),r.bottom-px(12),r.right,r.bottom}; HBRUSH b=CreateSolidBrush(RGB(109,211,255)); FillRect(dc,&handle,b); DeleteObject(b);
             }
-        } else {
-            std::wstring message;
-            HRESULT error = captureError;
-            if (selectedCamera < 0) message = devices.empty() ? L"Connect your webcam, then choose Retry." : L"Choose your webcam above.\nYour camera and cards will appear here.";
-            else if (overlay.state->failed) message = L"The card renderer couldn't start.\nChoose Retry to restart it.";
-            else if (error == E_ACCESSDENIED) message = L"Windows is blocking camera access.\nOpen camera privacy settings, allow desktop apps, then Retry.";
-            else if (FAILED(error)) message = L"We couldn't get a picture from this webcam.\nReconnect it or close other camera previews, then Retry.";
-            else if (opening) message = L"Opening your webcam…";
-            else message = L"Waiting for a fresh picture…\nIf it doesn't appear, choose Retry.";
-            RECT r=previewRect; r.left+=px(32);r.right-=px(32);r.top+=(r.bottom-r.top)/2-px(50);
-            SetTextColor(dc,RGB(218,226,241));text(dc,message,r,DT_CENTER|DT_WORDBREAK);
         }
-        status = fresh ? (bridge.consumerActive() ? L"Video is reaching your calling app" : L"Ready for your call") : L"Waiting for video";
-        if (FAILED(captureError.load())) status = L"Camera unavailable";
-        if (overlay.state->failed) status = L"Cards unavailable";
-        if (selectedCamera < 0) status = L"Choose your webcam";
-        SetTextColor(dc, RGB(179,222,203)); text(dc,status,{px(674),px(25),client.right-px(20),px(62)});
-        SetTextColor(dc, RGB(167,180,204)); text(dc,L"In Google Meet in Brave, choose Callayers.",{px(284),client.bottom-px(48),client.right-px(20),client.bottom-px(16)});
         BitBlt(target,0,0,client.right,client.bottom,dc,0,0,SRCCOPY); EndPaint(window,&ps);
+    }
+    void refreshWorkspace() {
+        std::shared_ptr<const PresentedFrame> frame;
+        { std::lock_guard lock(previewMutex); frame=preview; }
+        HRESULT error=captureError.load();
+        bool fresh=frame && frame->live && frame->version==commandVersion && GetTickCount64()-frame->tick<FreshMs && demand && SUCCEEDED(error) && !overlay.state->failed;
+        std::wstring message, state;
+        if(selectedCamera<0) {state=L"Choose your webcam";message=devices.empty()?L"Connect your webcam, then choose Retry.":L"Choose your webcam.\nYour camera and cards will appear here.";}
+        else if(overlay.state->failed) {state=L"Cards unavailable";message=L"We couldn't show your cards. Choose Retry to restart them.";}
+        else if(error==E_ACCESSDENIED) {state=L"Camera unavailable";message=L"Windows is blocking camera access. Allow camera access for desktop apps in Windows settings, then Retry.";}
+        else if(error==HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION)) {state=L"Camera unavailable";message=L"Your webcam is being used by another app. Close that app's camera preview, then Retry.";}
+        else if(FAILED(error)) {state=L"Camera unavailable";message=L"We couldn't get a picture from this webcam. Close other camera previews or reconnect it, then Retry.";}
+        else if(!fresh) {state=L"Opening your webcam";message=opening?L"Opening your webcam…":L"Waiting for a picture. If it doesn't appear, choose Retry.";}
+        else state=bridge.consumerActive()?L"Video is reaching your calling app":L"Ready for your call";
+        if(workspace)workspace->state(state,message,fresh,error==E_ACCESSDENIED);
     }
     static void compose(const CameraImage& camera, const OverlayImage& overlay, std::vector<uint8_t>& output) {
         StageTimer timing(VideoStage::Compose);
@@ -302,39 +289,32 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam
     if(!app)return DefWindowProcW(window,message,wParam,lParam);
     switch(message) {
     case WM_CREATE: {
-        auto control=[&](const wchar_t* cls,const wchar_t* label,DWORD style,UINT id) {return CreateWindowExW(0,cls,label,WS_CHILD|WS_VISIBLE|WS_TABSTOP|style,0,0,1,1,window,reinterpret_cast<HMENU>(UINT_PTR(id)),GetModuleHandleW(nullptr),nullptr);};
-        app->combo=control(L"COMBOBOX",L"",CBS_DROPDOWNLIST|WS_VSCROLL,CameraId);
-        app->retry=control(L"BUTTON",L"Retry",BS_PUSHBUTTON,RetryId);
-        app->select=control(L"BUTTON",L"Select",BS_AUTORADIOBUTTON|WS_GROUP,SelectId);
-        app->pen=control(L"BUTTON",L"Pen",BS_AUTORADIOBUTTON,PenId);
-        SendMessageW(app->select,BM_SETCHECK,BST_CHECKED,0);
-        app->clear=control(L"BUTTON",L"Clear annotations",BS_PUSHBUTTON,ClearId);
-        app->privacy=control(L"BUTTON",L"Camera privacy settings",BS_PUSHBUTTON,PrivacyId);
-        const wchar_t* names[]={L"Name card",L"Animated card",L"Five-minute timer"};
-        for(int i=0;i<3;++i){app->checks[i]=control(L"BUTTON",names[i],BS_AUTOCHECKBOX,CardId+i);SendMessageW(app->checks[i],BM_SETCHECK,BST_CHECKED,0);}
-        app->dpi=GetDpiForWindow(window)/96.0f;app->buildFonts();app->layout();app->enumerate(true);
-        app->overlay.update(app->scene());app->overlay.initialize(GetModuleHandleW(nullptr));
-        app->worker=std::thread([app]{app->videoLoop();});SetTimer(window,1,33,nullptr);return 0;
+        try {
+            WorkspaceActions actions;
+            actions.camera=[app](int index){if(index<0 || index>=int(app->devices.size()))return;app->selectedCamera=index;app->choose();std::vector<std::wstring> names;for(const auto& d:app->devices)names.push_back(d.name);app->workspace->cameras(names,index);};
+            actions.selectCard=[app](int index){app->selectedCard=index;app->penMode=false;app->workspace->penMode(false);app->syncCards();InvalidateRect(app->window,nullptr,FALSE);};
+            actions.visibility=[app](int index,bool show){app->cards[index].visible=show;app->changed();};
+            actions.pen=[app](bool pen){app->penMode=pen;app->dragging=app->drawing=false;ReleaseCapture();};
+            actions.retry=[app]{if(app->overlay.state->failed)app->overlay.retry(GetModuleHandleW(nullptr));app->enumerate();};
+            actions.privacy=[] {ShellExecuteW(nullptr,L"open",L"ms-settings:privacy-webcam",nullptr,nullptr,SW_SHOWNORMAL);};
+            actions.hideAll=[app]{for(auto& card:app->cards)card.visible=false;app->changed();};
+            actions.clear=[app]{if(MessageBoxW(app->window,L"Clear all annotations? This cannot be undone.",L"Clear annotations",MB_YESNO|MB_ICONQUESTION)==IDYES){app->strokes.clear();app->changed();}};
+            actions.quit=[app]{PostMessageW(app->window,WM_CLOSE,0,0);};
+            actions.layout=[app]{app->layout();};
+            app->workspace=std::make_unique<Workspace>(window,std::move(actions));
+            app->dpi=GetDpiForWindow(window)/96.0f;app->buildFonts();app->layout();app->enumerate(true);app->syncCards();
+            app->overlay.update(app->scene());app->overlay.initialize(GetModuleHandleW(nullptr));
+            app->worker=std::thread([app]{app->videoLoop();});SetTimer(window,1,33,nullptr);return 0;
+        } catch(winrt::hresult_error const& error) {Resources().event("workspace_controls_failed hresult="+std::to_string(error.code().value));MessageBoxW(window,L"Couldn't open the workspace. Close and reopen Callayers.",L"Callayers",MB_OK|MB_ICONERROR);return -1;}
+        catch(...) {Resources().event("workspace_controls_failed");MessageBoxW(window,L"Couldn't open the workspace. Close and reopen Callayers.",L"Callayers",MB_OK|MB_ICONERROR);return -1;}
     }
-    case WM_COMMAND: {
-        UINT id=LOWORD(wParam);
-        if(id==CameraId && HIWORD(wParam)==CBN_SELCHANGE){app->selectedCamera=int(SendMessageW(app->combo,CB_GETCURSEL,0,0));app->choose();}
-        else if(id==RetryId) {
-            if(app->overlay.state->failed) app->overlay.retry(GetModuleHandleW(nullptr));
-            app->enumerate();
-        }
-        else if(id==SelectId || id==PenId){app->penMode=id==PenId;SendMessageW(app->select,BM_SETCHECK,app->penMode?BST_UNCHECKED:BST_CHECKED,0);SendMessageW(app->pen,BM_SETCHECK,app->penMode?BST_CHECKED:BST_UNCHECKED,0);}
-        else if(id==ClearId){if(MessageBoxW(window,L"Clear all annotations? This cannot be undone.",L"Clear annotations",MB_YESNO|MB_ICONQUESTION)==IDYES){app->strokes.clear();app->changed();}}
-        else if(id==PrivacyId)ShellExecuteW(window,L"open",L"ms-settings:privacy-webcam",nullptr,nullptr,SW_SHOWNORMAL);
-        else if(id>=CardId && id<CardId+3){app->cards[id-CardId].visible=SendMessageW(app->checks[id-CardId],BM_GETCHECK,0,0)==BST_CHECKED;app->changed();}
-        return 0;
-    }
-    case WM_TIMER:app->updateDemand();app->overlay.capture();if(!IsIconic(window))InvalidateRect(window,nullptr,FALSE);return 0;
-    case WM_SIZE:if(app->combo){app->layout();app->updateDemand();}return 0;
+    case WM_TIMER:app->updateDemand();app->overlay.capture();if(!IsIconic(window)){app->refreshWorkspace();InvalidateRect(window,nullptr,FALSE);}return 0;
+    case WM_SIZE:if(app->workspace){app->layout();app->updateDemand();}return 0;
     case WM_DPICHANGED: {
         app->dpi=HIWORD(wParam)/96.0f;app->buildFonts();auto r=reinterpret_cast<RECT*>(lParam);SetWindowPos(window,nullptr,r->left,r->top,r->right-r->left,r->bottom-r->top,SWP_NOZORDER|SWP_NOACTIVATE);app->layout();return 0;
     }
     case WM_GETMINMAXINFO: {auto limits=reinterpret_cast<MINMAXINFO*>(lParam);limits->ptMinTrackSize={app->px(1000),app->px(760)};return 0;}
+    case WM_KEYDOWN:if(wParam==VK_TAB && app->workspace){app->workspace->focus((GetKeyState(VK_SHIFT)&0x8000)!=0);return 0;}break;
     case WM_LBUTTONDOWN:app->pointerDown(GET_X_LPARAM(lParam),GET_Y_LPARAM(lParam));return 0;
     case WM_MOUSEMOVE:app->pointerMove(GET_X_LPARAM(lParam),GET_Y_LPARAM(lParam));return 0;
     case WM_LBUTTONUP:app->dragging=app->drawing=false;ReleaseCapture();return 0;
@@ -345,7 +325,7 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam
     case WM_PAINT:app->paint();return 0;
     case WM_CLOSE:
         if(app->bridge.consumerActive() && MessageBoxW(window,L"Quit Callayers and stop video in your calling app?",L"Stop video and quit",MB_YESNO|MB_ICONQUESTION)!=IDYES)return 0;
-        app->quitting=true;app->demand=false;app->bridge.stop();KillTimer(window,1);app->overlay.enable(false);
+        app->quitting=true;app->demand=false;app->bridge.stop();KillTimer(window,1);app->overlay.enable(false);app->workspace.reset();
         DestroyWindow(window);return 0;
     case WM_DESTROY:app->quitting=true;app->bridge.stop();PostQuitMessage(0);return 0;
     }
@@ -359,16 +339,19 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,LPWSTR,int show) {
     if(FAILED(com) || FAILED(MFStartup(MF_VERSION))){MessageBoxW(nullptr,L"Windows couldn't start the video services.",L"Callayers",MB_OK|MB_ICONERROR);CloseHandle(single);return 1;}
     InitCommonControls();
     int result=0;
-    {
+    try {
+        WorkspaceRuntime runtime;
         App app;
         if(!app.bridge.valid()){MessageBoxW(nullptr,L"Couldn't prepare Callayers video. Close and reopen the app.",L"Callayers",MB_OK|MB_ICONERROR);result=1;}
         else {
             WNDCLASSW wc{};wc.lpfnWndProc=WindowProc;wc.hInstance=instance;wc.lpszClassName=L"CallayersFoundation";wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);wc.hIcon=LoadIconW(instance,MAKEINTRESOURCEW(1));RegisterClassW(&wc);
-            HWND window=CreateWindowExW(0,wc.lpszClassName,L"Callayers — Video foundation",WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,CW_USEDEFAULT,CW_USEDEFAULT,1280,850,nullptr,nullptr,instance,&app);
-            if(window){ShowWindow(window,show);MSG message{};while(GetMessageW(&message,nullptr,0,0)>0){if(!IsDialogMessageW(window,&message)){TranslateMessage(&message);DispatchMessageW(&message);}}}
+            HWND window=CreateWindowExW(0,wc.lpszClassName,L"Callayers",WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,CW_USEDEFAULT,CW_USEDEFAULT,1280,850,nullptr,nullptr,instance,&app);
+            if(window){ShowWindow(window,show);MSG message{};while(GetMessageW(&message,nullptr,0,0)>0){if(!ContentPreTranslateMessage(&message)){TranslateMessage(&message);DispatchMessageW(&message);}}}
             else {app.quitting=true;result=1;}
             if(app.worker.joinable())app.worker.join();
         }
     }
+    catch(winrt::hresult_error const& error) {Resources().event("workspace_runtime_failed hresult="+std::to_string(error.code().value));MessageBoxW(nullptr,L"Couldn't start the Callayers workspace. Make sure Windows App Runtime 1.6 is installed, then reopen the app.",L"Callayers",MB_OK|MB_ICONERROR);result=1;}
+    catch(...) {Resources().event("workspace_runtime_failed");MessageBoxW(nullptr,L"Couldn't start the Callayers workspace. Close and reopen the app.",L"Callayers",MB_OK|MB_ICONERROR);result=1;}
     MFShutdown();CoUninitialize();ReleaseMutex(single);CloseHandle(single);return result;
 }

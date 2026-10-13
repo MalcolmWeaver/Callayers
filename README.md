@@ -1,10 +1,10 @@
-# Callayers video foundation
+# Callayers development workspace
 
-Fresh Windows x64 implementation of step 1 in [the v2 specs](spec-v2/README.md). The first user verification setup is **USB Camera → Callayers → Google Meet in Brave**.
+Fresh Windows x64 implementation of [the v2 specs](spec-v2/README.md). The video foundation and WinUI workspace are accepted by the user. The first verification setup is **USB Camera → Callayers → Google Meet in Brave**.
 
 ## Build and open
 
-Requires Windows 10/11 x64, Visual Studio C++ Build Tools, CMake, and the Microsoft Edge WebView2 Runtime. The build script uses a pinned WebView2 SDK from the local NuGet cache or downloads that SDK from NuGet when absent.
+Requires Windows 10/11 x64, Visual Studio C++ Build Tools, CMake, Microsoft Edge WebView2 Runtime and Windows App Runtime 1.6. The build script uses pinned WebView2 and Windows App SDK packages from the local NuGet cache or downloads them when absent. It generates C++/WinRT projections with the Windows SDK's cppwinrt tool; runtime installation is a separate prerequisite.
 
 ```powershell
 ./scripts/build.ps1
@@ -14,13 +14,25 @@ Double-click **Start Callayers.cmd**. It registers the new DirectShow camera for
 
 This is a development harness with fixed cards, a five-minute timer, an animated card, pen annotations, visibility toggles, and drag/resize. The uniquely named `USB Camera` is selected initially; otherwise choose explicitly. Retry preserves the device identity and never substitutes another webcam. Changes are temporary. This build intentionally has no sign-in, AI, saved-card library, or release installer and must not be distributed as the authenticated product.
 
+The new WinUI workspace has a dark header, webcam selector/status, searchable sample-card sidebar, independent card selection/visibility, Hide all, a large native preview, a compact Select/Pen/Clear toolbar, and actionable camera help. AI/import controls are disabled pending their planned milestones. No saved-work behavior is implied.
+
+To preserve the accepted executable during the workspace walkthrough, build and launch the isolated output:
+
+```powershell
+.\scripts\build.ps1 -WorkspaceBuild
+& .\build\workspace-x64\Release\Callayers.exe
+```
+
+Close any other Callayers instance before launching. The already registered foundation camera shares the same video bridge; no new registration is necessary on this workspace. For a new PC, first build/register the standard output with `Start Callayers.cmd`. Workspace verification evidence is preserved in Git. Give future improvements their own temporary checklist and follow [AGENTS.md](AGENTS.md). Use `-WorkspaceBuild` with the measurement helper to count the correct executable.
+
 The user performs every runtime check. The foundation and current resource cost have been accepted for the MVP; final evidence is preserved in Git. Follow [the delivery plan](spec-v2/README.md) and [feature verification guidance](AGENTS.md) for the next improvement. Compilation alone does not establish that video, transparency, minimize behavior, DirectShow discovery, or performance work.
 
 ## Structure
 
 - `native/capture.*`: asynchronous Media Foundation webcam capture; latest image only.
 - `native/overlay.*` and `web/overlay.html`: one transparent WebView2 page, sandboxed iframe per visible fixed card, parent-owned placement and annotations. Hiding removes the iframe; showing reloads it and resets its timer. Browser requests, downloads, device permissions, host objects and messages are denied.
-- `native/app.cpp`: minimal native controls, background compositor, scaled preview and private selection handles.
+- `native/workspace.*`: WinUI 3 XAML islands, controls and UI-thread callbacks. The application message loop filters island keyboard input; XAML and dispatcher lifetimes finish before runtime shutdown.
+- `native/app.cpp`: existing background compositor, scaled native preview, private selection handles and workspace integration. The UI is separate from the finished outgoing picture.
 - `native/frame_bridge.h`: fixed-size local shared memory, non-waiting copy lock, session identity, source freshness and consumer heartbeat.
 - `native/camera_filter.cpp`: x64 DirectShow source, RGB24/RGB32 720p at 30 fps, paced delivery, neutral output generated in the consumer process.
 

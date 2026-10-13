@@ -8,11 +8,13 @@ param(
     [ValidateRange(5, 600)][int]$Seconds = 30,
     [ValidateRange(0, 120)][int]$DelaySeconds = 5,
     [string]$Notes = '',
-    [switch]$DiagnosticsBuild
+    [switch]$DiagnosticsBuild,
+    [switch]$WorkspaceBuild
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
-$appRelativePath = if ($DiagnosticsBuild) { 'build\diagnostics-x64\Release\Callayers.exe' } else { 'build\x64\Release\Callayers.exe' }
+if ($DiagnosticsBuild -and $WorkspaceBuild) { throw 'Choose one build output.' }
+$appRelativePath = if ($WorkspaceBuild) { 'build\workspace-x64\Release\Callayers.exe' } elseif ($DiagnosticsBuild) { 'build\diagnostics-x64\Release\Callayers.exe' } else { 'build\x64\Release\Callayers.exe' }
 $appPath = [IO.Path]::GetFullPath((Join-Path $repo $appRelativePath))
 $profilePath = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'Callayers\Foundation\WebView2'))
 $profilePattern = '(?i)(?:^|\s)"?--user-data-dir=(?:"' + [regex]::Escape($profilePath) + '"|' + [regex]::Escape($profilePath) + ')"?(?:\s|$)'

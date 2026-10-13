@@ -1,4 +1,4 @@
-param([ValidateSet('Debug','Release')][string]$Configuration = 'Release', [switch]$DiagnosticsBuild)
+param([ValidateSet('Debug','Release')][string]$Configuration = 'Release', [switch]$DiagnosticsBuild, [switch]$WorkspaceBuild)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
@@ -19,10 +19,22 @@ if (-not (Test-Path -LiteralPath (Join-Path $sdk 'include\WebView2.h'))) {
     }
     $sdk = Join-Path $unpacked 'build\native'
 }
-$build = Join-Path $repo $(if ($DiagnosticsBuild) { 'build\diagnostics-x64' } else { 'build\x64' })
-& cmake -S $repo -B $build -G $generator -A x64 "-DCMAKE_GENERATOR_INSTANCE=$($installation.installationPath)" "-DWEBVIEW2_ROOT=$sdk"
+$winui = Join-Path $env:USERPROFILE '.nuget\packages\microsoft.windowsappsdk\1.6.250602001'
+if (-not (Test-Path -LiteralPath (Join-Path $winui 'include\MddBootstrap.h'))) {
+    $deps = Join-Path $repo '.deps'
+    New-Item -ItemType Directory -Path $deps -Force | Out-Null
+    $package = Join-Path $deps 'windowsappsdk-1.6.250602001.zip'
+    $winui = Join-Path $deps 'windowsappsdk-1.6.250602001'
+    if (-not (Test-Path -LiteralPath (Join-Path $winui 'include\MddBootstrap.h'))) {
+        Invoke-WebRequest -Uri 'https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk/1.6.250602001/microsoft.windowsappsdk.1.6.250602001.nupkg' -OutFile $package
+        Expand-Archive -LiteralPath $package -DestinationPath $winui -Force
+    }
+}
+if ($DiagnosticsBuild -and $WorkspaceBuild) { throw 'Choose one build output.' }
+$build = Join-Path $repo $(if ($WorkspaceBuild) { 'build\workspace-x64' } elseif ($DiagnosticsBuild) { 'build\diagnostics-x64' } else { 'build\x64' })
+& cmake -S $repo -B $build -G $generator -A x64 "-DCMAKE_GENERATOR_INSTANCE=$($installation.installationPath)" "-DWEBVIEW2_ROOT=$sdk" "-DWINDOWSAPPSDK_ROOT=$winui"
 if ($LASTEXITCODE -ne 0) { throw 'Build configuration failed.' }
 & cmake --build $build --config $Configuration --parallel 4
 if ($LASTEXITCODE -ne 0) { throw 'Compilation failed. Close Callayers and any calling app holding its camera DLL before rebuilding.' }
 Write-Host "Build ready: $build\$Configuration\Callayers.exe"
-Write-Host 'Runtime verification has not been performed. Follow docs/verification.md with the user.'
+Write-Host 'Runtime verification has not been performed. Follow docs/winui-workspace-verification.md with the user.'
