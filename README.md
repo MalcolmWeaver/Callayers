@@ -14,7 +14,7 @@ Double-click **Start Callayers.cmd**. It registers the new DirectShow camera for
 
 This is a development harness with fixed cards, a five-minute timer, an animated card, pen annotations, visibility toggles, and drag/resize. The uniquely named `USB Camera` is selected initially; otherwise choose explicitly. Retry preserves the device identity and never substitutes another webcam. Changes are temporary. This build intentionally has no sign-in, AI, saved-card library, or release installer and must not be distributed as the authenticated product.
 
-The user performs every runtime check. Follow [the verification guide](docs/verification.md), report observations, and fix failures before expanding the MVP. Compilation alone does not establish that video, transparency, minimize behavior, DirectShow discovery, or performance work.
+The user performs every runtime check. The foundation and current resource cost have been accepted for the MVP; final evidence is preserved in Git. Follow [the delivery plan](spec-v2/README.md) and [feature verification guidance](AGENTS.md) for the next improvement. Compilation alone does not establish that video, transparency, minimize behavior, DirectShow discovery, or performance work.
 
 ## Structure
 
