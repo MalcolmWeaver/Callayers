@@ -41,9 +41,9 @@ Follow [AGENTS.md](../AGENTS.md): explain the few high-level outcomes first, the
 
 Use one temporary verification file per meaningful improvement. While work is active, it holds the checklist and results. When closed, commit the final outcome and tested build, carry unresolved issues into focused follow-up work, then remove the file from the working tree in a subsequent commit. Git preserves historical evidence; completed checks do not become enduring product requirements.
 
-The foundation and resource investigation are closed. Their tested builds, measurements and acceptance are preserved in Git; give the WinUI workspace its own focused verification checklist.
+The foundation, resource investigation and WinUI workspace are closed. Their tested builds, measurements and acceptance are preserved in Git; give each new improvement its own focused verification checklist.
 
-The assistant may stop this workspace's running development app to rebuild after giving notice. Start with the WinUI workspace; decide and state any change in priority before treating it as the new plan.
+The assistant may stop this workspace's running development app to rebuild after giving notice. Remembering the webcam is next; decide and state any change in priority before treating it as the new plan.
 
 ## Reference files
 

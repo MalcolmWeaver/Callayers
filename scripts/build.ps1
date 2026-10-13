@@ -37,4 +37,4 @@ if ($LASTEXITCODE -ne 0) { throw 'Build configuration failed.' }
 & cmake --build $build --config $Configuration --parallel 4
 if ($LASTEXITCODE -ne 0) { throw 'Compilation failed. Close Callayers and any calling app holding its camera DLL before rebuilding.' }
 Write-Host "Build ready: $build\$Configuration\Callayers.exe"
-Write-Host 'Runtime verification has not been performed. Follow docs/winui-workspace-verification.md with the user.'
+Write-Host 'This compilation is not a runtime pass. Follow the active feature checklist and AGENTS.md with the user.'
