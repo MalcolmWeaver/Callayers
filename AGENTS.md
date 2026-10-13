@@ -1,16 +1,26 @@
 # Feature building and verification
 
-Build for useful outcomes a person can understand. Keep each feature small enough that the user can clearly confirm we accomplished what we intended. If verification becomes sprawling, rethink or split the feature.
+Build small improvements with observable outcomes.
 
-Before verification, explain the few high-level outcomes we need to confirm and where the walkthrough ends. Create a short feature-verification Markdown file with nested checkboxes so scope and progress remain visible.
+## Feature verification
 
-Keep one verification file per meaningful feature or improvement. Verification files are temporary working documents, not enduring specifications. Keep them during implementation and verification. Record the final outcome and tested build in Git, then remove the file from the working tree when the work is closed. Carry unresolved issues into explicitly scoped follow-up work. Historical verification must not constrain later product decisions. Recheck only what a later change affects; give new improvements their own file.
+Create a verification Markdown file only when a build is ready and the user can verify it now. The file's existence means verification is the current action. Do not use it for implementation planning or status reporting.
 
-Guide the user through one concrete action at a time. Include exact commands for the specific build and explain the expected result. Wait for their observation, then update the checklist. The user performs runtime verification; the agent prepares builds, reads results, and fixes failures.
+Include only:
 
-Include resource measurements when they matter to usability. Reuse evidence when it answers multiple checks. Distinguish “measured” from “acceptable,” and never assume a pass.
+- A short feature title.
+- The exact launch command, if needed.
+- A flat checklist of actions and expected new behavior: **“Do this. You should see this.”**
 
-Keep standards high: fix broken behavior or missing core functionality. Add checks only for a concrete reason. Finish by summarizing what works, what needs improvement, and asking whether the verification process was clear and manageable.
+Usually use three checks or fewer. Add another only when it confirms a distinct behavior affected by the change. If verification grows substantially, split the improvement.
+
+Exclude implementation details, build hashes, result logs, scope explanations, unchanged behavior, agent responsibilities and closure checkboxes.
+
+The user performs runtime verification; the agent prepares builds and fixes failures. Guide one check at a time in chat and wait for the user's observation. Fix reported failures. Accept an explicit statement that verification is done without requiring a closing questionnaire. Do not invent observations or measurements.
+
+The agent records the accepted outcome and tested build in Git, then removes the verification file. If further implementation becomes the current action, remove the file until a replacement build is ready; retain observations in the task history.
+
+Add resource measurements only when needed to assess a concrete usability concern.
 
 ## Model recommendations
 

@@ -248,9 +248,9 @@ struct App {
             else {state=L"Choose your webcam";message=devices.empty()?L"Connect your webcam, then choose Retry.":L"Choose your webcam.\nYour camera and cards will appear here.";}
         }
         else if(overlay.state->failed) {state=L"Cards unavailable";message=L"We couldn't show your cards. Choose Retry to restart them.";}
-        else if(error==E_ACCESSDENIED) {state=L"Camera unavailable";message=L"Windows is blocking camera access. Allow camera access for desktop apps in Windows settings, then Retry.";}
-        else if(error==HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION)) {state=L"Camera unavailable";message=L"Your webcam is being used by another app. Close that app's camera preview, then Retry.";}
-        else if(FAILED(error)) {state=L"Camera unavailable";message=L"We couldn't get a picture from this webcam. Close other camera previews or reconnect it, then Retry.";}
+        else if(error==E_ACCESSDENIED) {state=L"Camera access blocked";message=L"Camera access blocked.\nOpen Camera privacy settings. Turn on Camera access and Let desktop apps access your camera, then Retry.";}
+        else if(error==HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION)) {state=L"Camera in use";message=L"Camera in use.\nYour webcam is being used by another app. Close that app's camera preview or stop its video, then Retry.";}
+        else if(FAILED(error)) {state=L"Camera not readable";message=L"Camera not readable.\nClose other apps using your webcam (the webcam light should turn off), then Retry.";}
         else if(!fresh) {state=L"Opening your webcam";message=opening?L"Opening your webcam…":L"Waiting for a picture. If it doesn't appear, choose Retry.";}
         else state=bridge.consumerActive()?L"Video is reaching your calling app":L"Ready for your call";
         if(fresh && preferenceSaveFailed)state=L"Couldn't remember webcam";
@@ -292,13 +292,18 @@ struct App {
                     std::wstring identity; {std::lock_guard lock(commandMutex);identity=wantedIdentity;}
                     attempted=true; opening=true;
                     HRESULT hr=identity.empty()?E_INVALIDARG:camera.start(identity);
+                    if(FAILED(hr)) {std::ostringstream diagnostic;diagnostic<<"camera_open_failed hresult=0x"<<std::hex<<static_cast<unsigned long>(hr);Resources().event(diagnostic.str());}
                     opening=false;
                     if(version!=commandVersion || !demand || quitting) {camera.stop();attempted=false;continue;}
                     captureError=hr; started=SUCCEEDED(hr);
                     if(started) session=bridge.begin();
                 }
                 if(started && demand) {
-                    if(FAILED(camera.state->error.load())) {captureError=camera.state->error.load();bridge.stop();camera.stop();started=false;}
+                    if(FAILED(camera.state->error.load())) {
+                        captureError=camera.state->error.load();
+                        std::ostringstream diagnostic;diagnostic<<"camera_read_failed hresult=0x"<<std::hex<<static_cast<unsigned long>(captureError.load());Resources().event(diagnostic.str());
+                        bridge.stop();camera.stop();started=false;
+                    }
                     else {
                         std::vector<uint8_t> png; ULONGLONG tick=0; unsigned epoch=0;
                         {std::lock_guard lock(overlay.state->mutex);png.swap(overlay.state->png);tick=overlay.state->tick;epoch=overlay.state->epoch;}

@@ -33,11 +33,11 @@ When something goes wrong, explain the problem and the next action in that same 
 | Problem | Message and action |
 | --- | --- |
 | Remembered camera missing | **Your saved webcam isn't connected.** Reconnect it and Retry, or choose another camera. If none are listed, ask the user to connect one. |
-| Permission denied | **Windows is blocking camera access.** Open Windows camera privacy settings, allow camera access for desktop apps, then Retry. |
-| Camera reports that it is in use | **Your webcam is being used by another app.** Close that app's camera preview or stop its video, then Retry. Choose another camera if needed. |
-| Cannot open or read the camera; cause unknown | **We couldn't get a picture from this webcam.** Close other apps that might be using it, then Retry. If that doesn't help, reconnect it or choose another camera. |
+| Permission denied | **Camera access blocked.** Open Camera privacy settings. Turn on Camera access and Let desktop apps access your camera, then Retry. |
+| Camera reports that it is in use | **Camera in use.** Your webcam is being used by another app. Close that app's camera preview or stop its video, then Retry. |
+| Cannot open or read the camera; cause unknown | **Camera not readable.** Close other apps using your webcam (the webcam light should turn off), then Retry. |
 
-Only name a cause when Windows provides enough information. A camera light turning off can help indicate release, but is not a reliable requirement or diagnosis. Keep the remembered choice visible and let the user retry; do not ask them to guess technical error codes.
+Only name a cause when Windows provides enough information. Use the webcam light as a simple supporting check after closing other apps. Keep the remembered choice visible and let the user retry; do not ask them to guess technical error codes.
 
 After the camera works, the empty sidebar says **Create your first card**. Keep **In your calling app, choose Callayers** beside Use in a call. Show each instruction where it is useful rather than putting a three-step checklist over the preview.
 
