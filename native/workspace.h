@@ -19,11 +19,11 @@ class Workspace {
 public:
     Workspace(HWND window, WorkspaceActions actions);
     ~Workspace();
-    void cameras(const std::vector<std::wstring>& names, int selected);
+    void cameras(const std::vector<std::wstring>& names, int selected, const std::wstring& missingName=L"");
     void card(int selected, const bool* visible);
     void penMode(bool pen);
     void focus(bool reverse);
-    void state(const std::wstring& status, const std::wstring& help, bool fresh, bool privacy);
+    void state(const std::wstring& status, const std::wstring& help, bool fresh, bool privacy, bool retryPreference=false);
     void layout(int width, int height, float dpi, const RECT& preview);
     int toolbarHeight() const;
 };

@@ -25,7 +25,7 @@ Resource measurements and the focused investigation are complete. On October 13,
 ### Remaining delivery order
 
 1. **Use a proper WinUI workspace — accepted.** The dark header, sample-card sidebar, large preview, compact Select/Pen/Clear toolbar and camera help are implemented. Saved/imported cards, authentication/AI and the remaining annotation tools stay in their following milestones. Whole-card proportional scaling is also implemented and accepted by the user on October 13, 2026 (build SHA256 `4214D343D03FA5C191FD69F14601693EF2F54052DAE93E2AF95C1CAE6CEF6B5E`). Its tested-build record is preserved in Git; no additional resource sample was required.
-2. **Return to the same webcam — next.** Remember device identity; reopen it automatically and offer Retry/selection when unavailable, without silently substituting another camera.
+2. **Return to the same webcam — accepted.** Remember device identity after a working picture; reopen it automatically and offer Retry/selection when unavailable, without silently substituting another camera. User explicitly accepted verification on October 13, 2026; tested build SHA256 `C699F4E235B70289D35DECCE52E1C3EEB8A85757E7741D79A169AC86594DB447`. Accepted outcome/build evidence is preserved in Git.
 3. **Import and keep cards.** Add image import and the saved local library: search, independent selection/visibility, rename, stacking and delete. Autosave cards, placement and visibility; verify that reopening restores the user's work. Split this outcome further if its walkthrough becomes unwieldy.
 4. **Annotate the presentation.** Complete shapes, text, color/size, selection/movement/resizing, whole-object Eraser and confirmed Clear. Save annotations with the workspace and keep editing controls private.
 5. **Sign in and retain the session.** Connect Google/Firebase sign-in and account validation through the backend. The finished app requires authentication for editing and live output. Verify return-to-app, remembered session and sign-out stopping output while preserving local work.
@@ -43,7 +43,7 @@ Use one temporary verification file per meaningful improvement. While work is ac
 
 The foundation, resource investigation and WinUI workspace are closed. Their tested builds, measurements and acceptance are preserved in Git; give each new improvement its own focused verification checklist.
 
-The assistant may stop this workspace's running development app to rebuild after giving notice. Remembering the webcam is next; decide and state any change in priority before treating it as the new plan.
+The assistant may stop this workspace's running development app to rebuild after giving notice. Follow the remaining delivery order; decide and state any change in priority before treating it as the new plan.
 
 ## Reference files
 

@@ -16,6 +16,7 @@
 #include "frame_bridge.h"
 #include "resource_diagnostics.h"
 #include "workspace.h"
+#include "camera_preferences.h"
 #include <Microsoft.UI.Dispatching.Interop.h>
 #include <winrt/base.h>
 
@@ -43,6 +44,12 @@ struct App {
     int selectedCamera = -1;
     std::mutex commandMutex, previewMutex;
     std::wstring wantedIdentity;
+    std::wstring wantedName;
+    CameraPreferences preferences;
+    CameraPreference rememberedCamera, savingCamera;
+    unsigned preferenceRevision=0, preferenceAttemptedVersion=0;
+    HRESULT preferenceLoadError=S_OK;
+    bool preferenceSaveFailed=false;
     std::atomic<unsigned> commandVersion{1};
     std::atomic<bool> demand{false}, quitting{false};
     std::atomic<HRESULT> captureError{S_OK};
@@ -83,26 +90,49 @@ struct App {
     void syncCards() { if(workspace) { bool visible[3]{cards[0].visible,cards[1].visible,cards[2].visible}; workspace->card(selectedCard,visible); } }
     void changed() { overlay.update(scene()); syncCards(); InvalidateRect(window, nullptr, FALSE); }
     void enumerate(bool initial = false) {
+        if(initial) {
+            rememberedCamera=preferences.load(preferenceLoadError);
+            std::lock_guard lock(commandMutex);wantedIdentity=rememberedCamera.identity;wantedName=rememberedCamera.name;
+        }
         std::wstring previous; { std::lock_guard lock(commandMutex); previous=wantedIdentity; }
         devices = EnumerateCameras(); selectedCamera = -1;
         for (size_t i = 0; i < devices.size(); ++i) {
             if (devices[i].identity == previous) selectedCamera = int(i);
         }
-        if (initial) {
-            int matches = 0;
-            for (size_t i = 0; i < devices.size(); ++i) if (devices[i].name == L"USB Camera") { selectedCamera = int(i); ++matches; }
-            if (matches != 1) selectedCamera = -1;
-        }
-        std::vector<std::wstring> names; for(const auto& device:devices)names.push_back(device.name);
-        if(workspace)workspace->cameras(names,selectedCamera);
         choose();
     }
     void choose() {
         invalidateOutput();
         { std::lock_guard lock(previewMutex); preview.reset(); }
-        { std::lock_guard lock(commandMutex); wantedIdentity = selectedCamera >= 0 ? devices[selectedCamera].identity : L""; }
+        // An absent device retains the requested identity. Only explicit camera
+        // selection changes it; Retry never substitutes another enumerated item.
+        if(selectedCamera>=0) {
+            std::lock_guard lock(commandMutex);wantedIdentity=devices[selectedCamera].identity;wantedName=devices[selectedCamera].name;
+            preferenceLoadError=S_OK;
+        }
+        preferenceSaveFailed=false;
+        std::vector<std::wstring> names;for(const auto& device:devices)names.push_back(device.name);
+        if(workspace)workspace->cameras(names,selectedCamera,selectedCamera<0?wantedName:L"");
         captureError = S_OK; ++commandVersion;
         updateDemand();
+    }
+    void rememberWorkingCamera(bool fresh) {
+        if(preferenceRevision) {
+            auto result=preferences.result();
+            if(!result.saved.identity.empty())rememberedCamera=result.saved;
+            if(result.revision==preferenceRevision) {
+                preferenceSaveFailed=FAILED(result.error) && savingCamera.identity==wantedIdentity;
+                preferenceRevision=0;
+            }
+        }
+        unsigned version=commandVersion;
+        if(!fresh || preferenceAttemptedVersion==version)return;
+        preferenceAttemptedVersion=version;
+        // A pending write for a different choice must also be superseded when
+        // the user returns to the earlier saved camera (A -> B -> A).
+        if(!preferenceRevision && rememberedCamera.identity==wantedIdentity && rememberedCamera.name==wantedName)return;
+        savingCamera={wantedIdentity,wantedName};preferenceSaveFailed=false;
+        preferenceRevision=preferences.save(savingCamera);
     }
     void updateDemand() {
         bool wanted = selectedCamera >= 0 && (!IsIconic(window) || bridge.consumerActive());
@@ -209,15 +239,22 @@ struct App {
         { std::lock_guard lock(previewMutex); frame=preview; }
         HRESULT error=captureError.load();
         bool fresh=frame && frame->live && frame->version==commandVersion && GetTickCount64()-frame->tick<FreshMs && demand && SUCCEEDED(error) && !overlay.state->failed;
+        rememberWorkingCamera(fresh);
+        if(IsIconic(window))return; // Persist a working choice even in a minimized call, without updating hidden XAML.
         std::wstring message, state;
-        if(selectedCamera<0) {state=L"Choose your webcam";message=devices.empty()?L"Connect your webcam, then choose Retry.":L"Choose your webcam.\nYour camera and cards will appear here.";}
+        if(selectedCamera<0) {
+            if(!wantedIdentity.empty()) {state=L"Webcam not connected";message=rememberedCamera.identity==wantedIdentity?L"Your saved webcam isn't connected. Reconnect it and Retry, or choose another camera.":L"Your webcam isn't connected. Reconnect it and Retry, or choose another camera.";}
+            else if(FAILED(preferenceLoadError)) {state=L"Choose your webcam";message=L"We couldn't read your saved webcam choice. Choose your webcam to remember it again.";}
+            else {state=L"Choose your webcam";message=devices.empty()?L"Connect your webcam, then choose Retry.":L"Choose your webcam.\nYour camera and cards will appear here.";}
+        }
         else if(overlay.state->failed) {state=L"Cards unavailable";message=L"We couldn't show your cards. Choose Retry to restart them.";}
         else if(error==E_ACCESSDENIED) {state=L"Camera unavailable";message=L"Windows is blocking camera access. Allow camera access for desktop apps in Windows settings, then Retry.";}
         else if(error==HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION)) {state=L"Camera unavailable";message=L"Your webcam is being used by another app. Close that app's camera preview, then Retry.";}
         else if(FAILED(error)) {state=L"Camera unavailable";message=L"We couldn't get a picture from this webcam. Close other camera previews or reconnect it, then Retry.";}
         else if(!fresh) {state=L"Opening your webcam";message=opening?L"Opening your webcam…":L"Waiting for a picture. If it doesn't appear, choose Retry.";}
         else state=bridge.consumerActive()?L"Video is reaching your calling app":L"Ready for your call";
-        if(workspace)workspace->state(state,message,fresh,error==E_ACCESSDENIED);
+        if(fresh && preferenceSaveFailed)state=L"Couldn't remember webcam";
+        if(workspace)workspace->state(state,message,fresh,error==E_ACCESSDENIED,fresh && preferenceSaveFailed);
     }
     static void compose(const CameraImage& camera, const OverlayImage& overlay, std::vector<uint8_t>& output) {
         StageTimer timing(VideoStage::Compose);
@@ -305,11 +342,16 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam
     case WM_CREATE: {
         try {
             WorkspaceActions actions;
-            actions.camera=[app](int index){if(index<0 || index>=int(app->devices.size()))return;app->selectedCamera=index;app->choose();std::vector<std::wstring> names;for(const auto& d:app->devices)names.push_back(d.name);app->workspace->cameras(names,index);};
+            actions.camera=[app](int index){if(index<0 || index>=int(app->devices.size()))return;app->selectedCamera=index;app->choose();};
             actions.selectCard=[app](int index){app->selectedCard=index;app->penMode=false;app->workspace->penMode(false);app->syncCards();InvalidateRect(app->window,nullptr,FALSE);};
             actions.visibility=[app](int index,bool show){app->cards[index].visible=show;app->changed();};
             actions.pen=[app](bool pen){app->penMode=pen;app->dragging=app->drawing=false;ReleaseCapture();};
-            actions.retry=[app]{if(app->overlay.state->failed)app->overlay.retry(GetModuleHandleW(nullptr));app->enumerate();};
+            actions.retry=[app]{
+                if(app->preferenceSaveFailed && SUCCEEDED(app->captureError.load()) && app->demand && !app->overlay.state->failed) {
+                    app->preferenceAttemptedVersion=0;app->preferenceSaveFailed=false;app->refreshWorkspace();return;
+                }
+                if(app->overlay.state->failed)app->overlay.retry(GetModuleHandleW(nullptr));app->enumerate();
+            };
             actions.privacy=[] {ShellExecuteW(nullptr,L"open",L"ms-settings:privacy-webcam",nullptr,nullptr,SW_SHOWNORMAL);};
             actions.hideAll=[app]{for(auto& card:app->cards)card.visible=false;app->changed();};
             actions.clear=[app]{if(MessageBoxW(app->window,L"Clear all annotations? This cannot be undone.",L"Clear annotations",MB_YESNO|MB_ICONQUESTION)==IDYES){app->strokes.clear();app->changed();}};
@@ -322,7 +364,7 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam
         } catch(winrt::hresult_error const& error) {Resources().event("workspace_controls_failed hresult="+std::to_string(error.code().value));MessageBoxW(window,L"Couldn't open the workspace. Close and reopen Callayers.",L"Callayers",MB_OK|MB_ICONERROR);return -1;}
         catch(...) {Resources().event("workspace_controls_failed");MessageBoxW(window,L"Couldn't open the workspace. Close and reopen Callayers.",L"Callayers",MB_OK|MB_ICONERROR);return -1;}
     }
-    case WM_TIMER:app->updateDemand();app->overlay.capture();if(!IsIconic(window)){app->refreshWorkspace();InvalidateRect(window,nullptr,FALSE);}return 0;
+    case WM_TIMER:app->updateDemand();app->overlay.capture();app->refreshWorkspace();if(!IsIconic(window))InvalidateRect(window,nullptr,FALSE);return 0;
     case WM_SIZE:if(app->workspace){app->layout();app->updateDemand();}return 0;
     case WM_DPICHANGED: {
         app->dpi=HIWORD(wParam)/96.0f;app->buildFonts();auto r=reinterpret_cast<RECT*>(lParam);SetWindowPos(window,nullptr,r->left,r->top,r->right-r->left,r->bottom-r->top,SWP_NOZORDER|SWP_NOACTIVATE);app->layout();return 0;

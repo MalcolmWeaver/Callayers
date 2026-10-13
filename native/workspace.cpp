@@ -98,6 +98,7 @@ struct Workspace::Impl {
     controls::ContentControl sidebarGate, toolbarGate;
     bool syncing = false, annotating = true;
     bool lastFresh = true, lastPrivacy = false;
+    bool lastRetryPreference = false;
     bool listedVisible[3]{true,true,true};
     std::wstring lastStatus, lastHelp;
     int selected = -1;
@@ -125,7 +126,7 @@ struct Workspace::Impl {
  <Button Grid.Column="1" Content="File" VerticalAlignment="Center"><Button.Flyout><MenuFlyout><MenuFlyoutItem x:Name="Quit" Text="Quit"/></MenuFlyout></Button.Flyout></Button>
  <ToggleButton Grid.Column="2" x:Name="Annotate" Content="✎  Annotate" IsChecked="True" VerticalAlignment="Center"/>
  <ComboBox Grid.Column="3" x:Name="Camera" PlaceholderText="Choose your webcam" Width="220" HorizontalAlignment="Right" VerticalAlignment="Center" AutomationProperties.Name="Webcam"/>
- <TextBlock Grid.Column="4" x:Name="Status" Width="180" FontSize="12" Foreground="#BBB9C8" VerticalAlignment="Center" TextWrapping="Wrap"/>
+ <StackPanel Grid.Column="4" Width="180" VerticalAlignment="Center" Spacing="2"><TextBlock x:Name="Status" FontSize="12" Foreground="#BBB9C8" TextWrapping="Wrap"/><Button x:Name="RetryChoice" Content="Retry" Visibility="Collapsed" ToolTipService.ToolTip="Remember this webcam again"/></StackPanel>
 </Grid>)");
         sidebar = load(LR"(<Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Background="#242428" Padding="20" RowSpacing="16">
  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
@@ -181,6 +182,7 @@ struct Workspace::Impl {
         find<controls::ComboBox>(header,L"Camera").SelectionChanged(cameraChange);
         find<controls::ComboBox>(help,L"HelpCamera").SelectionChanged(cameraChange);
         find<controls::Button>(help,L"Retry").Click([this](auto&&,auto&&){actions.retry();});
+        find<controls::Button>(header,L"RetryChoice").Click([this](auto&&,auto&&){actions.retry();});
         find<controls::Button>(help,L"Privacy").Click([this](auto&&,auto&&){actions.privacy();});
         find<controls::Button>(sidebar,L"HideAll").Click([this](auto&&,auto&&){actions.hideAll();});
         for(int i=0;i<3;++i) {
@@ -216,10 +218,11 @@ struct Workspace::Impl {
 Workspace::Workspace(HWND window,WorkspaceActions actions) : impl_(std::make_unique<Impl>(window,std::move(actions))) {}
 Workspace::~Workspace() = default;
 int Workspace::toolbarHeight() const { return impl_->annotating?56:0; }
-void Workspace::cameras(const std::vector<std::wstring>& names,int selected) {
+void Workspace::cameras(const std::vector<std::wstring>& names,int selected,const std::wstring& missingName) {
     auto& ui=*impl_; ui.syncing=true;
     for(auto combo : {ui.find<controls::ComboBox>(ui.header,L"Camera"), ui.find<controls::ComboBox>(ui.help,L"HelpCamera")}) {
         combo.Items().Clear(); for(const auto& name:names) combo.Items().Append(winrt::box_value(name)); combo.SelectedIndex(selected);
+        combo.PlaceholderText(missingName.empty()?L"Choose your webcam":missingName+L" (not connected)");
     }
     ui.syncing=false;
 }
@@ -244,11 +247,12 @@ void Workspace::penMode(bool pen) {
 void Workspace::focus(bool reverse) {
     auto order=impl_->focusOrder();impl_->focusTarget(reverse?order.back():order.front(),reverse);
 }
-void Workspace::state(const std::wstring& status,const std::wstring& message,bool fresh,bool privacy) {
+void Workspace::state(const std::wstring& status,const std::wstring& message,bool fresh,bool privacy,bool retryPreference) {
     auto& ui=*impl_;
     if(ui.lastStatus!=status){ui.find<controls::TextBlock>(ui.header,L"Status").Text(status);ui.lastStatus=status;}
     if(ui.lastHelp!=message){ui.find<controls::TextBlock>(ui.help,L"Help").Text(message);ui.lastHelp=message;}
     if(ui.lastPrivacy!=privacy){ui.find<controls::Button>(ui.help,L"Privacy").Visibility(privacy?ux::Visibility::Visible:ux::Visibility::Collapsed);ui.lastPrivacy=privacy;}
+    if(ui.lastRetryPreference!=retryPreference){ui.find<controls::Button>(ui.header,L"RetryChoice").Visibility(retryPreference?ux::Visibility::Visible:ux::Visibility::Collapsed);ui.lastRetryPreference=retryPreference;}
     if(ui.lastFresh!=fresh){
         ui.sidebarGate.IsEnabled(fresh); ui.toolbarGate.IsEnabled(fresh);
         if(fresh)ui.helpIsland.SiteBridge().Hide();else ui.helpIsland.SiteBridge().Show();ui.lastFresh=fresh;

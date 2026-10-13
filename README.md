@@ -12,7 +12,7 @@ Requires Windows 10/11 x64, Visual Studio C++ Build Tools, CMake, Microsoft Edge
 
 Double-click **Start Callayers.cmd**. It registers the new DirectShow camera for the current Windows user and opens the development app. No administrator prompt is intended. Restart Brave after the first registration if its camera list was already open. Choose **Callayers** in Meet. Registration/launch are preparation for user verification, not proof of compatibility.
 
-This is a development harness with fixed cards, a five-minute timer, an animated card, pen annotations, visibility toggles, and drag/resize. The uniquely named `USB Camera` is selected initially; otherwise choose explicitly. Retry preserves the device identity and never substitutes another webcam. Changes are temporary. This build intentionally has no sign-in, AI, saved-card library, or release installer and must not be distributed as the authenticated product.
+This is a development harness with fixed cards, a five-minute timer, an animated card, pen annotations, visibility toggles, and proportional whole-card scaling. Choose a webcam explicitly on first use. After a fresh picture, its device identity and display name are remembered for this Windows user; later launches reopen that identity automatically. Missing choices stay visible and Retry never substitutes another webcam. Card/annotation changes remain temporary. This build intentionally has no sign-in, AI, saved-card library, or release installer and must not be distributed as the authenticated product.
 
 The new WinUI workspace has a dark header, webcam selector/status, searchable sample-card sidebar, independent card selection/visibility, Hide all, a large native preview, a compact Select/Pen/Clear toolbar, and actionable camera help. AI/import controls are disabled pending their planned milestones. No saved-work behavior is implied.
 
@@ -30,6 +30,7 @@ The user performs every runtime check. The foundation and current resource cost 
 ## Structure
 
 - `native/capture.*`: asynchronous Media Foundation webcam capture; latest image only.
+- `native/camera_preferences.*`: isolated v2 per-Windows-user camera preference, one background writer and one replaceable pending setting. Identity/name are saved together as `Camera` under `HKCU\Software\Callayers\WorkspaceV2`; no old preferences are read or migrated. Normal quit waits for pending preference writes. Save failures keep video running and offer Retry.
 - `native/overlay.*` and `web/overlay.html`: one transparent WebView2 page, sandboxed iframe per visible fixed card, parent-owned placement and annotations. Hiding removes the iframe; showing reloads it and resets its timer. Browser requests, downloads, device permissions, host objects and messages are denied.
 - `native/workspace.*`: WinUI 3 XAML islands, controls and UI-thread callbacks. The application message loop filters island keyboard input; XAML and dispatcher lifetimes finish before runtime shutdown.
 - `native/app.cpp`: existing background compositor, scaled native preview, private selection handles and workspace integration. The UI is separate from the finished outgoing picture.
