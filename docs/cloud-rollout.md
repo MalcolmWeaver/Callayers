@@ -40,19 +40,29 @@ No provider secrets belong in this file. `PUBLIC_ORIGIN`, when supplied, must ex
 
 ## 2. Deploy the backend yourself
 
-The Firebase CLI needs a signed-in operator. If not already signed in:
+For initial setup or Firestore rules/index/expiry-policy changes, the Firebase CLI needs a signed-in operator. If not already signed in:
 
 ```powershell
 npx.cmd firebase-tools login
 ```
 
-Then from the repository root:
+For initial setup, from the repository root:
+
+```powershell
+.\backend\deploy.ps1 -ProjectId callayers -DeployFirestore
+```
+
+This builds the container including the sign-in page, deploys Cloud Run in `us-central1` with its public origin in one rollout, and deploys Firestore rules/indexes/expiry policies. It does not launch the desktop app or make verification requests. Wait for required Firestore indexes to finish building before opening account request details.
+
+For routine backend changes, omit `-DeployFirestore`:
 
 ```powershell
 .\backend\deploy.ps1 -ProjectId callayers
 ```
 
-This builds the container including the sign-in page, deploys Cloud Run in `us-central1`, sets its public origin, and deploys Firestore rules/indexes/expiry policies. It does not launch the desktop app or make verification requests. Wait for required Firestore indexes to finish building before opening account request details.
+Cloud Build uses BuildKit and stores reusable layers under the `api:buildcache` tag in the existing Artifact Registry repository. The first build fills the cache; later source-only builds can reuse both dependency installs. Dependency or base-image changes rebuild the affected layers. Keep the cache tag if configuring registry cleanup policies. Cloud build startup and Cloud Run rollout still take time.
+
+The script resolves the origin before building: an explicit `PUBLIC_ORIGIN` wins, otherwise it uses the existing service URL, or the deterministic Cloud Run URL for a new service. It passes a temporary config to the rollout and removes it afterward; your local config is unchanged.
 
 Copy the **Service URL** printed at the end. In Firebase → Authentication → Settings → Authorized domains, add its hostname (no `https://`, no path). Keep `callayers.firebaseapp.com` authorized. If the Google OAuth consent configuration is still in testing, add the Google accounts you intend to use as testers.
 
@@ -77,8 +87,8 @@ A build without `-ServiceUrl` retains the original developer API-key flow. An un
 ## 4. Verify sign-in, then grant your admin role
 
 1. On a fresh cloud-configured launch, expect a sign-in dialog. The editor and camera output should remain unavailable until the saved session is validated or Google sign-in completes. Escape should not dismiss this gate.
-2. Choose **Sign in with Google** in the startup dialog (or File → Account when already signed in). The browser should open the Cloud Run hostname, then Google sign-in.
-3. Choose `malcolm@callayers.com` in Google's account picker. The browser returns to a temporary `127.0.0.1` address and Callayers reconnects automatically, without a typed code. If the browser blocks the automatic popup, click **Sign in with Google** on the page. Windows may keep the browser in front; in that case Callayers flashes in the taskbar. Expect **Awaiting beta approval** for a new account. This creates your Firebase identity and backend account.
+2. Choose **Continue with Google** in the startup dialog on the welcome screen. The browser should open the Cloud Run hostname, then Google sign-in.
+3. Choose `malcolm@callayers.com` in Google's account picker. The browser returns to a temporary `127.0.0.1` address and Callayers reconnects automatically, without a typed code. If the browser blocks the automatic popup, click **Continue with Google** on the page. Windows may keep the browser in front; in that case Callayers flashes in the taskbar. Expect the three setup steps for a new account on this computer, followed by the editor. AI uses the standard allowance without approval. This creates your Firebase identity and backend account.
 4. Cancel an in-progress sign-in in the app and confirm a stale browser attempt cannot unlock it. Start again to get a fresh connection. Closing the browser or losing the callback should leave the app locked; retry from the app. The listener expires after ten minutes and accepts connections only on this PC.
 
 Deploy the backend before running the updated desktop build. Older desktop builds keep their manual code flow during this transition. No extra Firebase domain, OAuth client, URL protocol registration, or firewall rule is needed for the loopback return. The Firebase Google login itself still completes on the existing authorized web origin.
@@ -94,13 +104,13 @@ Pop-Location
 
 The ADC login is for this local operator command, not a service-account key distributed with the app.
 
-6. In the app, select **Refresh account**. **Administration** should appear. Open it; expect monthly global spending and the top lifetime spenders.
-7. Search your exact Google email. Open your account, check **Approved for AI**, leave **Paid access** off, and choose **Save access**. Confirm the refreshed details retain the change. The trial should still say **not started** while AI is disabled.
-8. Close Administration and reopen Account. Expect approved trial access, the $1 allowance, and “AI service not enabled yet.” Restart the app and confirm it validates your saved session and then opens the editor. Sign out: expect the gate and stopped camera output, with the unsaved deck kept in memory. Sign back in to resume.
+6. Wait for the periodic account refresh or restart the app. **Administration** should appear. Open it; expect monthly global spending and the top lifetime spenders.
+7. Search your exact Google email. Open your account and leave **Paid access** off to use the standard trial allowance. No approval is needed. The trial should still say **not started** while AI is disabled.
+8. Close Administration and open Settings. Expect trial access, the $1 allowance, and “AI service not enabled yet.” Restart the app and confirm it validates your saved session and then opens the editor. Sign out: expect the gate and stopped camera output, with the unsaved deck kept in memory. Sign back in to resume.
 
-To revoke admin later, use the same operator command with `revoke`. Refresh Account: the button should disappear. With Administration already open, a subsequent admin request should be denied and the panel should clear on its next UI update. Regrant with `grant` if this is your admin account.
+To revoke admin later, use the same operator command with `revoke`. Wait for the account refresh: the button should disappear. With Administration already open, a subsequent admin request should be denied and the panel should clear on its next UI update. Regrant with `grant` if this is your admin account.
 
-Use a second Google account to confirm ordinary users do not see Administration. That account should need your approval before AI use. The backend checks admin status on every admin request, even if an older client still displays the button.
+Use a second Google account to confirm ordinary users do not see Administration. That account should receive the standard AI trial without approval. The backend checks admin status on every admin request, even if an older client still displays the button.
 
 ## 5. Verify paid access and AI manually
 
@@ -111,7 +121,7 @@ To enable real generation, enter the selected model's **current, verified standa
 Defaults:
 
 - Seven days starting with the first backend-authorized AI request.
-- $1 lifetime trial allowance per approved user.
+- $1 lifetime trial allowance per user.
 - $10 per UTC calendar month for manually paid accounts.
 - $25 per UTC calendar month across this one shared project.
 - One in-flight AI request per account, with a five-second minimum between requests.
@@ -121,7 +131,7 @@ Amounts are estimated provider spend, not charges to users. Paid status still re
 Manual checks:
 
 1. Generate a small card, then revise it. Confirm the local card and undo behavior. In Administration, refresh that account's details: expect trial end date, request status, input/output tokens and estimated cost.
-2. Check Paid access and Save access. Refresh Account: expect paid status and remaining monthly allowance. No payment is collected. Turn it off if you want to keep this account on trial.
+2. Check Paid access and Save access. Wait for the account refresh: expect paid status and remaining monthly allowance. No payment is collected. Turn it off if you want to keep this account on trial.
 3. Disable a **second test account**, then try cloud operations from that account. Expect rejection and the app should return to the sign-in gate after its next account refresh (about a minute). Re-enable it afterward. The UI/backend prevent disabling your own administrator account.
 4. Pause AI in Administration and attempt a generation. Expect denial of a new request while camera output continues. Resume afterward. Resuming does not override `AI_ENABLED`, missing prices, or budgets. Already-dispatched calls may finish.
 5. Cancel a generation: the card should stay unchanged; the UI should explain submitted work may still use allowance. Inspect the ledger after settlement.
@@ -171,7 +181,7 @@ The event definitions and counting rules are in [Annotation action semantics](te
 
 - Deny desktop camera access in Windows Settings, then select the camera again. Expect permission guidance on screen and one `failure` event with a stable code and HRESULT. Repeated timer ticks should not flood the collector.
 - Restore permission and select the webcam again. Recovery should be emitted once fresh frames return.
-- Disconnect the selected webcam. Expect an explicit failure or waiting/idle state rather than a claim of successful live video. Select another camera or Test pattern; do not assume the app automatically switches devices.
+- Disconnect the selected webcam. Expect an explicit failure or waiting/idle state rather than a claim of successful live video. Select another camera; do not assume the app automatically switches devices.
 - Stop a camera-consuming app and reopen it. Observe consumer stop/start independently of preview visibility.
 - For a card-renderer failure, expect save/restart guidance and a renderer failure record. Full crash dumps, symbolication, GPU performance tracing, and recovery slates matching Puppetbooth's complete rendering behavior are not implemented in this slice.
 
@@ -204,3 +214,21 @@ Remove-Variable firebaseWebApiKey
 ```
 
 Start sign-in again from the desktop app after the update. An old pairing link may have expired. Rebuild the desktop to pick up the sign-in gate; updating server configuration alone does not change an existing executable.
+
+## Account onboarding state
+
+Onboarding lives in `accounts/{uid}.setup` in Firestore. `/v1/account` returns
+that record; authenticated `PUT /v1/account/setup` saves progress for the caller's
+UID only. The record contains version, completed, step, name-tag name/detail/card
+ID, and calling-app choice. Camera device identifiers are not uploaded.
+
+The desktop debounces progress saves and waits for successful completion storage
+before closing onboarding. Failed saves remain visible and can be retried.
+Completion is preserved when another computer sends delayed incomplete progress.
+Missing records start at step one; old Windows registry flags are not imported.
+Local developer builds without an account keep onboarding state only in memory.
+
+Deploy the backend before distributing the updated desktop build. To reset one
+account, replace its `setup` map in Firestore with
+`{version: 1, completed: false, step: 0, name: "", detail: "", cardId: "", app: 0}`
+while its desktop sessions are closed. Never delete the account or usage counters.

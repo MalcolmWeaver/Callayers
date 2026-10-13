@@ -13,7 +13,7 @@ int main(){
         auto revised=scene;revised.texts[0].text=L"Updated";SaveScene(file,revised);Expect(LoadScene(file)==revised,"atomic replacement failed");std::filesystem::remove(file);
         Document document;document.Loaded(scene);auto before=document.scene;
         for(int i=0;i<20;++i)document.scene.texts[0]=MoveText(text,i*.005,i*.003);
-        document.Commit(before);Expect(document.CanUndo()&&document.Dirty(),"drag was not recorded");document.Undo();
+        document.Commit(before);Expect(document.CanUndo()&&!document.Dirty(),"annotation drag must be undoable without marking the deck unsaved");document.Undo();
         Expect(document.scene==scene&&!document.CanUndo()&&!document.Dirty(),"drag did not coalesce to one undo");document.Redo();Expect(document.scene!=scene,"redo failed");
         auto side=ResizeText(text,5,.15,0);Expect(side.size==text.size&&side.height==text.height&&side.width>text.width,"side resize changed font size");
         auto corner=ResizeText(text,2,.1,.05);Expect(corner.size>text.size&&std::abs(corner.width/text.width-corner.size/text.size)<1e-9,"corner resize failed to scale text");
@@ -22,6 +22,11 @@ int main(){
         bool rejected=false;try{DecodeScene(winrt::to_string(root.Stringify()));}catch(...){rejected=true;}Expect(rejected,"future file version accepted");
         auto duplicate=scene;duplicate.texts.push_back(text);rejected=false;try{DecodeScene(EncodeScene(duplicate));}catch(...){rejected=true;}Expect(rejected,"duplicate identities accepted");
         auto mixed=scene;mixed.cards={SampleCard(),SampleCard(true)};
+        Document deck;deck.Loaded(mixed);auto beforeCardMove=deck.scene;
+        deck.scene.cards[0]=MoveCard(deck.scene.cards[0],.05,.03);deck.Commit(beforeCardMove);
+        Expect(deck.CanUndo()&&deck.Dirty(),"card drag did not mark the deck unsaved");
+        deck.Undo();Expect(deck.scene==mixed&&!deck.Dirty(),"card drag undo did not restore the saved deck");
+        deck.Redo();Expect(deck.Dirty(),"card drag redo did not restore unsaved state");
         Expect(DecodeScene(EncodeScene(mixed))==mixed,"card deck round trip lost HTML or geometry");
         auto moved=MoveCard(mixed.cards[0],.9,.9);Expect(moved.x+moved.width<=1&&moved.y+moved.height<=1,"card escaped stage");
         auto resized=ResizeCard(mixed.cards[0],2,.12,-.05);Expect(resized.html==mixed.cards[0].html&&resized.width>mixed.cards[0].width&&resized.height<mixed.cards[0].height,"card resize lost content or independent dimensions");

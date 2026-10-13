@@ -35,13 +35,15 @@ export class ApiError extends Error {
   constructor(public statusCode: number, public code: string, message: string) { super(message); }
 }
 export interface Account {
+  setup?: unknown;
   email: string; approved: boolean; paid: boolean; disabled: boolean; createdAt: number;
   trialStartedAt: number | null; trialEndsAt: number | null;
   trialSpent: number; trialReserved: number; totalSpent: number;
   activeRequest: string | null; activeUntil: number; lastRequestAt: number;
 }
 export const newAccount = (email: string): Account => ({
-  email, approved: false, paid: false, disabled: false, createdAt: Date.now(),
+  setup: { version: 1, completed: false, step: 0, name: '', detail: '', cardId: '', app: 0 },
+  email, approved: true, paid: false, disabled: false, createdAt: Date.now(),
   trialStartedAt: null, trialEndsAt: null, trialSpent: 0, trialReserved: 0,
   totalSpent: 0, activeRequest: null, activeUntil: 0, lastRequestAt: 0
 });

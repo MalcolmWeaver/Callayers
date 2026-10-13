@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { readSetup } from './setup.js';
 import { z } from 'zod';
 import { db, config, month, micros, accountRef, hash, expires, ApiError, type Account } from './core.js';
 
@@ -29,7 +30,8 @@ export async function accountStatus(uid: string) {
   const spending = m.data() ?? { spent: 0, reserved: 0 };
   const limit = micros(account.paid ? config.PAID_MONTHLY_USD : config.TRIAL_USD);
   const used = account.paid ? spending.spent + spending.reserved : account.trialSpent + account.trialReserved;
-  return { uid, email: account.email, approved: account.approved, paid: account.paid, disabled: account.disabled,
+  // Retain the response field for older clients; approval is no longer a permission.
+  return { uid, email: account.email, approved: true, paid: account.paid, disabled: account.disabled, setup: readSetup(account.setup),
     trialStartedAt: account.trialStartedAt, trialEndsAt: account.trialEndsAt,
     remainingUsd: Math.max(0, limit - used) / 1000000, monthlySpentUsd: spending.spent / 1000000,
     aiConfigured: config.AI_ENABLED === 'true' && !!config.OPENAI_API_KEY && !!config.PRICE_VERSION && config.INPUT_USD_PER_MILLION !== undefined && config.OUTPUT_USD_PER_MILLION !== undefined };
@@ -68,7 +70,8 @@ export async function generate(uid: string, body: unknown) {
       return false;
     }
     const account = a.data() as Account;
-    if (!account || account.disabled || !account.approved) throw new ApiError(403, 'approval_required', 'Your account needs beta approval. Contact the Callayers administrator.');
+    if (!account) throw new ApiError(404, 'account_not_found', 'Sign in to Callayers to use AI.');
+    if (account.disabled) throw new ApiError(403, 'account_disabled', 'This account is disabled. Contact Callayers support.');
     if (policy.data()?.disabled) throw new ApiError(503, 'ai_paused', 'AI generation is temporarily paused.');
     const trialStart = account.trialStartedAt ?? now;
     const trialEnd = account.trialEndsAt ?? trialStart + config.TRIAL_DAYS * 86400000;
@@ -77,8 +80,14 @@ export async function generate(uid: string, body: unknown) {
     if (now - account.lastRequestAt < 5000) throw new ApiError(429, 'generation_rate_limited', 'Wait a few seconds before generating another card.');
     const monthly = m.data() ?? { spent: 0, reserved: 0 }; const global = g.data() ?? { spent: 0, reserved: 0 };
     const used = account.paid ? monthly.spent + monthly.reserved : account.trialSpent + account.trialReserved;
-    if (used + reserved > micros(account.paid ? config.PAID_MONTHLY_USD : config.TRIAL_USD)) throw new ApiError(403, 'allowance_exhausted', 'Your remaining AI allowance is too small for this request. Contact us for access.');
-    if (global.spent + global.reserved + reserved > micros(config.GLOBAL_MONTHLY_USD)) throw new ApiError(503, 'global_allowance_exhausted', 'The beta AI allowance is temporarily exhausted.');
+    if (used + reserved > micros(account.paid ? config.PAID_MONTHLY_USD : config.TRIAL_USD)) {
+      const date = new Date(now);
+      const reset = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1)).toISOString().slice(0, 10);
+      throw new ApiError(403, 'allowance_exhausted', account.paid
+        ? `Your remaining AI allowance is too small for this request. Your monthly allowance resets on ${reset} (UTC).`
+        : 'Your remaining AI trial allowance is too small for this request. Contact Callayers support for a larger allowance. Your existing cards and camera still work.');
+    }
+    if (global.spent + global.reserved + reserved > micros(config.GLOBAL_MONTHLY_USD)) throw new ApiError(503, 'global_allowance_exhausted', 'AI is temporarily unavailable because the service allowance has been reached. Please try again later.');
     tx.update(accountRef(uid), { ...(!account.paid ? { trialStartedAt: trialStart, trialEndsAt: trialEnd, trialReserved: account.trialReserved + reserved } : {}), activeRequest: requestId, activeUntil: now + 180000, lastRequestAt: now });
     tx.set(userMonthRef(uid, period), { ...monthly, reserved: monthly.reserved + reserved });
     tx.set(globalRef(period), { ...global, reserved: global.reserved + reserved });

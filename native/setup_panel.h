@@ -1,5 +1,6 @@
 #pragma once
 #include "setup_flow.h"
+#include "cloud_client.h"
 #include "text_editor_ui.h"
 #include <shellapi.h>
 #include <winrt/Microsoft.UI.Xaml.Controls.h>
@@ -24,7 +25,30 @@ class SetupPanel {
     int step=0;
     bool active=false,fresh=false,running=false,delivering=false,verified=false,permissionsOpened=false,syncingCamera=false;
     HRESULT cameraFailure=S_OK;
-    std::wstring cardId;
+    std::wstring cardId,identity;
+    bool restoring=false,saving=false,finishing=false,localComplete=false;
+    CloudSetupJob saveJob;
+    std::string queuedSave,sentSave;
+    ULONGLONG saveAfter=0;
+    void Persist(){
+        if(!active||restoring||!CloudEnabled())return;
+        auto payload=winrt::to_string(EncodeSetupProgress({step,-1,std::max(0,apps.SelectedIndex()),std::wstring(name.Text()),std::wstring(detail.Text()),cardId},finishing));
+        if(payload==sentSave){queuedSave.clear();return;}
+        if(payload!=queuedSave){queuedSave=std::move(payload);saveAfter=GetTickCount64()+500;}
+    }
+    void PollSave(){
+        if(saving)if(auto result=saveJob.TakeResult()){
+            saving=false;
+            if(!result->error.empty()){sentSave.clear();queuedSave.clear();finishing=false;body.IsHitTestVisible(true);error.Text(result->error+L" Use Next or Start using Callayers to retry.");}
+            else if(finishing&&queuedSave.empty()&&winrt::Windows::Data::Json::JsonObject::Parse(winrt::to_hstring(result->json)).GetNamedObject(L"setup").GetNamedBoolean(L"completed",false)){
+                finishing=false;body.IsHitTestVisible(true);active=false;Root.Visibility(setupui::Visibility::Collapsed);closed();return;
+            }
+        }
+        if(!saving&&!queuedSave.empty()&&GetTickCount64()>=saveAfter){
+            try{saveJob.Start(identity,queuedSave);sentSave=std::move(queuedSave);queuedSave.clear();saving=true;}
+            catch(...){queuedSave.clear();sentSave.clear();finishing=false;body.IsHitTestVisible(true);error.Text(L"Could not save setup. Sign in and try again.");}
+        }
+    }
     static void Text(setupcontrols::TextBlock label,const wchar_t* text){label.Text(text);label.TextWrapping(setupui::TextWrapping::Wrap);}
     static void Primary(setupcontrols::Button button){
         button.Background(setupui::Media::SolidColorBrush(winrt::Windows::UI::Color{255,163,155,250}));
@@ -36,7 +60,9 @@ class SetupPanel {
         button.BorderThickness({0,0,0,0});button.Foreground(setupui::Media::SolidColorBrush(winrt::Windows::UI::Color{255,190,186,204}));
     }
     void EditTag(){
+        if(restoring)return;
         if(CardIndex()>=0)editor.UpdateSetupCard(cardId,NameTagCard(std::wstring(name.Text()),std::wstring(detail.Text())).html);
+        Persist();
         Refresh();
     }
     template<class F> void Button(setupcontrols::Button button,const wchar_t* label,F action){
@@ -49,8 +75,10 @@ class SetupPanel {
             error.Text(L"Could not open the app. Open it yourself, then choose Callayers in its camera settings.");
     }
     void Finish(){
-        if(!FinishSetup()){error.Text(L"Could not save setup progress. Please try again.");return;}
-        active=false;Root.Visibility(setupui::Visibility::Collapsed);closed();
+        if(CloudEnabled()){
+            finishing=true;Persist();saveAfter=0;Refresh();body.IsHitTestVisible(false);status.Text(L"Saving setup to your account…");PollSave();return;
+        }
+        localComplete=true;active=false;Root.Visibility(setupui::Visibility::Collapsed);closed();
     }
     void AppGuide(){
         const wchar_t* labels[]{L"Open Google Meet",L"Open Zoom",L"Open Microsoft Teams",L"Open your calling app"};
@@ -71,8 +99,9 @@ class SetupPanel {
         back.Visibility(step>0?setupui::Visibility::Visible:setupui::Visibility::Collapsed);
         skip.Visibility(step==2?setupui::Visibility::Visible:setupui::Visibility::Collapsed);
         bool exists=CardIndex()>=0,hasName=std::wstring(name.Text()).find_first_not_of(L" \t\r\n")!=std::wstring::npos;
-        next.Content(winrt::box_value(step==1&&!exists?L"Create name tag":L"Next"));
-        next.IsEnabled(step==0?fresh:step==1?hasName:verified);
+        next.Content(winrt::box_value(step==2?L"Start using Callayers":step==1&&!exists?L"Create name tag":L"Next"));
+        next.IsEnabled(!finishing&&(step==0?fresh:step==1?hasName:verified));
+        back.IsEnabled(!finishing);skip.IsEnabled(!finishing);apps.IsEnabled(!finishing);
         next.Visibility((step==2&&!verified)||(step==0&&FAILED(cameraFailure))?setupui::Visibility::Collapsed:setupui::Visibility::Visible);
         launch.Visibility(step==2&&!verified&&apps.SelectedIndex()!=3?setupui::Visibility::Visible:setupui::Visibility::Collapsed);
         privacy.Visibility(cameraFailure==E_ACCESSDENIED?setupui::Visibility::Visible:setupui::Visibility::Collapsed);
@@ -92,11 +121,11 @@ public:
         body.Children().Append(progress);body.Children().Append(title);body.Children().Append(description);
         cameraStep.Spacing(10);cardStep.Spacing(10);connectStep.Spacing(10);
         cameras.Header(winrt::box_value(L"Your camera"));cameras.HorizontalAlignment(setupui::HorizontalAlignment::Stretch);
-        cameras.Items().Append(winrt::box_value(L"Test pattern (no webcam)"));for(const auto& device:devices)cameras.Items().Append(winrt::box_value(device.name));cameras.SelectedIndex(0);
-        cameras.SelectionChanged([this](auto&&,auto&&){if(!syncingCamera&&cameras.SelectedIndex()>=0){fresh=false;selectCamera(cameras.SelectedIndex());Refresh();}});
+        cameras.PlaceholderText(L"No cameras found");for(const auto& device:devices)cameras.Items().Append(winrt::box_value(device.name));cameras.SelectedIndex(devices.empty()?-1:0);
+        cameras.SelectionChanged([this](auto&&,auto&&){if(!syncingCamera&&cameras.SelectedIndex()>=0){fresh=false;selectCamera(cameras.SelectedIndex()+1);Persist();Refresh();}});
         cameraStep.Children().Append(cameras);
-        Button(privacy,L"Open camera permissions",[this]{if(permissionsOpened){fresh=false;selectCamera(cameras.SelectedIndex());retryOutput();}else{Open(L"ms-settings:privacy-webcam");permissionsOpened=true;}Refresh();});Primary(privacy);cameraStep.Children().Append(privacy);
-        Button(retry,L"Try camera again",[this]{fresh=false;selectCamera(cameras.SelectedIndex());retryOutput();});Primary(retry);cameraStep.Children().Append(retry);
+        Button(privacy,L"Open camera permissions",[this]{if(permissionsOpened){fresh=false;selectCamera(cameras.SelectedIndex()+1);retryOutput();}else{Open(L"ms-settings:privacy-webcam");permissionsOpened=true;}Refresh();});Primary(privacy);cameraStep.Children().Append(privacy);
+        Button(retry,L"Try camera again",[this]{fresh=false;selectCamera(cameras.SelectedIndex()+1);retryOutput();});Primary(retry);cameraStep.Children().Append(retry);
         name.Header(winrt::box_value(L"Your name"));name.PlaceholderText(L"e.g. Alex Morgan");name.MaxLength(60);
         detail.Header(winrt::box_value(L"Second line (optional)"));detail.PlaceholderText(L"Role, company, or pronouns");detail.MaxLength(80);
         cardStep.Children().Append(name);cardStep.Children().Append(detail);
@@ -104,28 +133,44 @@ public:
         detail.TextChanged([this](auto&&,auto&&){try{EditTag();}catch(...){error.Text(L"Could not update your name tag. Please try again.");}});
         apps.Header(winrt::box_value(L"Calling app"));apps.HorizontalAlignment(setupui::HorizontalAlignment::Stretch);
         for(auto label:{L"Google Meet",L"Zoom",L"Microsoft Teams",L"Other"})apps.Items().Append(winrt::box_value(label));apps.SelectedIndex(0);
-        apps.SelectionChanged([this](auto&&,auto&&){AppGuide();});connectStep.Children().Append(apps);
+        apps.SelectionChanged([this](auto&&,auto&&){AppGuide();Persist();});connectStep.Children().Append(apps);
         Button(launch,L"Open Google Meet",[this]{const wchar_t* targets[]{L"https://meet.google.com/",L"zoommtg://zoom.us/",L"msteams://"};int index=apps.SelectedIndex();if(index>=0&&index<3)Open(targets[index]);});Primary(launch);connectStep.Children().Append(launch);
         guide.TextWrapping(setupui::TextWrapping::Wrap);connectStep.Children().Append(guide);AppGuide();
         body.Children().Append(cameraStep);body.Children().Append(cardStep);body.Children().Append(connectStep);
         status.FontSize(13);body.Children().Append(status);body.Children().Append(error);
         Button(next,L"Next",[this]{
-            if(step==1&&CardIndex()<0){auto card=NameTagCard(std::wstring(name.Text()),std::wstring(detail.Text()));editor.AddSetupCard(card);cardId=card.id;Refresh();return;}
+            if(step==1&&CardIndex()<0){auto card=NameTagCard(std::wstring(name.Text()),std::wstring(detail.Text()));editor.AddSetupCard(card);cardId=card.id;Persist();Refresh();return;}
             if(step==1&&!editor.IsCardShown(cardId))editor.SetCardShown(CardIndex(),true);
-            if(step<2){++step;Refresh();}else Finish();
+            if(step<2){++step;Persist();Refresh();}else Finish();
         });Primary(next);body.Children().Append(next);
         Button(skip,L"I'll do this later",[this]{Finish();});Quiet(skip);body.Children().Append(skip);
-        Button(back,L"Back",[this]{if(step>0)--step;Refresh();});Quiet(back);body.Children().Append(back);
+        Button(back,L"Back",[this]{if(step>0)--step;Persist();Refresh();});Quiet(back);body.Children().Append(back);
         Root.Visibility(setupui::Visibility::Collapsed);
     }
     void Begin(int at=0){step=at;active=true;Root.Visibility(setupui::Visibility::Visible);Refresh();}
+    int Restore(const std::wstring& uid){
+        saveJob.Cancel();saving=false;finishing=false;queuedSave.clear();sentSave.clear();body.IsHitTestVisible(true);active=false;restoring=true;identity=uid;verified=false;error.Text(L"");
+        auto saved=DecodeSetupProgress(CloudGetAccount().setupJson);cardId=saved.cardId;name.Text(saved.name);detail.Text(saved.detail);apps.SelectedIndex(saved.app);
+        if(!Complete()){
+            syncingCamera=true;
+            cameras.SelectedIndex(cameras.Items().Size()==0?-1:saved.camera>0&&saved.camera<=int(cameras.Items().Size())?saved.camera-1:0);
+            syncingCamera=false;fresh=false;
+            selectCamera(cameras.SelectedIndex()+1);
+            if(!cardId.empty()&&CardIndex()<0&&!saved.name.empty()){auto card=NameTagCard(saved.name,saved.detail);card.id=cardId;editor.AddSetupCard(card);}
+        }
+        restoring=false;return saved.step;
+    }
+    bool Complete()const{return CloudEnabled()?CloudGetAccount().setupComplete:localComplete;}
+    void Suspend(){saveJob.Cancel();queuedSave.clear();sentSave.clear();saving=false;finishing=false;body.IsHitTestVisible(true);active=false;Root.Visibility(setupui::Visibility::Collapsed);}
     bool Active()const{return active;}
-    void CameraIndex(int index){syncingCamera=true;if(cameras.SelectedIndex()!=index)cameras.SelectedIndex(index);syncingCamera=false;}
+    void CameraIndex(int index){syncingCamera=true;if(cameras.SelectedIndex()!=index-1)cameras.SelectedIndex(index-1);syncingCamera=false;}
     void Update(bool cameraFresh,bool outputReady,bool live,HRESULT failure,const std::wstring& message){
+        PollSave();
+        if(finishing){status.Text(L"Saving setup to your account…");return;}
         fresh=cameraFresh;running=outputReady;cameraFailure=failure;delivering=live&&fresh&&running;if(delivering)verified=true;
         std::wstring text=delivering?L"Camera connected — live video is being delivered.":verified&&running?L"Ready for your next call. Choose Callayers in your calling app.":running?L"Ready for your calling app. Choose Callayers in its camera settings.":message;
         if(FAILED(failure))text=message;
-        else if(!fresh)text=step==0?L"Waiting for your camera preview…":message;
+        else if(!fresh)text=step==0&&cameras.Items().Size()>0?L"Waiting for your camera preview…":message;
         if(status.Text()!=text)status.Text(text);
         if(active)Refresh();
     }

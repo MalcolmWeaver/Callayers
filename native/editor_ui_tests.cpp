@@ -83,16 +83,18 @@ int main(int argc,char** argv){
             std::cout<<"PASS: text sessions, empty creation, typing, cancellation, undo, and formatting\n";return 0;
         }
         Scene cards;editor->SceneChanged=[&](const Scene& next){cards=next;};
-        editor->AddSampleCard();Expect(editor->CardSelected()&&cards.cards.size()==1,"card creation did not publish");
+        editor->AddSampleCard();Expect(editor->CardSelected()&&editor->CurrentScene().cards.size()==1&&cards.cards.empty(),"new card must enter the library without going on camera");
+        editor->SetCardShown(0,true);Expect(cards.cards.size()==1,"checked card did not publish");
         auto originalCard=cards.cards[0];
-        SendMessageW(window,WM_LBUTTONDOWN,MK_LBUTTON,MAKELPARAM(300,420));
-        for(int x=310;x<=350;x+=10)SendMessageW(window,WM_MOUSEMOVE,MK_LBUTTON,MAKELPARAM(x,445));
-        SendMessageW(window,WM_LBUTTONUP,0,MAKELPARAM(350,445));Expect(cards.cards[0].x>originalCard.x,"card drag did not move");
+        int moveX=20+int(std::lround((originalCard.x+originalCard.width/2)*960));
+        int moveY=165+int(std::lround(originalCard.y*540))-int(14*GetDpiForWindow(window)/96.);
+        SendMessageW(window,WM_LBUTTONDOWN,MK_LBUTTON,MAKELPARAM(moveX,moveY));
+        SendMessageW(window,WM_MOUSEMOVE,MK_LBUTTON,MAKELPARAM(moveX+50,moveY+25));
+        SendMessageW(window,WM_LBUTTONUP,0,MAKELPARAM(moveX+50,moveY+25));Expect(cards.cards[0].x>originalCard.x,"card move handle did not move card");
         editor->Command(TextEditorUI::UndoId);Expect(cards.cards[0]==originalCard,"card drag was not one undo");
-        SendMessageW(window,WM_LBUTTONDOWN,MK_LBUTTON,MAKELPARAM(300,420));SendMessageW(window,WM_LBUTTONUP,0,MAKELPARAM(300,420));
-        editor->Command(TextEditorUI::DeleteId);Expect(cards.cards.empty(),"card delete failed");
-        editor->Command(TextEditorUI::UndoId);Expect(cards.cards.size()==1&&cards.cards[0]==originalCard,"card delete undo lost content");
-        SendMessageW(window,WM_LBUTTONDOWN,MK_LBUTTON,MAKELPARAM(300,420));SendMessageW(window,WM_LBUTTONUP,0,MAKELPARAM(300,420));
+        editor->SelectCard(0);editor->Command(TextEditorUI::DeleteId);Expect(cards.cards.empty()&&editor->CurrentScene().cards.empty(),"card delete failed");
+        editor->Command(TextEditorUI::UndoId);Expect(editor->CurrentScene().cards.size()==1&&editor->CurrentScene().cards[0]==originalCard&&cards.cards.empty(),"card undo must restore the library without showing the card");
+        editor->SetCardShown(0,true);editor->SelectCard(0);
         auto request=editor->GenerationTarget();Expect(!request.creating,"prompt lost selected card");
         editor->AddSampleCard();auto secondId=editor->CurrentScene().cards.back().id;
         Expect(editor->AcceptGenerated(request,L"<h1>AI revision</h1>",L"Revised first card"),"late result missed original target");

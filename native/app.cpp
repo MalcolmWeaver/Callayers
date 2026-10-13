@@ -25,7 +25,7 @@ struct Frames {
     std::atomic<bool> demanded{false};
     std::atomic<ULONGLONG> lastFrameRequest{0};
     std::atomic<ULONGLONG> lastLiveDelivery{0};
-    std::atomic<int> mode{1};
+    std::atomic<int> mode{0};
     std::atomic<HRESULT> error{S_OK};
     std::atomic<uint64_t> sequence{0};
     std::shared_ptr<Frame> idle=Pattern(0,true);
@@ -278,7 +278,7 @@ struct App {
     void Select(){
         if(capture){capture->Close();capture.Reset();}
         captureAttempted=false;frames->error=S_OK;frames->latest=frames->idle;
-        frames->mode=cameraIndex<=0?1:2;
+        frames->mode=cameraIndex<=0?0:2;
         UpdateDemand();
     }
     void Layout(){
@@ -322,8 +322,9 @@ struct App {
         HRESULT error=frames->error.load();
         if(FAILED(error)){
             message=error==E_ACCESSDENIED?L"Camera access is blocked. Allow desktop camera access in Windows Settings > Privacy & security > Camera, then select your webcam again.":
-                L"The webcam could not start or stopped responding. Stop its use in other apps, then select the webcam again to retry. You can also choose another camera or Test pattern. Details: "+ErrorText(error);
+                L"The webcam could not start or stopped responding. Stop its use in other apps, then select the webcam again to retry. You can also choose another camera. Details: "+ErrorText(error);
         }
+        else if(frames->mode==0)message=L"No camera found. Connect a webcam and restart Callayers.";
         else if(frames->mode==2&&frame->header.mode==0)message=L"Waiting for webcam frames — idle image is being sent.";
         if(frames->cards&&FAILED(frames->cards->Error()))message=L"Card rendering failed: "+ErrorText(frames->cards->Error())+L". Save your deck and restart Callayers.";
         if(GetTickCount64()-lastObservation>=250){
@@ -441,6 +442,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR command,int show){
             TextRenderer renderer;app.frames->overlay=renderer.Render(scene);
         }
         if(wcsstr(command,L"--headless")){
+            app.frames->mode=1; // Synthetic frames are reserved for headless diagnostics.
             if(wcsstr(command,L"--demo-cards")){Scene scene;scene.cards={SampleCard(),SampleCard(true)};app.frames->cards->SetScene(scene);}
             if(wcsstr(command,L"--webcam")){
                 if(app.devices.empty())throw HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
@@ -457,7 +459,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR command,int show){
             HWND window=CreateWindowW(wc.lpszClassName,L"Callayers",WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,CW_USEDEFAULT,CW_USEDEFAULT,1280,850,nullptr,nullptr,instance,&app);
             if(!window)throw HRESULT_FROM_WIN32(GetLastError());ShowWindow(window,show);
             if(wcsstr(command,L"--smoke-test"))SetTimer(window,2,1500,nullptr);
-            if((wcsstr(command,L"--webcam")||app.shell->SetupActive())&&!app.devices.empty()){
+            if(!app.devices.empty()&&(app.cameraIndex==0||wcsstr(command,L"--webcam"))){
                 app.cameraIndex=1;app.shell->CameraIndex(1);app.Select();
             }
             if(wcsstr(command,L"--demo-cards")){app.editor->AddSampleCard();app.editor->AddSampleCard();}

@@ -29,7 +29,7 @@ void handle(async () => {
   }
   if (!pending) {
     $('signin').hidden = true;
-    status('Open File > Account > Sign in with Google in the Windows app to connect it.');
+    status('Open Callayers and choose Continue with Google to sign in.');
     return;
   }
   const response = await fetch('/v1/client-config');
@@ -65,5 +65,5 @@ void handle(async () => {
     return;
   }
   if (incoming) { $('signin').hidden = true; $('signin').click(); }
-  else status('Sign-in did not finish. Choose Sign in with Google to try again.');
+  else status('Sign-in did not finish. Choose Continue with Google to try again.');
 })();

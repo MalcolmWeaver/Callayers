@@ -6,6 +6,7 @@ import { desktopUser, adminUser, googleUser } from './auth.js';
 import { generate, requestStatus, accountStatus } from './ai.js';
 import { capture } from './telemetry.js';
 import { registerAuthProxy } from './auth-proxy.js';
+import { saveSetup } from './setup.js';
 
 const app = Fastify({ bodyLimit: 350000, logger: true, disableRequestLogging: true, trustProxy: false });
 app.addHook('onRequest', async (req, reply) => {
@@ -49,6 +50,7 @@ app.get('/v1/account', async req => {
   return { ...await accountStatus(uid), administrator: (await db.collection('admins').doc(uid).get()).exists };
 });
 app.post('/v1/generate', async req => generate(await desktopUser(req), req.body));
+app.put('/v1/account/setup', async req => saveSetup(await desktopUser(req), req.body));
 app.get<{ Params: { id: string } }>('/v1/requests/:id', async req => {
   const uid = await desktopUser(req); await rateLimit('poll:' + uid, 60, 60000); return requestStatus(uid, req.params.id);
 });
@@ -68,7 +70,8 @@ app.get<{ Params: { uid: string } }>('/v1/admin/accounts/:uid', async req => {
 });
 app.patch<{ Params: { uid: string } }>('/v1/admin/accounts/:uid', async req => {
   const actor = await adminUser(req); const uid = z.string().min(1).max(128).regex(/^[^/]+$/).parse(req.params.uid);
-  const change = z.object({ approved: z.boolean(), paid: z.boolean(), disabled: z.boolean() }).strict().parse(req.body);
+  // Accept the retired field from older desktop builds, but never use it as a gate.
+  const { approved: _legacyApproval, ...change } = z.object({ approved: z.boolean().optional(), paid: z.boolean(), disabled: z.boolean() }).strict().parse(req.body);
   if (actor === uid && change.disabled) throw new ApiError(400, 'self_disable', 'Use another administrator to disable your own account.');
   await db.runTransaction(async tx => {
     const ref = accountRef(uid); const old = await tx.get(ref);

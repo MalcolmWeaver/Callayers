@@ -117,8 +117,9 @@ std::shared_ptr<State> Shared(){static auto state=std::make_shared<State>();retu
 void AccountResponse(const std::shared_ptr<State>& state,const JsonObject& body,unsigned epoch){
     std::lock_guard lock(state->mutex);if(state->epoch!=epoch)return;
     auto& a=state->account;a.signedIn=true;a.administrator=body.GetNamedBoolean(L"administrator",false);a.email=body.GetNamedString(L"email");a.uid=body.GetNamedString(L"uid");
-    a.message=body.GetNamedBoolean(L"paid")?L"Paid access":!body.GetNamedBoolean(L"approved")?L"Awaiting beta approval":L"Seven-day trial";
-    if(body.GetNamedBoolean(L"approved")){
+    auto setup=body.GetNamedObject(L"setup",JsonObject{});a.setupJson=setup.Stringify();a.setupComplete=setup.GetNamedBoolean(L"completed",false);
+    a.message=body.GetNamedBoolean(L"paid")?L"Paid access":L"AI trial";
+    {
         a.message+=L" · $"+std::to_wstring(body.GetNamedNumber(L"remainingUsd",0)).substr(0,4)+L" AI allowance remaining";
         auto end=body.GetNamedValue(L"trialEndsAt");if(!body.GetNamedBoolean(L"paid")&&end.ValueType()==JsonValueType::Number){
             auto now=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
@@ -187,6 +188,35 @@ std::optional<CloudAdminResult> CloudAdminJob::TakeResult(){
     {std::lock_guard lock(shared->mutex);if(shared->epoch!=pending->epoch){Cancel();return CloudAdminResult{{},L"Account changed. Reopen Administration."};}}
     std::lock_guard lock(pending->mutex);if(!pending->result)return {};auto result=std::move(pending->result);Cancel();return result;
 }
+struct CloudSetupJob::State {
+    std::mutex mutex;
+    unsigned epoch=0;
+    std::optional<CloudAdminResult> result;
+};
+void CloudSetupJob::Start(const std::wstring& uid,const std::string& body){
+    Cancel();auto shared=Shared();std::string token;auto pending=std::make_shared<State>();
+    {std::lock_guard lock(shared->mutex);
+        if(!shared->account.signedIn||shared->account.uid!=uid)throw std::runtime_error("Sign in to save setup.");
+        token=shared->token;pending->epoch=shared->epoch;
+    }
+    state=pending;
+    std::thread([shared,pending,body,token]{
+        CoInitializeEx(nullptr,COINIT_MULTITHREADED);CloudAdminResult result;
+        try{
+            {std::lock_guard lock(shared->mutex);if(pending->epoch!=shared->epoch)throw std::runtime_error("Account changed. Sign in again to save setup.");}
+            auto response=Request(L"PUT",L"/v1/account/setup",body,token);
+            Require(response);result.json=winrt::to_string(response.body.Stringify());
+            {std::lock_guard lock(shared->mutex);if(pending->epoch==shared->epoch){auto setup=response.body.GetNamedObject(L"setup");shared->account.setupJson=setup.Stringify();shared->account.setupComplete=setup.GetNamedBoolean(L"completed",false);}}
+        }catch(const std::exception& e){result.error=winrt::to_hstring(e.what());}
+        catch(...){result.error=L"Could not save setup. Check your connection and try again.";}
+        {std::lock_guard lock(pending->mutex);pending->result=std::move(result);}CoUninitialize();
+    }).detach();
+}
+std::optional<CloudAdminResult> CloudSetupJob::TakeResult(){
+    if(!state)return {};auto pending=state;auto shared=Shared();
+    {std::lock_guard lock(shared->mutex);if(shared->epoch!=pending->epoch){Cancel();return CloudAdminResult{{},L"Account changed. Sign in again to save setup."};}}
+    std::lock_guard lock(pending->mutex);if(!pending->result)return {};auto result=std::move(pending->result);Cancel();return result;
+}
 bool CloudEnabled(){return !Base().empty();}
 std::string CloudRequestId(){auto id=NewId();return winrt::to_string(id.substr(1,id.size()-2));}
 void CloudStart(){
@@ -195,7 +225,7 @@ void CloudStart(){
         std::lock_guard lock(state->mutex);if(state->started)return;state->started=true;state->account.configured=true;state->session=CloudRequestId();state->token=ReadCredential();
         auto path=DataPath(L"installation-id.txt");{std::ifstream in(path);in>>state->install;}if(state->install.size()!=36){state->install=CloudRequestId();std::ofstream(path)<<state->install;}
         state->setupSent=std::filesystem::exists(DataPath(L"vcam-used.txt"));
-        state->account.message=L"Sign in with Google to open Callayers.";
+        state->account.message=L"Put cards on your camera in calls. Continue with Google to get started.";
         auto pending=DataPath(L"pending-events.bin");
         if(std::filesystem::exists(pending)&&std::filesystem::file_size(pending)<4*1024*1024){
             std::ifstream file(pending,std::ios::binary);std::string bytes((std::istreambuf_iterator<char>(file)),{});
@@ -231,7 +261,7 @@ void CloudSignIn(){
         try{
             const auto returnState=RandomSecret();LoginReturn callback(returnState,winrt::to_string(Base()));
             const auto url=Base()+L"/login.html#port="+std::to_wstring(callback.port)+L"&state="+std::wstring(winrt::to_hstring(returnState));
-            {std::lock_guard lock(state->mutex);if(epoch!=state->epoch){CoUninitialize();return;}state->account.message=L"Choose your Google account in the browser. Callayers will reconnect automatically.";}
+            {std::lock_guard lock(state->mutex);if(epoch!=state->epoch){CoUninitialize();return;}state->account.message=L"Finish signing in in your browser. You will return to Callayers automatically.";}
             if(reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr,L"open",url.c_str(),nullptr,nullptr,SW_SHOWNORMAL))<=32)throw std::runtime_error("Could not open your browser.");
             const auto deadline=Clock::now()+std::chrono::minutes(10);
             while(Clock::now()<deadline){
@@ -245,7 +275,7 @@ void CloudSignIn(){
                 AccountResponse(state,account.body,epoch);CloudFailure(L"authentication",L"signed_in",S_OK);
                 {std::lock_guard lock(state->mutex);if(epoch==state->epoch){state->account.busy=false;state->returnToApp=true;}}CoUninitialize();return;
             }
-            throw std::runtime_error("Sign-in timed out. Choose Sign in again.");
+            throw std::runtime_error("Sign-in timed out. Choose Continue with Google to try again.");
         }catch(const std::exception& e){CloudFailure(L"authentication",L"sign_in_failed",E_FAIL);std::lock_guard lock(state->mutex);if(epoch==state->epoch){state->account.administrator=false;state->account.message=winrt::to_hstring(e.what());}}
         catch(...){std::lock_guard lock(state->mutex);if(epoch==state->epoch)state->account.message=L"Sign-in failed. Please try again.";}
         {std::lock_guard lock(state->mutex);if(epoch==state->epoch)state->account.busy=false;}CoUninitialize();
@@ -253,7 +283,7 @@ void CloudSignIn(){
 }
 void CloudSignOut(){
     auto state=Shared();std::string token;
-    {std::lock_guard lock(state->mutex);token=state->token;state->token.clear();state->returnToApp=false;++state->epoch;state->queue.clear();++state->queueRevision;state->account=CloudAccount{};state->account.configured=CloudEnabled();state->account.message=L"Signed out. Sign in with Google to continue. Your deck is kept in memory.";}
+    {std::lock_guard lock(state->mutex);token=state->token;state->token.clear();state->returnToApp=false;++state->epoch;state->queue.clear();++state->queueRevision;state->account=CloudAccount{};state->account.configured=CloudEnabled();state->account.message=L"Signed out. Continue with Google to return to your deck. Your unsaved work is kept in memory.";}
     {std::lock_guard refreshLock(refreshMutex);firebaseTokens.erase(token);std::lock_guard lock(credentialMutex);CredDeleteW(CredentialName().c_str(),CRED_TYPE_GENERIC,0);}
     state->cv.notify_all();
 

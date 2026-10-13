@@ -20,7 +20,7 @@ class AdminPanel {
     adminc::ContentControl workHost;
     adminc::TextBlock status,spending,summary;
     adminc::TextBox email;
-    adminc::CheckBox approved,paid,disabled;
+    adminc::CheckBox paid,disabled;
     adminc::Button more;
     static std::wstring Money(double dollars){wchar_t value[80];swprintf_s(value,L"$%.4f",dollars);return value;}
     static std::wstring String(const Json& data,const wchar_t* key){return std::wstring(data.GetNamedString(key,L""));}
@@ -55,7 +55,7 @@ class AdminPanel {
         accounts.Children().Clear();details.Visibility(adminx::Visibility::Collapsed);selected.clear();
         for(auto row:data.GetNamedArray(L"accounts")){
             auto a=row.GetObject();auto uid=String(a,L"uid");
-            std::wstring access=a.GetNamedBoolean(L"disabled",false)?L"Disabled":a.GetNamedBoolean(L"paid",false)?L"Paid":a.GetNamedBoolean(L"approved",false)?L"Trial approved":L"Pending approval";
+            std::wstring access=a.GetNamedBoolean(L"disabled",false)?L"Disabled":a.GetNamedBoolean(L"paid",false)?L"Paid":L"AI trial";
             auto label=String(a,L"email")+L"\n"+access+L" · Lifetime AI "+Money(a.GetNamedNumber(L"totalSpent",0)/1000000.);
             auto button=Button(accounts,L"",[this,uid]{selected=uid;Detail();});button.Content(Text(label));button.HorizontalAlignment(adminx::HorizontalAlignment::Stretch);
         }
@@ -65,7 +65,7 @@ class AdminPanel {
         summary.Text(String(a,L"email")+L"\nAccount ID: "+selected+L"\nRemaining allowance: "+Money(a.GetNamedNumber(L"remainingUsd",0))+L" · Monthly spent: "+Money(a.GetNamedNumber(L"monthlySpentUsd",0)));
         auto trial=a.GetNamedValue(L"trialEndsAt");
         summary.Text(std::wstring(summary.Text())+L"\nTrial ends: "+(trial.ValueType()==winrt::Windows::Data::Json::JsonValueType::Number?Date(trial.GetNumber()):L"not started"));
-        approved.IsChecked(a.GetNamedBoolean(L"approved"));paid.IsChecked(a.GetNamedBoolean(L"paid"));disabled.IsChecked(a.GetNamedBoolean(L"disabled"));
+        paid.IsChecked(a.GetNamedBoolean(L"paid"));disabled.IsChecked(a.GetNamedBoolean(L"disabled"));
         disabled.IsEnabled(selected!=owner);requests.Children().Clear();
         requests.Children().Append(Text(L"Recent AI requests (up to 50; amounts are estimated USD)"));
         for(auto row:a.GetNamedArray(L"requests")){
@@ -95,9 +95,9 @@ public:
         more=Button(navigation,L"Next",[this]{if(cursor>0)Accounts(L"?cursor="+std::to_wstring(static_cast<int64_t>(cursor)));});more.Visibility(adminx::Visibility::Collapsed);
         accounts.Spacing(6);details.Spacing(10);details.Visibility(adminx::Visibility::Collapsed);work.Children().Append(details);work.Children().Append(accounts);
         summary.TextWrapping(adminx::TextWrapping::Wrap);details.Children().Append(summary);
-        approved.Content(winrt::box_value(L"Approved for AI"));paid.Content(winrt::box_value(L"Paid access (manual; no payment is collected)"));disabled.Content(winrt::box_value(L"Disable account"));
-        details.Children().Append(approved);details.Children().Append(paid);details.Children().Append(disabled);
-        Button(details,L"Save access",[this]{Json change;change.SetNamedValue(L"approved",Value::CreateBooleanValue(approved.IsChecked().Value()));change.SetNamedValue(L"paid",Value::CreateBooleanValue(paid.IsChecked().Value()));change.SetNamedValue(L"disabled",Value::CreateBooleanValue(disabled.IsChecked().Value()));Begin(Operation::Save,L"/v1/admin/accounts/"+Encode(selected),L"PATCH",winrt::to_string(change.Stringify()));});
+        paid.Content(winrt::box_value(L"Paid access (manual; no payment is collected)"));disabled.Content(winrt::box_value(L"Disable account"));
+        details.Children().Append(paid);details.Children().Append(disabled);
+        Button(details,L"Save access",[this]{Json change;change.SetNamedValue(L"paid",Value::CreateBooleanValue(paid.IsChecked().Value()));change.SetNamedValue(L"disabled",Value::CreateBooleanValue(disabled.IsChecked().Value()));Begin(Operation::Save,L"/v1/admin/accounts/"+Encode(selected),L"PATCH",winrt::to_string(change.Stringify()));});
         Button(details,L"Refresh details",[this]{Detail();});requests.Spacing(10);details.Children().Append(requests);Spending();
     }
     void Poll(){

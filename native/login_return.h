@@ -87,9 +87,9 @@ public:
             }
         }
         const std::string body=grant.empty()?"Invalid sign-in return. Start sign-in again in Callayers.":
-            "<!doctype html><html><head><meta charset=\"utf-8\"><title>Callayers</title></head><body><h1>Returning to Callayers</h1><p>You can close this tab. If Windows keeps the browser in front, select Callayers in the taskbar.</p></body></html>";
+            "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Return to Callayers</title><style>body{margin:0;background:#19191e;color:#eeeaf7;font:16px/1.6 system-ui,sans-serif}main{max-width:540px;margin:12vh auto;padding:32px}.brand{color:#b2aafa;letter-spacing:.2em;font-weight:700}h1{line-height:1.2}p{color:#bbb6c9}</style></head><body><main><p class=\"brand\">CALLAYERS</p><h1>Returning to Callayers</h1><p>Finish in the Callayers app. You can close this tab.</p><p>If the app is behind your browser, select Callayers in the taskbar.</p></main></body></html>";
         const auto response=std::string(grant.empty()?"HTTP/1.1 400 Bad Request\r\n":"HTTP/1.1 200 OK\r\n")+
-            "Content-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: default-src 'none'; frame-ancestors 'none'\r\nConnection: close\r\nContent-Length: "+std::to_string(body.size())+"\r\n\r\n"+body;
+            "Content-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'\r\nConnection: close\r\nContent-Length: "+std::to_string(body.size())+"\r\n\r\n"+body;
         send(client.value,response.data(),static_cast<int>(response.size()),0);
         return grant;
     }
