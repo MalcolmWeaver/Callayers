@@ -315,6 +315,9 @@ void OutputPin::stop() {
 }
 void OutputPin::deliver() {
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+#ifdef CALLAYERS_TELEMETRY
+    bridge_.consumerStarted();
+#endif
     std::vector<uint8_t> live, neutral; Neutral(neutral);
     const int bpp = type_.subtype == MEDIASUBTYPE_RGB32 ? 4 : 3;
     auto began = std::chrono::steady_clock::now(), next = began;
@@ -326,7 +329,8 @@ void OutputPin::deliver() {
         HRESULT hr = allocator_->GetBuffer(&sample, nullptr, nullptr, AM_GBF_NOWAIT);
         if (SUCCEEDED(hr)) {
             BYTE* output = nullptr; sample->GetPointer(&output);
-            const auto& picture = bridge_.read(live) ? live : neutral;
+            const bool fresh=bridge_.read(live);
+            const auto& picture = fresh ? live : neutral;
             if (output && sample->GetSize() >= Width * Height * bpp) {
                 for (int y = 0; y < Height; ++y) {
                     const auto src = picture.data() + size_t(Height - y - 1) * Width * 4;
@@ -342,6 +346,9 @@ void OutputPin::deliver() {
                 sample->SetActualDataLength(Width * Height * bpp); sample->SetSyncPoint(TRUE);
                 sample->SetDiscontinuity(discontinuity); sample->SetPreroll(FALSE);
                 hr = input_->Receive(sample.Get()); discontinuity = FAILED(hr);
+#ifdef CALLAYERS_TELEMETRY
+                bridge_.delivered(fresh,hr);
+#endif
                 if (FAILED(hr)) break;
             }
         } else discontinuity = true;

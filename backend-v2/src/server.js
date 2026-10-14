@@ -1,3 +1,5 @@
+import { readGeneration, validateCard } from './generation.js';
+import { readEvents, telemetryLimiter } from './telemetry.js';
 const invalidCredentialCodes = new Set([
   'auth/argument-error', 'auth/invalid-argument', 'auth/invalid-id-token',
   'auth/id-token-expired', 'auth/id-token-revoked', 'auth/user-not-found',
@@ -7,14 +9,17 @@ function reply(res, status, body) {
     'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
   res.end(JSON.stringify(body));
 }
-export function createHandler({ config, auth, accounts, now = () => new Date(), log = () => {} }) {
+export function createHandler({ config, auth, accounts, generate, telemetry, now = () => new Date(), log = () => {} }) {
+  const permitEvents=telemetryLimiter();
   return async (req, res) => {
-    // No request-body ingestion, token/profile logging, hosted login, or CORS.
+      // No raw request-body/token/profile logging, hosted login, or CORS.
     try {
-      if (req.method !== 'GET') return reply(res, 405, { error: 'method_not_allowed' });
-      if (req.url === '/health') return reply(res, 200, { service: 'callayers-v2-api', version: 2, status: 'ok' });
+      const generation=req.url==='/generate' && req.method==='POST' && typeof generate==='function';
+      const events=req.url==='/events' && req.method==='POST';
+      if (req.method !== 'GET' && !generation && !events) return reply(res, 405, { error: 'method_not_allowed' });
+      if (req.url === '/health') return reply(res, 200, { service: 'callayers-v2-api', version: 2, status: 'ok', generationReady:typeof generate==='function',revisionReady:typeof generate==='function',telemetryReady:typeof telemetry==='function' });
       if (req.url === '/client-config') return reply(res, 200, config.publicConfig);
-      if (req.url !== '/account') return reply(res, 404, { error: 'not_found' });
+      if (req.url !== '/account' && !generation && !events) return reply(res, 404, { error: 'not_found' });
       const authorization = req.headers.authorization;
       if (typeof authorization !== 'string' || !/^Bearer [A-Za-z0-9_.-]{1,16384}$/.test(authorization))
         return reply(res, 401, { error: 'sign_in_required' });
@@ -35,13 +40,38 @@ export function createHandler({ config, auth, accounts, now = () => new Date(), 
       const account = await accounts.getOrCreate(identity.uid, today);
       if (account.schemaVersion !== 2 || account.access !== 'enabled')
         return reply(res, 403, { error: 'account_unavailable' });
+      if(events){
+        let batch;try{batch=await readEvents(req,now());}catch(error){return reply(res,error.status||400,{error:'invalid_events'});}
+        if(typeof telemetry!=='function')return reply(res,503,{error:'telemetry_unavailable'});
+        if(!permitEvents(identity.uid,batch.length,now().getTime()))return reply(res,429,{error:'telemetry_rate_limited'});
+        try{await telemetry(identity.uid,batch);return reply(res,200,{accepted:batch.length});}
+        catch{log('telemetry_delivery_failed');return reply(res,503,{error:'telemetry_unavailable'});}
+      }
       if (!Number.isSafeInteger(account.dailyGenerations) || account.dailyGenerations < 0 ||
           typeof account.usageDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(account.usageDate))
         throw new Error('Invalid account data');
+      const used=account.usageDate===today?account.dailyGenerations:0,limit=config.dailyLimit;
+      const allowance=count=>({date:today,used:count,enabled:typeof generate==='function',limit:typeof generate==='function'?limit:null,remaining:typeof generate==='function'?Math.max(0,limit-count):null});
+      if(generation){
+        let input;try{input=await readGeneration(req);}catch(error){return reply(res,error.status||400,{error:error.code||'invalid_request'});}
+        const reserved=await accounts.reserve(identity.uid,input.requestId,today,limit,new Date(now().getTime()+86400000));
+        if(reserved.kind==='duplicate')return reply(res,409,{error:'request_already_used',requestStatus:reserved.status});
+        if(reserved.kind==='wrong_owner')return reply(res,404,{error:'request_not_found'});
+        if(reserved.kind==='denied')return reply(res,403,{error:'account_unavailable'});
+        if(reserved.kind==='limit')return reply(res,429,{error:'daily_limit_reached',allowance:allowance(reserved.used)});
+        try{
+          const card=validateCard(await generate(input.prompt,input.currentCard));
+          if(input.currentCard?.imageIds.length && !card.html.includes('callayers-image:local'))throw new Error('missing_image_reference');
+          await accounts.finish(identity.uid,input.requestId,'completed');
+          return reply(res,200,{requestId:input.requestId,card,allowance:allowance(reserved.used)});
+        }catch{
+          try{await accounts.finish(identity.uid,input.requestId,'failed');}catch{}
+          log('generation_failed');return reply(res,502,{error:'generation_failed',allowance:allowance(reserved.used)});
+        }
+      }
       return reply(res, 200, { uid: identity.uid,
         email: typeof identity.email === 'string' ? identity.email : '', accessAllowed: true,
-        allowance: { date: today, used: account.usageDate === today ? account.dailyGenerations : 0,
-          enabled: false, limit: null, remaining: null } });
+        allowance: allowance(used) });
     } catch {
       // Operational event only. SDK exceptions may contain private request data.
       log('account_service_unavailable');

@@ -85,3 +85,26 @@ test('configuration requires separate database and installed OAuth client in the
   assert.throws(() => loadConfig({ ...env, GOOGLE_CLOUD_PROJECT: 'other-project' }));
   assert.throws(() => loadConfig({ ...env, GOOGLE_DESKTOP_CLIENT_JSON: JSON.stringify({ web: {} }) }));
 });
+test('generation requires an independently configured daily limit with no default', () => {
+  const env = { GOOGLE_CLOUD_PROJECT: 'example-project', FIRESTORE_DATABASE_ID: 'callayers-v2', FIREBASE_WEB_API_KEY: 'synthetic-key',
+    GOOGLE_DESKTOP_CLIENT_JSON: JSON.stringify({ installed: { project_id: 'example-project', client_id: 'synthetic.apps.googleusercontent.com', client_secret: 'synthetic-installed-client' } }) };
+  assert.equal(loadConfig(env).dailyLimit, null); // Sign-in can run before generation is enabled.
+  assert.throws(() => loadConfig({ ...env, OPENAI_API_KEY: 'synthetic-provider' }), /USER_DAILY_GENERATIONS/);
+  for (const value of ['', '0', '1001', '1.5', 'invalid'])
+    assert.throws(() => loadConfig({ ...env, OPENAI_API_KEY: 'synthetic-provider', USER_DAILY_GENERATIONS: value }), /USER_DAILY_GENERATIONS/);
+  const configured = loadConfig({ ...env, OPENAI_API_KEY: 'synthetic-provider', AI_MODEL: 'synthetic-model', USER_DAILY_GENERATIONS: '25' });
+  assert.equal(configured.dailyLimit, 25);
+  assert.equal(configured.publicConfig.dailyLimit, undefined);
+});
+test('provider model and optional reasoning effort come from runtime configuration', () => {
+  const env = { GOOGLE_CLOUD_PROJECT: 'example-project', FIRESTORE_DATABASE_ID: 'callayers-v2', FIREBASE_WEB_API_KEY: 'synthetic-key',
+    GOOGLE_DESKTOP_CLIENT_JSON: JSON.stringify({ installed: { project_id: 'example-project', client_id: 'synthetic.apps.googleusercontent.com', client_secret: 'synthetic-installed-client' } }),
+    OPENAI_API_KEY: 'synthetic-provider', USER_DAILY_GENERATIONS: '10' };
+  assert.throws(() => loadConfig(env), /AI_MODEL/);
+  const chosen=loadConfig({...env,AI_MODEL:'chosen-model',AI_REASONING_EFFORT:'high'});
+  assert.equal(chosen.aiModel,'chosen-model');assert.equal(chosen.aiReasoningEffort,'high');
+  assert.equal(chosen.publicConfig.aiModel,undefined);assert.equal(chosen.publicConfig.aiReasoningEffort,undefined);
+  assert.equal(loadConfig({...env,AI_MODEL:'another-model'}).aiReasoningEffort,null);
+  assert.equal(loadConfig({...env,AI_MODEL:'another-model',AI_REASONING_EFFORT:''}).aiReasoningEffort,null);
+  assert.throws(()=>loadConfig({...env,AI_MODEL:'chosen-model',AI_REASONING_EFFORT:'unsupported'}),/AI_REASONING_EFFORT/);
+});

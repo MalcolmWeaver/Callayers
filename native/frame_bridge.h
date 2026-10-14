@@ -4,6 +4,9 @@
 #include <cstdint>
 #include <cstring>
 #include <vector>
+#ifdef CALLAYERS_TELEMETRY
+#include "consumer_telemetry.h"
+#endif
 
 namespace callayers {
 inline constexpr int Width = 1280, Height = 720, Fps = 30;
@@ -38,6 +41,10 @@ class FrameBridge {
     HANDLE mapping_ = nullptr, mutex_ = nullptr;
     SharedFrame* frame_ = nullptr;
     LONG64 copiedSession_ = 0, copiedTick_ = 0;
+#ifdef CALLAYERS_TELEMETRY
+    ConsumerTelemetry telemetry_;
+    uint64_t copiedScene_=0;
+#endif
 public:
     FrameBridge() {
         mutex_ = CreateMutexW(nullptr, FALSE, LockName);
@@ -64,15 +71,33 @@ public:
         auto tick = Read64(&frame_->consumerTick);
         return tick > 0 && GetTickCount64() - tick < FreshMs;
     }
-    void heartbeat() { if (frame_) InterlockedExchange64(&frame_->consumerTick, GetTickCount64()); }
-    void consumerStopped() { if (frame_) InterlockedExchange64(&frame_->consumerTick, 0); }
-    void publish(const std::vector<uint8_t>& pixels, LONG64 session, ULONGLONG cameraTick) {
+    void heartbeat() { if (frame_) InterlockedExchange64(&frame_->consumerTick, GetTickCount64());
+#ifdef CALLAYERS_TELEMETRY
+        telemetry_.heartbeat();
+#endif
+    }
+    void consumerStopped() { if (frame_) InterlockedExchange64(&frame_->consumerTick, 0);
+#ifdef CALLAYERS_TELEMETRY
+        telemetry_.stopped();
+#endif
+    }
+#ifdef CALLAYERS_TELEMETRY
+    void consumerStarted(){wchar_t host[32768]{};DWORD length=GetModuleFileNameW(nullptr,host,32768);telemetry_.started(length>0 && length<32768?NormalizeConsumer(std::wstring(host,length)):ConsumerApp::Unknown);}
+    void delivered(bool live,HRESULT received){telemetry_.delivered(live && frame_ && Read32(&frame_->active) && Read64(&frame_->session)==copiedSession_ && copiedTick_>0 && GetTickCount64()-ULONGLONG(copiedTick_)<FreshMs,copiedSession_,copiedScene_,received);}
+    ConsumerSnapshot consumerTelemetry()const{auto value=telemetry_.snapshot(frame_?Read64(&frame_->session):0);if(!frame_ || !Read32(&frame_->active))value.output=false;return value;}
+#endif
+    void publish(const std::vector<uint8_t>& pixels, LONG64 session, ULONGLONG cameraTick, uint64_t scene=0) {
         if (!valid() || pixels.size() != PixelBytes || Read64(&frame_->session) != session) return;
         DWORD lock = WaitForSingleObject(mutex_, 0);
         if (lock != WAIT_OBJECT_0 && lock != WAIT_ABANDONED) return;
         memcpy(frame_->pixels, pixels.data(), PixelBytes);
         frame_->frameTick = cameraTick;
         frame_->frameSession = session;
+#ifdef CALLAYERS_TELEMETRY
+        telemetry_.published(session,cameraTick,scene);
+#else
+        (void)scene;
+#endif
         InterlockedExchange(&frame_->active, 1);
         ReleaseMutex(mutex_);
     }
@@ -88,6 +113,9 @@ public:
             pixels.resize(PixelBytes);
             memcpy(pixels.data(), frame_->pixels, PixelBytes);
             copiedTick_ = frame_->frameTick; copiedSession_ = frame_->frameSession;
+#ifdef CALLAYERS_TELEMETRY
+            copiedScene_=telemetry_.publishedScene(copiedSession_,copiedTick_);
+#endif
             ReleaseMutex(mutex_);
         }
         return Read32(&frame_->active) && copiedSession_ == session &&

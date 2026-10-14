@@ -10,6 +10,7 @@
 #include <winrt/Microsoft.UI.Dispatching.h>
 #include <winrt/Microsoft.UI.Content.h>
 #include <winrt/Microsoft.UI.Xaml.h>
+#include <winrt/Microsoft.UI.Xaml.Automation.h>
 #include <winrt/Microsoft.UI.Xaml.Controls.h>
 #include <winrt/Microsoft.UI.Xaml.Controls.Primitives.h>
 #include <winrt/Microsoft.UI.Xaml.Hosting.h>
@@ -129,7 +130,47 @@ struct Workspace::Impl {
     bool listedVisible[3]{true,true,true};
     std::wstring lastStatus, lastHelp;
     int selected = -1;
-    static constexpr const wchar_t* names[] = {L"Name card", L"Animated card", L"Five-minute timer"};
+#ifdef CALLAYERS_GENERATION
+    controls::TextBox prompt{nullptr};controls::Button generateButton{nullptr},cancelButton{nullptr};controls::TextBlock generationMessage{nullptr};
+    controls::StackPanel generatedPanel{nullptr};std::vector<std::wstring> generatedNames;
+    std::vector<controls::CheckBox> generatedChecks;std::vector<controls::Border> generatedRows;
+    std::wstring lastGenerationMessage;bool lastGenerating=false;
+#ifdef CALLAYERS_LIBRARY
+    struct LibraryItem {std::wstring id,name;bool previous=false;unsigned long long edited=0;};
+    std::vector<LibraryItem> library;
+    std::wstring selectedId,editingId,submittedTarget,submittedPrompt,requestName;
+    controls::TextBlock composerTitle{nullptr},composerDescription{nullptr};
+    controls::ProgressRing composerProgress{nullptr};
+    controls::ScrollViewer composerStatus{nullptr};
+    void showComposerMessage(const std::wstring& value){generationMessage.Text(value);composerStatus.Visibility(value.empty()?ux::Visibility::Collapsed:ux::Visibility::Visible);}
+    std::wstring libraryName(const std::wstring& id)const{for(auto& card:library)if(card.id==id)return card.name;return L"";}
+    void refreshComposer(){
+        auto name=libraryName(editingId);composerTitle.Text(editingId.empty()?L"New card":L"Edit “"+name+L"”");controls::ToolTipService::SetToolTip(composerTitle,winrt::box_value(std::wstring(composerTitle.Text())));
+        composerDescription.Text(lastGenerating?(requestName.empty()?L"Creating a new card…":L"Updating this card…"):editingId.empty()?L"New cards start hidden.":L"Your current card stays visible.");
+        prompt.PlaceholderText(editingId.empty()?L"Describe your card…":L"Describe the changes…");prompt.IsEnabled(!lastGenerating);
+        generateButton.IsEnabled(!lastGenerating && std::wstring(prompt.Text()).find_first_not_of(L" \t\r\n")!=std::wstring::npos);
+        cancelButton.Visibility(lastGenerating?ux::Visibility::Visible:ux::Visibility::Collapsed);
+        composerProgress.IsActive(lastGenerating);composerProgress.Visibility(lastGenerating?ux::Visibility::Visible:ux::Visibility::Collapsed);
+    }
+    void openCreate(){if(lastGenerating)return;actions.selectCard(-1);editingId.clear();prompt.Text(L"");showComposerMessage(L"");refreshComposer();prompt.Focus(ux::FocusState::Programmatic);}
+    void openEdit(const std::wstring& id){if(lastGenerating)return;for(size_t i=0;i<library.size();++i)if(library[i].id==id){actions.selectCard(int(i));if(editingId!=id)prompt.Text(L"");editingId=id;showComposerMessage(L"");refreshComposer();prompt.Focus(ux::FocusState::Programmatic);return;}}
+    void sendMessage(){if(lastGenerating)return;auto value=std::wstring(prompt.Text());if(value.find_first_not_of(L" \t\r\n")==std::wstring::npos)return;
+        submittedTarget=editingId;submittedPrompt=value;requestName=libraryName(editingId);lastGenerating=true;showComposerMessage(L"");refreshComposer();
+        if(editingId.empty())actions.generate(value);else actions.editCard(editingId,value);
+    }
+    void filterLibrary(){std::wstring query(find<controls::TextBox>(sidebar,L"Search").Text());std::transform(query.begin(),query.end(),query.begin(),[](wchar_t c){return wchar_t(std::towlower(c));});bool any=false;
+        for(size_t i=0;i<library.size();++i){auto name=library[i].name;std::transform(name.begin(),name.end(),name.begin(),[](wchar_t c){return wchar_t(std::towlower(c));});bool show=name.find(query)!=std::wstring::npos;any|=show;generatedRows[i].Visibility(show?ux::Visibility::Visible:ux::Visibility::Collapsed);}
+        auto message=find<controls::TextBlock>(sidebar,L"NoResults");message.Text(library.empty()?L"Create your first card":L"No matching cards");message.Visibility(any?ux::Visibility::Collapsed:ux::Visibility::Visible);
+    }
+#endif
+#endif
+    static constexpr const wchar_t* names[] = {
+#ifdef CALLAYERS_INTERACTIVE
+        L"Interactive card",
+#else
+        L"Name card",
+#endif
+        L"Animated card", L"Five-minute timer"};
     template<class T> T find(ux::FrameworkElement const& root, const wchar_t* name) { return root.FindName(name).as<T>(); }
     static ux::FrameworkElement load(const wchar_t* xaml) { return ux::Markup::XamlReader::Load(xaml).as<ux::FrameworkElement>(); }
     void attach(hosting::DesktopWindowXamlSource const& island, ux::FrameworkElement const& content,bool visible=true) {
@@ -162,8 +203,8 @@ struct Workspace::Impl {
         sidebar = load(LR"(<Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Background="#242428" Padding="20" RowSpacing="16">
  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
  <StackPanel Spacing="12"><TextBlock Text="Cards" FontSize="22" FontWeight="SemiBold"/>
- <Button Content="+  Create with AI" HorizontalAlignment="Stretch" IsEnabled="False" ToolTipService.ToolTip="AI card creation is coming soon."/>
- <StackPanel Orientation="Horizontal" Spacing="8"><Button Content="Import image" IsEnabled="False" ToolTipService.ToolTip="Image import is coming soon."/><Button x:Name="HideAll" Content="Hide all"/></StackPanel>
+ <Button x:Name="CreateAI" Content="+  Create with AI" HorizontalAlignment="Stretch" IsEnabled="False" ToolTipService.ToolTip="Create a card from a prompt."/>
+ <StackPanel Orientation="Horizontal" Spacing="8"><Button x:Name="ImportImage" Content="Import image" IsEnabled="False" ToolTipService.ToolTip="Import a local image."/><Button x:Name="HideAll" Content="Hide all"/></StackPanel>
  <TextBox x:Name="Search" PlaceholderText="Search cards" AutomationProperties.Name="Search cards"/>
  </StackPanel>
  <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"><StackPanel Spacing="12">
@@ -178,6 +219,24 @@ struct Workspace::Impl {
  </StackPanel></ScrollViewer>
  <StackPanel Grid.Row="2" Spacing="8"><Button x:Name="UseInCall" Content="Use in a call" HorizontalAlignment="Stretch"><Button.Flyout><Flyout><TextBlock Text="In your calling app, choose Callayers as your camera." TextWrapping="Wrap" Width="240"/></Flyout></Button.Flyout></Button><TextBlock Text="In your calling app, choose Callayers" FontSize="12" Foreground="#BBB9C8" TextWrapping="Wrap"/></StackPanel>
 </Grid>)");
+#ifdef CALLAYERS_LIBRARY
+        sidebar=load(LR"(<Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Background="#242428" Padding="16" RowSpacing="12">
+ <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+ <StackPanel Spacing="10"><TextBlock Text="Cards" FontSize="22" FontWeight="SemiBold"/>
+ <Button x:Name="CreateAI" Content="+  Create with AI" HorizontalAlignment="Stretch" ToolTipService.ToolTip="Create a card from a prompt."/>
+ <Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Button x:Name="ImportImage" Content="Import image" HorizontalAlignment="Stretch"/><Button x:Name="HideAll" Grid.Column="1" Content="Hide all" HorizontalAlignment="Stretch"/></Grid>
+ <TextBox x:Name="Search" PlaceholderText="Search cards" AutomationProperties.Name="Search cards"/></StackPanel>
+ <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" Padding="0,0,4,0"><StackPanel Spacing="8"><StackPanel x:Name="Rows" Spacing="4"/><TextBlock x:Name="NoResults" Text="Create your first card" Foreground="#BBB9C8" TextWrapping="Wrap" Margin="4,12"/></StackPanel></ScrollViewer>
+ <StackPanel Grid.Row="2" Spacing="6"><Button x:Name="UseInCall" Content="Use in a call" HorizontalAlignment="Stretch"><Button.Flyout><Flyout><TextBlock Text="In your calling app, choose Callayers as your camera." TextWrapping="Wrap" Width="240"/></Flyout></Button.Flyout></Button></StackPanel>
+ <Border Grid.Row="3" Padding="0,2,0,0"><StackPanel Spacing="6">
+ <Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="ComposerTarget" Text="New card" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/><ProgressRing x:Name="ComposerProgress" Grid.Column="1" Width="16" Height="16" IsActive="False" Visibility="Collapsed"/></Grid>
+ <TextBlock x:Name="ComposerDescription" FontSize="11" Foreground="#BBB9C8" TextWrapping="Wrap" MaxHeight="48"/>
+ <TextBox x:Name="ComposerPrompt" PlaceholderText="Describe your card…" AutomationProperties.Name="Card message" AcceptsReturn="True" TextWrapping="Wrap" Height="56" MinHeight="56" FontSize="13" Padding="8,6" MaxLength="4000" ToolTipService.ToolTip="Enter adds a line. Ctrl+Enter sends your message."/>
+ <StackPanel Orientation="Horizontal" Spacing="6"><Button x:Name="ComposerSend" Content="Send" MinHeight="28" FontSize="12" Padding="12,2" Background="#A39BFA" Foreground="#201D33"/><Button x:Name="ComposerCancel" Content="Cancel" MinHeight="28" FontSize="12" Padding="12,2" Visibility="Collapsed"/></StackPanel>
+ <ScrollViewer x:Name="ComposerStatus" MaxHeight="48" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><TextBlock x:Name="ComposerMessage" TextWrapping="Wrap" FontSize="11" Foreground="#BBB9C8" IsTextSelectionEnabled="True"/></ScrollViewer>
+ </StackPanel></Border>
+</Grid>)");
+#endif
         toolbar = load(LR"(<Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Background="#1D1D21" Padding="16,0"><StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
  <ToggleButton x:Name="Select" Content="↖" MinWidth="40" ToolTipService.ToolTip="Select and move or resize" AutomationProperties.Name="Select" IsChecked="True"/>
  <ToggleButton x:Name="Pen" Content="✎" MinWidth="40" ToolTipService.ToolTip="Pen" AutomationProperties.Name="Pen"/>
@@ -214,6 +273,34 @@ struct Workspace::Impl {
         for(auto gate:{sidebarGate,toolbarGate}) {gate.HorizontalContentAlignment(ux::HorizontalAlignment::Stretch);gate.VerticalContentAlignment(ux::VerticalAlignment::Stretch);}
         attach(headerIsland, header); attach(sidebarIsland, sidebarGate); attach(toolbarIsland, toolbarGate,false); attach(helpIsland, help,false);
         attach(authIsland,authView);
+#ifdef CALLAYERS_GENERATION
+        auto ai=find<controls::Button>(sidebar,L"CreateAI");ai.IsEnabled(true);
+#ifdef CALLAYERS_IMAGES
+        auto import=find<controls::Button>(sidebar,L"ImportImage");import.IsEnabled(true);import.Click([this](auto&&,auto&&){actions.importImage();});
+#endif
+#ifndef CALLAYERS_LIBRARY
+        controls::StackPanel form;form.Width(340);form.Spacing(10);
+        controls::TextBlock label;label.Text(L"Create a card");label.FontSize(20);form.Children().Append(label);
+        prompt=controls::TextBox();prompt.PlaceholderText(L"Describe your card…");prompt.AcceptsReturn(true);prompt.TextWrapping(ux::TextWrapping::Wrap);prompt.MinHeight(130);prompt.MaxLength(4000);form.Children().Append(prompt);
+        generateButton=controls::Button();generateButton.Content(winrt::box_value(L"Create"));form.Children().Append(generateButton);
+        cancelButton=controls::Button();cancelButton.Content(winrt::box_value(L"Cancel"));cancelButton.IsEnabled(false);form.Children().Append(cancelButton);
+        generationMessage=controls::TextBlock();generationMessage.TextWrapping(ux::TextWrapping::Wrap);generationMessage.Text(L"Your allowance resets at midnight UTC.");form.Children().Append(generationMessage);
+        controls::Flyout flyout;flyout.Content(form);ai.Flyout(flyout);
+        generateButton.Click([this](auto&&,auto&&){actions.generate(std::wstring(prompt.Text()));});cancelButton.Click([this](auto&&,auto&&){actions.cancelGeneration();});
+#else
+        prompt=find<controls::TextBox>(sidebar,L"ComposerPrompt");generateButton=find<controls::Button>(sidebar,L"ComposerSend");cancelButton=find<controls::Button>(sidebar,L"ComposerCancel");generationMessage=find<controls::TextBlock>(sidebar,L"ComposerMessage");
+        composerTitle=find<controls::TextBlock>(sidebar,L"ComposerTarget");composerDescription=find<controls::TextBlock>(sidebar,L"ComposerDescription");composerProgress=find<controls::ProgressRing>(sidebar,L"ComposerProgress");composerStatus=find<controls::ScrollViewer>(sidebar,L"ComposerStatus");
+        ai.Click([this](auto&&,auto&&){openCreate();});generateButton.Click([this](auto&&,auto&&){sendMessage();});cancelButton.Click([this](auto&&,auto&&){actions.cancelGeneration();});
+        prompt.TextChanged([this](auto&&,auto&&){if(!syncing)refreshComposer();});
+        prompt.KeyDown([this](auto&&,ux::Input::KeyRoutedEventArgs const& args){if(args.Key()==winrt::Windows::System::VirtualKey::Enter && (GetKeyState(VK_CONTROL)&0x8000)){sendMessage();args.Handled(true);}});
+        refreshComposer();
+#endif
+        generatedPanel=controls::StackPanel();generatedPanel.Spacing(6);find<controls::StackPanel>(sidebar,L"Rows").Children().InsertAt(0,generatedPanel);
+#endif
+#if defined(CALLAYERS_INTERACTIVE) && !defined(CALLAYERS_LIBRARY)
+        find<controls::Button>(sidebar,L"Name0").Content(winrt::box_value(L"Interactive card"));
+        ux::Automation::AutomationProperties::SetName(find<controls::CheckBox>(sidebar,L"Show0"),L"Show Interactive card");
+#endif
         headerIsland.SiteBridge().Hide();sidebarIsland.SiteBridge().Hide();toolbarIsland.SiteBridge().Hide();helpIsland.SiteBridge().Hide();
         StartupTrace("islands-ready");
         for(auto island:{headerIsland,sidebarIsland,toolbarIsland,helpIsland,authIsland}) {
@@ -243,6 +330,7 @@ struct Workspace::Impl {
         find<controls::Button>(header,L"RetryChoice").Click([this](auto&&,auto&&){actions.retry();});
         find<controls::Button>(help,L"Privacy").Click([this](auto&&,auto&&){actions.privacy();});
         find<controls::Button>(sidebar,L"HideAll").Click([this](auto&&,auto&&){actions.hideAll();});
+#ifndef CALLAYERS_LIBRARY
         for(int i=0;i<3;++i) {
             auto number = std::to_wstring(i);
             auto checkbox=find<controls::CheckBox>(sidebar,(L"Show"+number).c_str()); checkbox.MinWidth(32); checkbox.Width(32);
@@ -260,7 +348,14 @@ struct Workspace::Impl {
                 find<controls::Border>(sidebar,(L"Row"+std::to_wstring(i)).c_str()).Visibility(show?ux::Visibility::Visible:ux::Visibility::Collapsed);
             }
             find<controls::TextBlock>(sidebar,L"NoResults").Visibility(any?ux::Visibility::Collapsed:ux::Visibility::Visible);
+#ifdef CALLAYERS_GENERATION
+            for(size_t i=0;i<generatedNames.size();++i){auto name=generatedNames[i];std::transform(name.begin(),name.end(),name.begin(),[](wchar_t c){return wchar_t(std::towlower(c));});bool show=name.find(query)!=std::wstring::npos;any|=show;generatedRows[i].Visibility(show?ux::Visibility::Visible:ux::Visibility::Collapsed);}
+            find<controls::TextBlock>(sidebar,L"NoResults").Visibility(any?ux::Visibility::Collapsed:ux::Visibility::Visible);
+#endif
         });
+#else
+        find<controls::TextBox>(sidebar,L"Search").TextChanged([this](auto&&,auto&&){filterLibrary();});
+#endif
         for(auto entry : {std::pair{L"Select",AnnotationTool::Select}, {L"Pen",AnnotationTool::Pen}, {L"Text",AnnotationTool::Text}, {L"Eraser",AnnotationTool::Eraser}})
             find<controls::Primitives::ToggleButton>(toolbar,entry.first).Click([this,type=entry.second](auto&&,auto&&){actions.tool(type);});
         for(auto entry : {std::pair{L"Rectangle",AnnotationTool::Rectangle}, {L"Ellipse",AnnotationTool::Ellipse}, {L"Line",AnnotationTool::Line}, {L"Arrow",AnnotationTool::Arrow}})
@@ -287,14 +382,19 @@ void Workspace::cameras(const std::vector<std::wstring>& names,int selected,cons
 }
 void Workspace::card(int selected,const bool* visible) {
     auto& ui=*impl_;
-    if(ui.selected==selected && std::equal(visible,visible+3,ui.listedVisible))return;
+    if(selected<3 && ui.selected==selected && std::equal(visible,visible+3,ui.listedVisible))return;
     ui.selected=selected;std::copy(visible,visible+3,ui.listedVisible);ui.syncing=true;
     for(int i=0;i<3;++i) {
         auto number=std::to_wstring(i);
         ui.find<controls::CheckBox>(ui.sidebar,(L"Show"+number).c_str()).IsChecked(visible[i]);
         ui.find<controls::Border>(ui.sidebar,(L"Row"+number).c_str()).Background(ux::Media::SolidColorBrush(selected==i?winrt::Windows::UI::Color{255,59,57,83}:winrt::Windows::UI::Color{0,0,0,0}));
     }
-    ui.find<controls::TextBlock>(ui.sidebar,L"Selection").Text(selected>=0?Impl::names[selected]:L"Select a card");
+    std::wstring name=selected>=0 && selected<3?Impl::names[selected]:L"Select a card";
+#ifdef CALLAYERS_GENERATION
+    if(selected>=3 && selected-3<int(ui.generatedNames.size()))name=ui.generatedNames[selected-3];
+    for(size_t i=0;i<ui.generatedRows.size();++i)ui.generatedRows[i].Background(ux::Media::SolidColorBrush(selected==int(i+3)?winrt::Windows::UI::Color{255,59,57,83}:winrt::Windows::UI::Color{0,0,0,0}));
+#endif
+    ui.find<controls::TextBlock>(ui.sidebar,L"Selection").Text(name);
     ui.find<controls::TextBlock>(ui.sidebar,L"SelectionHelp").Text(selected>=0?(visible[selected]?L"Move this card in the preview or drag its corner to resize.":L"This card is hidden. Check its box to show it on camera."):L"Check a box to show a card. Select its name to work with it.");
     ui.syncing=false;
 }
@@ -308,6 +408,94 @@ void Workspace::annotationControls(AnnotationTool tool,const std::wstring& color
     ui.find<controls::Border>(ui.toolbar,L"ColorSwatch").Background(ux::Media::SolidColorBrush(winrt::Windows::UI::Color{255,uint8_t(value>>16),uint8_t(value>>8),uint8_t(value)}));
     ui.find<controls::ComboBox>(ui.toolbar,L"Size").SelectedIndex(size);ui.syncing=false;
 }
+#ifdef CALLAYERS_GENERATION
+void Workspace::generation(const GenerationSnapshot& state){auto& ui=*impl_;auto message=state.message;
+    if(state.remaining>=0){
+#ifdef CALLAYERS_LIBRARY
+        message+=(message.empty()?L"":L"\n")+std::to_wstring(state.remaining)+L" left today · resets 00:00 UTC";
+#else
+        message+=L"\n"+std::to_wstring(state.remaining)+L" generations remaining today. Resets at midnight UTC.";
+#endif
+    }
+    if(message!=ui.lastGenerationMessage){
+#ifdef CALLAYERS_LIBRARY
+        ui.showComposerMessage(message);
+#else
+        ui.generationMessage.Text(message);
+#endif
+        ui.lastGenerationMessage=message;
+    }
+#ifdef CALLAYERS_LIBRARY
+    bool finished=ui.lastGenerating && !state.busy;ui.lastGenerating=state.busy;
+    if(finished){
+        if((state.message==L"Card saved." || state.message.find(L"Card created.")==0) && std::wstring(ui.prompt.Text())==ui.submittedPrompt)ui.prompt.Text(L"");
+        if(ui.editingId!=ui.selectedId){ui.editingId=ui.selectedId;ui.prompt.Text(L"");}
+    }
+    ui.cancelButton.IsEnabled(!state.applying);ui.refreshComposer();
+    if(state.applying)ui.composerDescription.Text(state.message);
+#else
+    ui.generateButton.IsEnabled(!state.busy);ui.cancelButton.IsEnabled(state.busy);
+#endif
+}
+void Workspace::generatedCards(const std::vector<std::pair<std::wstring,bool>>& cards){auto& ui=*impl_;
+    bool rebuild=cards.size()!=ui.generatedNames.size();if(!rebuild)for(size_t i=0;i<cards.size();++i)rebuild|=cards[i].first!=ui.generatedNames[i];
+    ui.syncing=true;
+    if(rebuild){ui.generatedPanel.Children().Clear();ui.generatedNames.clear();ui.generatedChecks.clear();ui.generatedRows.clear();
+        for(size_t i=0;i<cards.size();++i){ui.generatedNames.push_back(cards[i].first);controls::Border row;row.CornerRadius(ux::CornerRadius{6});row.Padding(ux::Thickness{4});
+            controls::StackPanel content;content.Orientation(controls::Orientation::Horizontal);controls::CheckBox check;check.IsChecked(cards[i].second);
+            ux::Automation::AutomationProperties::SetName(check,L"Show "+cards[i].first);content.Children().Append(check);
+            controls::Button name;name.Content(winrt::box_value(cards[i].first));content.Children().Append(name);row.Child(content);
+            check.Click([&ui,index=int(i+3)](auto&& sender,auto&&){if(!ui.syncing)ui.actions.visibility(index,sender.template as<controls::CheckBox>().IsChecked().GetBoolean());});
+            name.Click([&ui,index=int(i+3)](auto&&,auto&&){ui.actions.selectCard(index);});ui.generatedChecks.push_back(check);ui.generatedRows.push_back(row);
+        }
+        for(auto it=ui.generatedRows.rbegin();it!=ui.generatedRows.rend();++it)ui.generatedPanel.Children().Append(*it);
+    }else for(size_t i=0;i<cards.size();++i)if(ui.generatedChecks[i].IsChecked().GetBoolean()!=cards[i].second)ui.generatedChecks[i].IsChecked(cards[i].second);
+    std::wstring query(ui.find<controls::TextBox>(ui.sidebar,L"Search").Text());std::transform(query.begin(),query.end(),query.begin(),[](wchar_t c){return wchar_t(std::towlower(c));});
+    bool any=false;for(int i=0;i<3;++i)any|=ui.find<controls::Border>(ui.sidebar,(L"Row"+std::to_wstring(i)).c_str()).Visibility()==ux::Visibility::Visible;
+    for(size_t i=0;i<cards.size();++i){auto name=cards[i].first;std::transform(name.begin(),name.end(),name.begin(),[](wchar_t c){return wchar_t(std::towlower(c));});bool show=name.find(query)!=std::wstring::npos;any|=show;ui.generatedRows[i].Visibility(show?ux::Visibility::Visible:ux::Visibility::Collapsed);}
+    ui.find<controls::TextBlock>(ui.sidebar,L"NoResults").Visibility(any?ux::Visibility::Collapsed:ux::Visibility::Visible);
+    ui.syncing=false;
+}
+#ifdef CALLAYERS_LIBRARY
+void Workspace::libraryCards(const std::vector<GeneratedCard>& cards,int selected){auto& ui=*impl_;
+    bool rebuild=cards.size()!=ui.library.size();if(!rebuild)for(size_t i=0;i<cards.size();++i)rebuild|=cards[i].id!=ui.library[i].id || cards[i].name!=ui.library[i].name || cards[i].previous.has_value()!=ui.library[i].previous || cards[i].edited!=ui.library[i].edited;
+    ui.syncing=true;
+    if(rebuild){ui.generatedPanel.Children().Clear();ui.library.clear();ui.generatedRows.clear();ui.generatedChecks.clear();
+        for(size_t i=0;i<cards.size();++i){const auto& card=cards[i];ui.library.push_back({card.id,card.name,card.previous.has_value(),card.edited});
+            controls::Border row;row.CornerRadius(ux::CornerRadius{6});row.Padding(ux::Thickness{4,2,4,2});controls::Grid grid;
+            controls::ColumnDefinition checkColumn;checkColumn.Width(ux::GridLength{36,ux::GridUnitType::Pixel});grid.ColumnDefinitions().Append(checkColumn);
+            controls::ColumnDefinition nameColumn;nameColumn.Width(ux::GridLength{1,ux::GridUnitType::Star});grid.ColumnDefinitions().Append(nameColumn);
+            controls::ColumnDefinition menuColumn;menuColumn.Width(ux::GridLength{32,ux::GridUnitType::Pixel});grid.ColumnDefinitions().Append(menuColumn);
+            controls::CheckBox check;check.MinWidth(32);check.Width(32);check.IsChecked(card.visible);ux::Automation::AutomationProperties::SetName(check,L"Show "+card.name);grid.Children().Append(check);
+            controls::ContentControl nameTarget;nameTarget.IsTabStop(true);nameTarget.HorizontalContentAlignment(ux::HorizontalAlignment::Stretch);nameTarget.Background(ux::Media::SolidColorBrush(winrt::Windows::UI::Color{0,0,0,0}));controls::Grid::SetColumn(nameTarget,1);grid.Children().Append(nameTarget);
+            controls::Grid titleArea;nameTarget.Content(titleArea);controls::TextBlock label;label.Text(card.name);label.TextTrimming(ux::TextTrimming::CharacterEllipsis);label.TextWrapping(ux::TextWrapping::NoWrap);label.Padding(ux::Thickness{6,8,6,8});label.VerticalAlignment(ux::VerticalAlignment::Center);titleArea.Children().Append(label);
+            controls::ToolTipService::SetToolTip(nameTarget,winrt::box_value(card.name+L"\nDouble-click to rename"));ux::Automation::AutomationProperties::SetName(nameTarget,L"Select "+card.name);
+            controls::TextBox rename;rename.Text(card.name);rename.MaxLength(80);rename.MinWidth(0);rename.Padding(ux::Thickness{4});rename.Visibility(ux::Visibility::Collapsed);ux::Automation::AutomationProperties::SetName(rename,L"Card name");titleArea.Children().Append(rename);
+            auto renaming=std::make_shared<bool>(false);auto weakRename=winrt::make_weak(rename);auto weakLabel=winrt::make_weak(label);auto id=card.id;
+            auto finishRename=[&ui,weakRename,weakLabel,renaming,id](bool save){if(!*renaming)return;*renaming=false;auto field=weakRename.get();auto text=weakLabel.get();if(!field || !text)return;auto value=std::wstring(field.Text());field.Visibility(ux::Visibility::Collapsed);text.Visibility(ux::Visibility::Visible);if(save && !ui.syncing && value!=std::wstring(text.Text()))ui.actions.renameCard(id,value);};
+            auto beginRename=[&ui,weakRename,weakLabel,renaming,id]{auto field=weakRename.get();auto text=weakLabel.get();if(!field || !text || *renaming)return;for(size_t j=0;j<ui.library.size();++j)if(ui.library[j].id==id){ui.actions.selectCard(int(j));break;}*renaming=true;field.Text(text.Text());text.Visibility(ux::Visibility::Collapsed);field.Visibility(ux::Visibility::Visible);field.Focus(ux::FocusState::Programmatic);field.SelectAll();};
+            nameTarget.Tapped([&ui,id,renaming](auto&&,ux::Input::TappedRoutedEventArgs const& args){if(*renaming)return;for(size_t j=0;j<ui.library.size();++j)if(ui.library[j].id==id){ui.actions.selectCard(int(j));break;}args.Handled(true);});
+            titleArea.DoubleTapped([beginRename,renaming](auto&&,ux::Input::DoubleTappedRoutedEventArgs const& args){if(!*renaming){beginRename();args.Handled(true);}});
+            nameTarget.KeyDown([&ui,id,beginRename,renaming](auto&&,ux::Input::KeyRoutedEventArgs const& args){if(*renaming)return;if(args.Key()==winrt::Windows::System::VirtualKey::F2){beginRename();args.Handled(true);}else if(args.Key()==winrt::Windows::System::VirtualKey::Enter || args.Key()==winrt::Windows::System::VirtualKey::Space){ui.openEdit(id);args.Handled(true);}});
+            rename.KeyDown([finishRename](auto&&,ux::Input::KeyRoutedEventArgs const& args){if(args.Key()==winrt::Windows::System::VirtualKey::Enter || args.Key()==winrt::Windows::System::VirtualKey::Escape){finishRename(args.Key()==winrt::Windows::System::VirtualKey::Enter);args.Handled(true);}});rename.LostFocus([finishRename](auto&&,auto&&){finishRename(true);});
+            controls::Button menu;menu.Content(winrt::box_value(L"⋯"));menu.Padding(ux::Thickness{4});menu.Background(ux::Media::SolidColorBrush(winrt::Windows::UI::Color{0,0,0,0}));menu.BorderThickness(ux::Thickness{0});controls::Grid::SetColumn(menu,2);ux::Automation::AutomationProperties::SetName(menu,L"Actions for "+card.name);grid.Children().Append(menu);controls::MenuFlyout flyout;
+            auto item=[&](const wchar_t* text,std::function<void()> action){controls::MenuFlyoutItem entry;entry.Text(text);entry.Click([action](auto&&,auto&&){action();});flyout.Items().Append(entry);};
+            item(L"Edit",[&ui,id]{ui.openEdit(id);});item(L"Rename",beginRename);
+            item(L"Bring to front",[&ui,id]{ui.actions.stackCard(id,true);});item(L"Send to back",[&ui,id]{ui.actions.stackCard(id,false);});
+            if(card.previous)item(L"Restore previous version",[&ui,id]{ui.actions.restoreCard(id);});flyout.Items().Append(controls::MenuFlyoutSeparator());item(L"Delete",[&ui,id]{ui.actions.deleteCard(id);});menu.Flyout(flyout);
+            check.Click([&ui,id](auto&& sender,auto&&){if(ui.syncing)return;for(size_t j=0;j<ui.library.size();++j)if(ui.library[j].id==id){ui.actions.visibility(int(j),sender.template as<controls::CheckBox>().IsChecked().GetBoolean());return;}});
+            row.Child(grid);ui.generatedRows.push_back(row);ui.generatedChecks.push_back(check);
+        }
+        std::vector<size_t> order;for(size_t i=0;i<cards.size();++i)order.push_back(i);std::sort(order.begin(),order.end(),[&](size_t a,size_t b){return cards[a].edited==cards[b].edited?a>b:cards[a].edited>cards[b].edited;});for(auto i:order)ui.generatedPanel.Children().Append(ui.generatedRows[i]);
+    }
+    for(size_t i=0;i<cards.size();++i){if(ui.generatedChecks[i].IsChecked().GetBoolean()!=cards[i].visible)ui.generatedChecks[i].IsChecked(cards[i].visible);ui.generatedRows[i].Background(ux::Media::SolidColorBrush(selected==int(i)?winrt::Windows::UI::Color{255,59,57,83}:winrt::Windows::UI::Color{0,0,0,0}));}
+    std::wstring id=selected>=0 && selected<int(cards.size())?cards[selected].id:L"";
+    if(id!=ui.selectedId){ui.selectedId=id;if(!ui.lastGenerating){ui.editingId=id;ui.prompt.Text(L"");ui.showComposerMessage(L"");}}
+    ui.refreshComposer();
+    ui.filterLibrary();ui.syncing=false;
+}
+#endif
+#endif
 bool Workspace::editingText() const {return impl_->editor.active();}
 bool Workspace::finishText(bool commit) {
     auto& ui=*impl_;if(!ui.editor.active())return true;if(ui.finishingText)return false;

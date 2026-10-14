@@ -56,7 +56,13 @@ void TextEditor::open(HWND parent,const RECT& area,const std::wstring& text,doub
     if(!host_){failed();return;}resize();
     PWSTR local=nullptr;HRESULT hr=SHGetKnownFolderPath(FOLDERID_LocalAppData,0,nullptr,&local);
     if(FAILED(hr) || !local){CoTaskMemFree(local);failed();return;}
-    auto profile=std::filesystem::path(local)/L"Callayers"/L"Foundation"/L"WebView2";CoTaskMemFree(local);
+    auto profile=std::filesystem::path(local)/L"Callayers"/
+#ifdef CALLAYERS_ULTRALIGHT_CPU
+        L"UltralightWorkspace"/L"WebView2";
+#else
+        L"Foundation"/L"WebView2";
+#endif
+    CoTaskMemFree(local);
     auto settings=Microsoft::WRL::Make<CoreWebView2EnvironmentOptions>();
     settings->put_AdditionalBrowserArguments(L"--disable-background-timer-throttling --disable-renderer-backgrounding --disable-backgrounding-occluded-windows --disable-features=CalculateNativeWinOcclusion");
     auto alive=alive_;

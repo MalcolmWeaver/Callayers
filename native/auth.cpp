@@ -172,6 +172,9 @@ void Auth::tick(){bool renew=false;{std::lock_guard lock(mutex_);renew=snapshot_
 AuthSnapshot Auth::snapshot(){std::lock_guard lock(mutex_);return snapshot_;}
 std::wstring Auth::takeBrowserUrl(){std::lock_guard lock(mutex_);auto url=std::move(browserUrl_);browserUrl_.clear();return url;}
 std::wstring Auth::idToken(){std::lock_guard lock(mutex_);return snapshot_.allowed && GetTickCount64()<expiresAt_?idToken_:L"";}
+#ifdef CALLAYERS_TELEMETRY
+TelemetryCredentials Auth::telemetryCredentials(){std::lock_guard lock(mutex_);if(!snapshot_.allowed)return {};return {session_.serviceUrl,session_.uid,GetTickCount64()<expiresAt_?idToken_:L""};}
+#endif
 void Auth::onRevoke(std::function<void()> callback){std::lock_guard lock(mutex_);revoke_=std::move(callback);}
 void Auth::work() {
     HRESULT apartment=CoInitializeEx(nullptr,COINIT_MULTITHREADED);WSADATA sockets{};int socketsReady=WSAStartup(MAKEWORD(2,2),&sockets);Config config;
