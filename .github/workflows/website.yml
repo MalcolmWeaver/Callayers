@@ -20,6 +20,20 @@ jobs:
         with:
           node-version: '22'
       - run: node website/build.mjs
+      - name: Check Cloudflare publishing configuration
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo '::error::Add the CLOUDFLARE_API_TOKEN repository secret with Cloudflare Pages Edit permission.'
+            exit 1
+          fi
+          if [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo '::error::Add the CLOUDFLARE_ACCOUNT_ID repository variable.'
+            exit 1
+          fi
       - name: Deploy main to Cloudflare Pages
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         uses: cloudflare/wrangler-action@v4

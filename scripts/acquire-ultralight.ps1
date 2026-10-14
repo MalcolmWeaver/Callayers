@@ -8,7 +8,14 @@ if(-not (Test-Path -LiteralPath "$sdk/include/Ultralight/Ultralight.h")){
     $info=Invoke-RestMethod "https://ultralig.ht/api/v1/sdk/download?platform=windows-x64&version=$version&format=json"
     Invoke-WebRequest $info.url -OutFile "$sdk/sdk.7z"
     if((Get-FileHash "$sdk/sdk.7z").Hash -ine $hash){throw 'Ultralight SDK checksum mismatch.'}
-    & tar -xf "$sdk/sdk.7z" -C $sdk
-    if($LASTEXITCODE -ne 0){throw 'SDK extraction failed.'}
+    # GitHub's Windows runner tar lacks LZMA support; 7-Zip is preinstalled.
+    $sevenZip=Get-Command 7z.exe -ErrorAction SilentlyContinue
+    $sevenZipPath=if($sevenZip){$sevenZip.Source}else{Join-Path $env:ProgramFiles '7-Zip/7z.exe'}
+    if(Test-Path -LiteralPath $sevenZipPath){
+        & $sevenZipPath x "$sdk/sdk.7z" "-o$sdk" -y
+    }else{
+        & tar -xf "$sdk/sdk.7z" -C $sdk
+    }
+    if($LASTEXITCODE -ne 0){throw 'SDK extraction failed. Install 7-Zip with LZMA support and retry.'}
 }
 if((Get-Content "$sdk/VERSION.txt" -Raw).Trim() -ne $version){throw "Expected Ultralight $version."}
