@@ -47,6 +47,7 @@ footer a { color: var(--muted); }
 .prose { max-width: 720px; padding: 50px 0 90px; }
 .prose h1 { font-size: 48px; letter-spacing: -2px; }
 .prose p, .prose li { color: var(--muted); }
+.prose a { color: var(--accent); text-underline-offset: 3px; overflow-wrap: anywhere; }
 @media (max-width: 800px) {
   .wrap { width: calc(100% - 40px); }
   header { min-height: 90px; }
