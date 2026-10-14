@@ -49,7 +49,11 @@ class Overlay {
     void fail(HRESULT error);
 #ifdef CALLAYERS_GENERATION
     std::unique_ptr<OfflineFiles> offlineFiles_;
+#ifdef CALLAYERS_IMAGES
+    AnnotationStore generatedStore_{L"library-cards.json",L"cards",L"generated-cards.json",32*1024*1024};
+#else
     AnnotationStore generatedStore_{L"generated-cards.json",L"cards"};
+#endif
     std::vector<GeneratedCard> generated_;
     bool generatedLoaded_=false,generatedBlocked_=false,documentsPending_=true;
     unsigned generatedRevision_=0;

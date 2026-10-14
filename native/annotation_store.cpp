@@ -22,10 +22,11 @@ static HRESULT WriteWorkspace(const std::filesystem::path& path,const std::strin
     if(!MoveFileExW(temporary.c_str(),path.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)){failure=GetLastError();DeleteFileW(temporary.c_str());return HRESULT_FROM_WIN32(failure);}
     return S_OK;
 }
-AnnotationStore::AnnotationStore(const wchar_t* fileName,const wchar_t* property):property_(property) {
+AnnotationStore::AnnotationStore(const wchar_t* fileName,const wchar_t* property,const wchar_t* fallback,size_t maxBytes):property_(property),maxBytes_(maxBytes) {
     PWSTR local=nullptr;
     if(SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData,0,nullptr,&local)))path_=std::filesystem::path(local)/L"Callayers"/L"WorkspaceV2"/fileName;
     CoTaskMemFree(local);
+    if(fallback && !path_.empty())fallback_=path_.parent_path()/fallback;
     writer_=std::thread([this]{
         for(;;){std::unique_lock lock(mutex_);wake_.wait(lock,[this]{return stopping_||pending_.has_value();});if(!pending_)break;auto job=std::move(*pending_);pending_.reset();lock.unlock();HRESULT error=E_FAIL;try{error=WriteWorkspace(path_,job.json);}catch(...){}lock.lock();result_={job.revision,error};}
     });
@@ -34,9 +35,11 @@ AnnotationStore::~AnnotationStore(){{std::lock_guard lock(mutex_);stopping_=true
 std::wstring AnnotationStore::load(HRESULT& error) {
     error=S_OK;
     if(path_.empty()){error=E_FAIL;return L"";}
-    std::error_code ioError;bool exists=std::filesystem::exists(path_,ioError);if(ioError){error=HRESULT_FROM_WIN32(ioError.value());return L"";}if(!exists)return L"[]";
-    auto size=std::filesystem::file_size(path_,ioError);if(ioError || size>16*1024*1024){error=E_FAIL;return L"";}
-    std::ifstream file(path_,std::ios::binary);if(!file){error=HRESULT_FROM_WIN32(ERROR_READ_FAULT);return L"";}
+    auto source=path_;std::error_code ioError;bool exists=std::filesystem::exists(source,ioError);
+    if(!exists && !ioError && !fallback_.empty()){source=fallback_;exists=std::filesystem::exists(source,ioError);}
+    if(ioError){error=HRESULT_FROM_WIN32(ioError.value());return L"";}if(!exists)return L"[]";
+    auto size=std::filesystem::file_size(source,ioError);if(ioError || size>maxBytes_){error=E_FAIL;return L"";}
+    std::ifstream file(source,std::ios::binary);if(!file){error=HRESULT_FROM_WIN32(ERROR_READ_FAULT);return L"";}
     std::string json{std::istreambuf_iterator<char>(file),{}};
     if(file.bad()){error=HRESULT_FROM_WIN32(ERROR_READ_FAULT);return L"";}
     try {

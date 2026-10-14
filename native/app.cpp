@@ -30,6 +30,10 @@
 #endif
 #ifdef CALLAYERS_GENERATION
 #include "generation.h"
+#ifdef CALLAYERS_IMAGES
+#include "image_import.h"
+#include <shobjidl.h>
+#endif
 #endif
 #include <Microsoft.UI.Dispatching.Interop.h>
 #include <winrt/base.h>
@@ -675,6 +679,25 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam
 #ifdef CALLAYERS_GENERATION
             actions.generate=[app](std::wstring prompt){if(app->authenticated && app->auth.outputAllowed())app->generation.start(prompt,app->auth.idToken());};
             actions.cancelGeneration=[app]{app->generation.cancel();};
+#ifdef CALLAYERS_IMAGES
+            actions.importImage=[app]{
+                if(!app->authenticated || !app->auth.outputAllowed() || !app->workspace->finishText())return;
+                app->finishGesture();app->blurCard();
+                if(app->overlay.generated().size()>=16){MessageBoxW(app->window,L"This build supports up to 16 saved cards.",L"Library full",MB_OK|MB_ICONINFORMATION);return;}
+                try{
+                    winrt::com_ptr<IFileOpenDialog> dialog;winrt::check_hresult(CoCreateInstance(CLSID_FileOpenDialog,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(dialog.put())));
+                    COMDLG_FILTERSPEC filter{L"Images (PNG, JPEG, BMP)",L"*.png;*.jpg;*.jpeg;*.bmp"};winrt::check_hresult(dialog->SetFileTypes(1,&filter));
+                    winrt::check_hresult(dialog->SetOptions(FOS_FILEMUSTEXIST|FOS_PATHMUSTEXIST|FOS_FORCEFILESYSTEM));dialog->SetTitle(L"Import image");
+                    auto result=dialog->Show(app->window);if(result==HRESULT_FROM_WIN32(ERROR_CANCELLED))return;winrt::check_hresult(result);
+                    winrt::com_ptr<IShellItem> item;winrt::check_hresult(dialog->GetResult(item.put()));
+                    PWSTR raw=nullptr;winrt::check_hresult(item->GetDisplayName(SIGDN_FILESYSPATH,&raw));std::filesystem::path path(raw);CoTaskMemFree(raw);
+                    auto image=ImportImage(path);auto layout=Card{image.x,image.y,image.w,image.h,false};layout.contentW=image.width;layout.contentH=image.height;
+                    if(!app->overlay.addGenerated(std::move(image)))throw std::runtime_error("The image couldn't be saved. Choose Retry and try again.");
+                    app->cards.push_back(layout);app->selectedAnnotation=-1;app->selectedCard=app->cardCount()-1;app->setTool(AnnotationTool::Select);app->changed();
+                }catch(const std::runtime_error& e){MessageBoxW(app->window,winrt::to_hstring(e.what()).c_str(),L"Couldn't import image",MB_OK|MB_ICONINFORMATION);}
+                catch(...){MessageBoxW(app->window,L"Couldn't read this image. Choose a working PNG, JPEG or BMP and try again.",L"Couldn't import image",MB_OK|MB_ICONINFORMATION);}
+            };
+#endif
 #endif
             actions.tool=[app](AnnotationTool tool){app->setTool(tool);};
             actions.color=[app](std::wstring color){app->setInkColor(std::move(color));};

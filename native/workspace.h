@@ -23,6 +23,9 @@ struct WorkspaceActions {
 #ifdef CALLAYERS_GENERATION
     std::function<void(std::wstring)> generate;
     std::function<void()> cancelGeneration;
+#ifdef CALLAYERS_IMAGES
+    std::function<void()> importImage;
+#endif
 #endif
 };
 // All XAML and callbacks stay on the UI thread. Video workers never touch WinUI.

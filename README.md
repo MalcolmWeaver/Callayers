@@ -53,6 +53,13 @@ Glass styling follow-up: `backend-v2/src/card-prompt.txt` now requests 10–20% 
 
 Optional resource sampling uses `-GenerationBuild` with the existing measurement helper. Card library capacity in this isolated milestone is bounded to 16 generated cards; rename/delete and wider library management remain step 7.
 
+### Image import (step 7, first build)
+
+Build with `.\scripts\build.ps1 -ImageBuild`; launch `.\build\image-workspace-x64\Release\Callayers.exe` after closing other Callayers instances. Eight automated checks pass; user preview/Meet/restoration verification is pending. The existing camera registration and service URL are reused.
+
+Import image accepts local PNG, JPEG and BMP files up to 32 MB / 24 million pixels. It preserves alpha and proportions, fits within 1280×720, and reduces detailed images further to bound each saved PNG to 1 MiB. Imported cards start hidden, use the filename, and support existing search, visibility, private border movement/corner resizing and saved placement/visibility. The combined library retains the current 16-card limit; rename, stacking and confirmed delete are the next small improvement.
+
+This isolated build saves the combined AI/image library atomically in `%LOCALAPPDATA%/Callayers/WorkspaceV2/library-cards.json`. On first use, it reads existing `generated-cards.json` as a starting copy. Subsequent image-build saves use the new file; switching back to an earlier executable uses that earlier library. Images are embedded local copies and remain available when the source file moves or disappears. No image upload or backend deployment is needed. Final per-card storage under `Callayers/Cards` remains part of completing step 7.
 ### Fixed interactive card (build 2)
 
 Build with `.\scripts\build.ps1 -InteractiveBuild` and launch `.\build\interactive-workspace-x64\Release\Callayers.exe` after closing other Callayers instances. The accepted 1b and older workspace executables remain available. It uses the existing camera registration and service URL. Automated checks: `ctest --test-dir build/interactive-workspace-x64 -C Release --output-on-failure`. The user accepted all four build 2 runtime checks on October 13, 2026. Tested executable SHA256: `21DA5307AFC1FD683AB4E75EF54C9C35CC615C11FA1E445CFFB1C0BAC501F526`.

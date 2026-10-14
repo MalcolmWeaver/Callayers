@@ -176,7 +176,7 @@ struct Workspace::Impl {
  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
  <StackPanel Spacing="12"><TextBlock Text="Cards" FontSize="22" FontWeight="SemiBold"/>
  <Button x:Name="CreateAI" Content="+  Create with AI" HorizontalAlignment="Stretch" IsEnabled="False" ToolTipService.ToolTip="Create a card from a prompt."/>
- <StackPanel Orientation="Horizontal" Spacing="8"><Button Content="Import image" IsEnabled="False" ToolTipService.ToolTip="Image import is coming soon."/><Button x:Name="HideAll" Content="Hide all"/></StackPanel>
+ <StackPanel Orientation="Horizontal" Spacing="8"><Button x:Name="ImportImage" Content="Import image" IsEnabled="False" ToolTipService.ToolTip="Import a local image."/><Button x:Name="HideAll" Content="Hide all"/></StackPanel>
  <TextBox x:Name="Search" PlaceholderText="Search cards" AutomationProperties.Name="Search cards"/>
  </StackPanel>
  <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"><StackPanel Spacing="12">
@@ -229,6 +229,9 @@ struct Workspace::Impl {
         attach(authIsland,authView);
 #ifdef CALLAYERS_GENERATION
         auto ai=find<controls::Button>(sidebar,L"CreateAI");ai.IsEnabled(true);
+#ifdef CALLAYERS_IMAGES
+        auto import=find<controls::Button>(sidebar,L"ImportImage");import.IsEnabled(true);import.Click([this](auto&&,auto&&){actions.importImage();});
+#endif
         controls::StackPanel form;form.Width(340);form.Spacing(10);
         controls::TextBlock label;label.Text(L"Create a card");label.FontSize(20);form.Children().Append(label);
         prompt=controls::TextBox();prompt.PlaceholderText(L"Describe your card…");prompt.AcceptsReturn(true);prompt.TextWrapping(ux::TextWrapping::Wrap);prompt.MinHeight(130);prompt.MaxLength(4000);form.Children().Append(prompt);
@@ -320,7 +323,7 @@ void Workspace::cameras(const std::vector<std::wstring>& names,int selected,cons
 }
 void Workspace::card(int selected,const bool* visible) {
     auto& ui=*impl_;
-    if(ui.selected==selected && std::equal(visible,visible+3,ui.listedVisible))return;
+    if(selected<3 && ui.selected==selected && std::equal(visible,visible+3,ui.listedVisible))return;
     ui.selected=selected;std::copy(visible,visible+3,ui.listedVisible);ui.syncing=true;
     for(int i=0;i<3;++i) {
         auto number=std::to_wstring(i);
@@ -330,6 +333,7 @@ void Workspace::card(int selected,const bool* visible) {
     std::wstring name=selected>=0 && selected<3?Impl::names[selected]:L"Select a card";
 #ifdef CALLAYERS_GENERATION
     if(selected>=3 && selected-3<int(ui.generatedNames.size()))name=ui.generatedNames[selected-3];
+    for(size_t i=0;i<ui.generatedRows.size();++i)ui.generatedRows[i].Background(ux::Media::SolidColorBrush(selected==int(i+3)?winrt::Windows::UI::Color{255,59,57,83}:winrt::Windows::UI::Color{0,0,0,0}));
 #endif
     ui.find<controls::TextBlock>(ui.sidebar,L"Selection").Text(name);
     ui.find<controls::TextBlock>(ui.sidebar,L"SelectionHelp").Text(selected>=0?(visible[selected]?L"Move this card in the preview or drag its corner to resize.":L"This card is hidden. Check its box to show it on camera."):L"Check a box to show a card. Select its name to work with it.");
@@ -364,6 +368,10 @@ void Workspace::generatedCards(const std::vector<std::pair<std::wstring,bool>>& 
         }
         for(auto it=ui.generatedRows.rbegin();it!=ui.generatedRows.rend();++it)ui.generatedPanel.Children().Append(*it);
     }else for(size_t i=0;i<cards.size();++i)if(ui.generatedChecks[i].IsChecked().GetBoolean()!=cards[i].second)ui.generatedChecks[i].IsChecked(cards[i].second);
+    std::wstring query(ui.find<controls::TextBox>(ui.sidebar,L"Search").Text());std::transform(query.begin(),query.end(),query.begin(),[](wchar_t c){return wchar_t(std::towlower(c));});
+    bool any=false;for(int i=0;i<3;++i)any|=ui.find<controls::Border>(ui.sidebar,(L"Row"+std::to_wstring(i)).c_str()).Visibility()==ux::Visibility::Visible;
+    for(size_t i=0;i<cards.size();++i){auto name=cards[i].first;std::transform(name.begin(),name.end(),name.begin(),[](wchar_t c){return wchar_t(std::towlower(c));});bool show=name.find(query)!=std::wstring::npos;any|=show;ui.generatedRows[i].Visibility(show?ux::Visibility::Visible:ux::Visibility::Collapsed);}
+    ui.find<controls::TextBlock>(ui.sidebar,L"NoResults").Visibility(any?ux::Visibility::Collapsed:ux::Visibility::Visible);
     ui.syncing=false;
 }
 #endif

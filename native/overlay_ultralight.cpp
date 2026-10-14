@@ -241,7 +241,7 @@ bool Overlay::loadGenerated(){
 }
 void Overlay::installGenerated(){
     if(!documentsPending_)return;
-    winrt::Windows::Data::Json::JsonArray items;for(auto& c:generated_)items.Append(winrt::Windows::Data::Json::JsonValue::CreateStringValue(c.html));
+    winrt::Windows::Data::Json::JsonArray items;for(auto& c:generated_)items.Append(winrt::Windows::Data::Json::JsonValue::CreateStringValue(CardDocument(c)));
     script("documents.splice(3,documents.length-3,..."+winrt::to_string(items.Stringify())+")");documentsPending_=false;
 }
 bool Overlay::addGenerated(GeneratedCard card){
