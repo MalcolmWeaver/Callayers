@@ -29,12 +29,12 @@ Cards save automatically on this computer. There is no saved-card import/export 
 
 ## In the database
 
-Two collections. Daily usage is a number on the account. Requests keep only enough metadata to prevent duplicate AI calls; generated cards save on the computer.
+Two collections. Daily usage is a number on the account. Requests hold AI deduplication metadata and short-lived website-attribution tickets; generated cards save on the computer.
 
 | Collection | What it holds |
 | --- | --- |
 | `accounts` | Account access, signup date, and today's AI usage |
-| `requests` | AI request owner and status, kept for 24 hours to prevent retries from generating or counting twice. No HTML or images. |
+| `requests` | AI request owner/status with 24-hour expiry; separately prefixed attribution ticket hashes, owner and two-minute expiry. Attribution tickets are deleted transactionally when redeemed; unredeemed tickets use the existing expiry TTL. No HTML or images. |
 
 No separate usage, results, rate-limit, or telemetry collections. PostHog handles product events; analytics retries reuse the same event ID.
 
@@ -69,13 +69,15 @@ Restoring a previous card version sends no creation event and uses no AI allowan
 
 **Consumer app:** required for the MVP. Identify the host application requesting video using a normalized label, such as `zoom`, `brave`, or `chrome`. Use `unknown` when identity cannot be established reliably and `none` when no consumer is active. Browser identity does not identify Google Meet or another website; a camera-settings preview does not establish that a meeting occurred. Send no executable paths, process IDs, window titles or browsing information. Identity failure never interrupts video. See [FRAMES.md](FRAMES.md#consumer-identity-mvp).
 
-No signup funnel, editor activity, error events, prompts, contents, images, email, device identifiers or webcam footage. No telemetry-off setting, session replay, autocapture or custom dashboard in this change. PostHog receives an account-based `distinct_id` prefixed `callayers:` without profile properties; GeoIP and person profile processing are disabled on these events.
+No editor activity, error events, prompts, contents, images, email or webcam footage are collected by desktop telemetry. No telemetry-off setting, session replay, autocapture or custom dashboard is added. PostHog receives an account-based `distinct_id` prefixed `callayers:` without name/email profile enrichment; GeoIP is disabled on desktop events. Person processing is enabled to join website acquisition history to authenticated app use.
+
+Website acquisition events are `$pageview`, `get_callayers_clicked`, `installer_download_clicked`, `download_unavailable`, and `desktop_account_connected`. The browser SDK uses first-party cookie/local-storage identity and campaign/referral properties. Explicit download clicks include the release version and button location; failed release lookup uses only a bounded reason. After verified desktop sign-in, a short-lived one-use analytics ticket links the existing browser visitor to the desktop account using PostHog `identify`. The confirmation page removes the ticket fragment before initializing analytics. URLs sent to analytics omit fragments and query parameters other than the five UTM parameters. This measures download intent and authenticated use, not completed installation. A different browser/profile or cleared storage can leave account acquisition unknown.
 
 The desktop buffers at most 128 events in memory, sends batches of at most 32 after two seconds or when full, and makes at most three attempts with two-/ten-second retry delays. Events older than five minutes are dropped before sending. Shutdown makes a bounded final delivery attempt; crashes, long outages and queue pressure can lose events. Retries preserve event ID, event name, original timestamp and account identity for PostHog's eventual deduplication; duplicates can briefly appear before merging. Tokens may renew only for the same account/service. Network/diagnostic writes stay off UI/video threads; telemetry failure never changes authentication, video, saving or AI allowance.
 
 ## Configuration and secrets
 
-`/client-config` supplies the public installed-app OAuth configuration and Firebase configuration. The verified Google desktop exchange requires its installed-app client secret; Google treats that value as public client configuration, since installed clients cannot keep a shared secret confidential. It is distinct from server provider credentials. Store the Firebase session securely in Windows; clear it on sign-out. The callback page is local and temporary, so no hosted login origin is needed. Backend provider secrets never ship in the app.
+`/client-config` supplies the public installed-app OAuth configuration and Firebase configuration. The verified Google desktop exchange requires its installed-app client secret; Google treats that value as public client configuration, since installed clients cannot keep a shared secret confidential. It is distinct from server provider credentials. Store the Firebase session securely in Windows; clear it on sign-out. The OAuth callback is local and temporary; after verified sign-in it redirects the browser to a hosted Callayers confirmation page for analytics identity linking. Backend provider secrets never ship in the app.
 
 | Where | Settings |
 | --- | --- |

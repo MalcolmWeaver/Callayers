@@ -55,7 +55,7 @@ test('forwarder preserves deduplication tuple and sends only approved data with 
   await send('owner_A',[sample]);await send('owner_A',[sample]);await send('owner_B',[sample]);
   assert.deepEqual(calls[0].body,calls[1].body);assert.equal(calls[0].url,'https://us.i.posthog.com/batch/');
   const event=calls[0].body.batch[0];assert.equal(event.uuid,sample.id);assert.equal(event.timestamp,sample.timestamp);assert.equal(event.distinct_id,'callayers:owner_A');
-  assert.equal(calls[2].body.batch[0].distinct_id,'callayers:owner_B');assert.equal(event.properties.$geoip_disable,true);assert.equal(event.properties.$process_person_profile,false);
+  assert.equal(calls[2].body.batch[0].distinct_id,'callayers:owner_B');assert.equal(event.properties.$geoip_disable,true);assert.equal(event.properties.$process_person_profile,true);
   assert.equal(event.properties.source,'callayers_desktop');assert.equal(calls[0].request.redirect,'error');assert.ok(calls[0].request.signal);
   assert.deepEqual(Object.keys(event).sort(),['distinct_id','event','properties','timestamp','uuid']);
 });

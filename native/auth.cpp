@@ -107,6 +107,12 @@ void Reply(SOCKET socket,bool success,const std::string& message) {
     auto response=std::string("HTTP/1.1 ")+(success?"200 OK":"400 Bad Request")+"\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: default-src 'none'; frame-ancestors 'none'\r\nConnection: close\r\nContent-Length: "+std::to_string(html.size())+"\r\n\r\n"+html;
     size_t offset=0;while(offset<response.size()){int sent=send(socket,response.data()+offset,int(response.size()-offset),0);if(sent<=0)break;offset+=sent;}
 }
+void ReplySignedIn(SOCKET socket,const std::string& ticket) {
+    // Only an expiring analytics ticket reaches the website, never OAuth codes or login tokens.
+    const std::string location="https://callayers.com/signed-in"+(ticket.empty()?std::string{}:"#ticket="+ticket);
+    const std::string response="HTTP/1.1 303 See Other\r\nLocation: "+location+"\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: default-src 'none'; frame-ancestors 'none'\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
+    size_t offset=0;while(offset<response.size()){int sent=send(socket,response.data()+offset,int(response.size()-offset),0);if(sent<=0)break;offset+=sent;}
+}
 std::string ReadCallback(SOCKET socket,const std::string& host,const CancelCheck& cancelled) {
     std::string request;ULONGLONG start=GetTickCount64();
     while(request.find("\r\n\r\n")==std::string::npos && request.size()<8192 && GetTickCount64()-start<2000){
@@ -148,8 +154,16 @@ void Interactive(const Config& config,const CancelCheck& cancelled,const std::fu
             auto firebase=Request(L"https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp?key="+std::wstring(winrt::to_hstring(AuthUrlEncode(winrt::to_string(config.apiKey)))),L"POST",winrt::to_string(payload.Stringify()),L"application/json",L"",cancelled);
             StoredAuthSession session{config.url,config.project,Required(firebase,L"localId",128),Required(firebase,L"refreshToken")};
             auto grant=Refresh(config,session,cancelled);CheckCancelled(cancelled);
+            auto attributionToken=grant.token;
             accepted(std::move(grant));
-            Reply(peer.value,true,"Signed in. You can return to Callayers and close this tab.");return;
+            std::string ticket;
+            try {
+                auto attribution=Request(config.url+L"/attribution/ticket",L"POST",{},L"",attributionToken,cancelled);
+                auto value=winrt::to_string(Required(attribution,L"ticket",43));
+                if(value.size()==43 && std::all_of(value.begin(),value.end(),[](unsigned char c){return std::isalnum(c)||c=='-'||c=='_';}))ticket=std::move(value);
+            }catch(...) { /* Analytics never changes the accepted sign-in result. */ }
+            SecureZeroMemory(attributionToken.data(),attributionToken.size()*sizeof(wchar_t));
+            ReplySignedIn(peer.value,ticket);return;
         }catch(...){Reply(peer.value,false,"Couldn't finish signing in. Return to Callayers and Retry.");throw;}
     }
     throw Failure{FailureKind::Temporary,L"Google sign-in timed out. Try again."};

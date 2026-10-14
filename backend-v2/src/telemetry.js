@@ -50,7 +50,7 @@ export function telemetryProvider(config, fetcher = fetch) {
   return async (uid, events) => {
     const batch = events.map(e => ({ uuid:e.id, event:e.event, distinct_id:`callayers:${uid}`, timestamp:e.timestamp,
       properties:{ ...e.properties, session_id:e.sessionId, app_version:e.appVersion, source:'callayers_desktop',
-        $geoip_disable:true, $process_person_profile:false } }));
+        $geoip_disable:true, $process_person_profile:true } }));
     // A retry preserves UUID, timestamp, event and owner for eventual deduplication.
     const response = await fetcher(`${config.posthogHost}/batch/`, { method:'POST', redirect:'error',
       headers:{'Content-Type':'application/json'}, body:JSON.stringify({api_key:config.posthogToken,batch}), signal:AbortSignal.timeout(4000) });

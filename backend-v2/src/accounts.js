@@ -1,5 +1,26 @@
+import { ticketId } from './attribution.js';
+
 export function accountStore(db, timestamp, expiry = date => date) {
   return {
+    async createAttributionTicket(uid, ticket, expiresAt) {
+      // Reuse the existing requests TTL policy; ticket IDs cannot collide with AI request UUIDs.
+      await db.collection('requests').doc(ticketId(ticket)).create({
+        kind: 'attribution', uid, expiresAt: expiry(expiresAt),
+      });
+    },
+    async consumeAttributionTicket(ticket, now) {
+      const ref = db.collection('requests').doc(ticketId(ticket));
+      return db.runTransaction(async tx => {
+        const entry = await tx.get(ref);
+        if (!entry.exists) return null;
+        const record = entry.data();
+        const expiresAt = record.expiresAt?.toDate?.() ?? record.expiresAt;
+        if (record.kind !== 'attribution' || !(expiresAt instanceof Date) || expiresAt <= now) return null;
+        const account = await tx.get(db.collection('accounts').doc(record.uid));
+        tx.delete(ref);
+        return account.exists && account.data().schemaVersion === 2 && account.data().access === 'enabled' ? record.uid : null;
+      });
+    },
     async getOrCreate(uid, today) {
       const ref = db.collection('accounts').doc(uid);
       return db.runTransaction(async tx => {
