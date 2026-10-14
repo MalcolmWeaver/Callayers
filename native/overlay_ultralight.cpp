@@ -83,7 +83,7 @@ void Overlay::initialize(HINSTANCE instance){
         html.replace(html.find(noInput),noInput.size(),"pointer-events:auto;transform-origin");
 #endif
         view_->LoadHTML(html.c_str());
-        opened_=GetTickCount64();scenePending_=true;state->ready=false;state->failed=false;
+        opened_=GetTickCount64();scenePending_=true;renderedSceneRevision_=0;state->ready=false;state->failed=false;
         log_->record("ultralight-cpu-started");
     }catch(const winrt::hresult_error& error){fail(error.code());}catch(...){fail(E_FAIL);}
 }
@@ -124,7 +124,7 @@ std::shared_ptr<OverlayImage> Overlay::copy(std::array<std::shared_ptr<OverlayIm
     auto surface=view_->surface();if(!surface)return {};
     auto pixels=static_cast<const uint8_t*>(surface->LockPixels());if(!pixels)return {};
     for(int y=0;y<Height;++y)memcpy((*slot)->pixels.data()+size_t(y)*Width*4,pixels+size_t(y)*surface->row_bytes(),Width*4);
-    surface->UnlockPixels();(*slot)->tick=tick;(*slot)->sceneRevision=sceneRevision_;return *slot;
+    surface->UnlockPixels();(*slot)->tick=tick;(*slot)->sceneRevision=renderedSceneRevision_;return *slot;
 }
 void Overlay::capture(){
     if(!view_ || !enabled_ || state->failed)return;
@@ -162,7 +162,11 @@ void Overlay::capture(){
 #endif
         const auto epoch=state->currentEpoch.load();const auto tick=GetTickCount64();
         renderer_->RefreshDisplay(0);
+        // Rendering can be deferred by the view's frame-rate limit. Never label
+        // the previous pixels with a scene revision that has not painted yet.
+        const bool painting=view_->needs_paint();
         renderer_->Render();
+        if(painting)renderedSceneRevision_=sceneRevision_;
 #if defined(CALLAYERS_INTERACTIVE) && !defined(CALLAYERS_LIBRARY)
         if(cardVisible_ && restoreNeeded_)return; // Never publish defaults before saved values restore.
 #endif

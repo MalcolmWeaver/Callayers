@@ -44,7 +44,7 @@ class Overlay {
     std::wstring scene_;
     bool enabled_=true,scenePending_=true;
     ULONGLONG opened_=0;
-    uint64_t sceneRevision_=0;
+    uint64_t sceneRevision_=0,renderedSceneRevision_=0;
     void script(const std::string& code);
     std::shared_ptr<OverlayImage> copy(std::array<std::shared_ptr<OverlayImage>,3>& pool,ULONGLONG tick);
     void fail(HRESULT error);

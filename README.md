@@ -10,6 +10,8 @@ The [consolidated delivery plan](spec-v2/README.md#consolidated-plan--session-ha
 - Pen strokes appear as you draw.
 - Drag eraser removes touched stroke sections.
 - Cards move and resize more smoothly.
+- Shapes draw, move, and resize more smoothly.
+
 ## Build and open
 
 Requires Windows 10/11 x64, Visual Studio C++ Build Tools, CMake, Microsoft Edge WebView2 Runtime and Windows App Runtime 1.6. The build script uses pinned WebView2 and Windows App SDK packages from the local NuGet cache or downloads them when absent. It generates C++/WinRT projections with the Windows SDK's cppwinrt tool; runtime installation is a separate prerequisite.

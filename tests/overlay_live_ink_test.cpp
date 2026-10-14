@@ -14,6 +14,17 @@ static void Check(bool condition,const char* reason) {if(!condition)throw std::r
 static std::shared_ptr<OverlayImage> Image(Overlay& overlay) {
     std::lock_guard lock(overlay.state->mutex);return overlay.state->image;
 }
+static std::shared_ptr<OverlayImage> LatestImage(Overlay& overlay) {
+    // A capped renderer may defer painting. Its published revision must describe
+    // its pixels so input previews never hand over to an older shape geometry.
+    const auto deadline=GetTickCount64()+160;
+    do {
+        overlay.capture();auto image=Image(overlay);
+        if(image && image->sceneRevision==overlay.sceneRevision())return image;
+        std::this_thread::sleep_for(std::chrono::milliseconds(4));
+    } while(GetTickCount64()<deadline);
+    throw std::runtime_error("The renderer must publish the current scene within its next frame");
+}
 static bool RedAt(const OverlayImage& image,int x,int y) {
     auto offset=(size_t(y)*Width+x)*4;
     return image.pixels[offset+2]>200 && image.pixels[offset+1]<30 && image.pixels[offset]<30 && image.pixels[offset+3]>200;
@@ -69,6 +80,37 @@ static void PreviewOrdering() {
     worker=immediate;worker.version=8;worker.sceneRevision=1;
     Check(ShouldReplacePreview(&immediate,worker) && ShouldReplacePreview(nullptr,worker),"A new camera session and the first preview must be accepted");
 }
+static void ShapePreview(Overlay& overlay) {
+    CameraImage camera;camera.width=Width;camera.height=Height;camera.pixels.resize(PixelBytes);
+    for(size_t i=0;i<PixelBytes;i+=4){camera.pixels[i]=20;camera.pixels[i+1]=30;camera.pixels[i+2]=40;camera.pixels[i+3]=255;}
+    for(auto kind:{AnnotationTool::Rectangle,AnnotationTool::Ellipse,AnnotationTool::Line,AnnotationTool::Arrow}) {
+        const bool line=kind==AnnotationTool::Line || kind==AnnotationTool::Arrow;
+        Annotation shape;shape.id=1;shape.kind=kind;shape.color=L"#ff0000";shape.size=1;shape.box={100,100,80,80};
+        if(line)shape.points={{100,140},{180,140}};
+        auto render=[&]{
+            overlay.update(Scene({shape}));return LatestImage(overlay);
+        };
+        {auto image=render();Check(RedAt(*image,140,140),"Every shape type must appear during drawing before release");}
+        const auto initial=shape;
+        ResizeAnnotation(shape,initial,{360,line?140.0:260.0});
+        const int oldY=line?140:180,newY=line?380:420;
+        {auto image=render();Check(RedAt(*image,300,oldY),"A frame marked current must include the latest resized shape geometry");}
+        const auto stretched=shape;
+        MoveAnnotation(shape,stretched,480,240);
+        {
+            auto image=render();
+            Check(!RedAt(*image,300,oldY) && RedAt(*image,780,newY),"Moving a shape must immediately clear its old position and draw its new position");
+            std::vector<uint8_t> preview;ComposeFrame(camera,*image,preview);
+            const auto oldAt=(size_t(oldY)*Width+300)*4,newAt=(size_t(newY)*Width+780)*4;
+            Check(preview[oldAt]==20 && preview[oldAt+1]==30 && preview[oldAt+2]==40,"Moving a shape must restore camera pixels at its previous position");
+            Check(preview[newAt]==0 && preview[newAt+1]==0 && preview[newAt+2]==255,"The camera preview must include the shape at the current pointer position");
+        }
+        shape=stretched;
+        {auto image=render();Check(RedAt(*image,300,oldY) && !RedAt(*image,780,newY),"Cancelling a shape move must restore the original geometry immediately");}
+        overlay.update(Scene({}));
+        {auto image=LatestImage(overlay);Check(image && !RedAt(*image,300,oldY),"Cancelling shape creation must clear the live shape");}
+    }
+}
 static void CardPreview(Overlay& overlay) {
     auto scene=[](int x,int y){return L"{\"cards\":[{\"id\":0,\"x\":"+std::to_wstring(x)+L",\"y\":"+std::to_wstring(y)+L",\"w\":300,\"h\":160,\"contentW\":480,\"contentH\":128,\"visible\":true}],\"annotations\":[]}";};
     overlay.update(scene(80,80));
@@ -109,8 +151,10 @@ int main() {
         overlay.update(Scene({}));overlay.capture();
         auto cancelled=Image(overlay);
         Check(cancelled && !RedAt(*cancelled,140,120),"Cancelling the current stroke must remove its live ink");
+        cancelled.reset();
+        ShapePreview(overlay);
         CardPreview(overlay);
-        std::cout<<"Live pen, partial preview handover, immediate card composition and frame ordering passed.\n";
+        std::cout<<"Live pen, immediate shape and card composition, partial preview handover and frame ordering passed.\n";
     } catch(const std::exception& error) {std::cerr<<error.what()<<'\n';return 1;}
     catch(...) {std::cerr<<"Live ink rendering test failed.\n";return 1;}
 }

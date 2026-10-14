@@ -90,7 +90,7 @@ struct App {
         if(ShouldReplacePreview(preview.get(),*frame))preview=std::move(frame);
     }
 #ifdef CALLAYERS_ULTRALIGHT_CPU
-    void refreshCardPreview() {
+    void refreshGesturePreview() {
         if(!authenticated || !auth.outputAllowed() || !demand || quitting || FAILED(captureError.load()) || IsIconic(window))return;
         std::shared_ptr<const CameraImage> camera;unsigned version;
         {std::lock_guard lock(previewMutex);camera=previewCamera;version=previewCameraVersion;}
@@ -104,7 +104,7 @@ struct App {
             layer=overlay.state->image;
             if(overlay.state->privateImage && overlay.state->privateTextId && overlay.state->privateTextId==overlay.state->requestedPrivateTextId){layer=overlay.state->privateImage;hiddenText=overlay.state->privateTextId;}
         }
-        if(!layer || overlay.state->failed || GetTickCount64()-layer->tick>=FreshMs)return;
+        if(!layer || overlay.state->failed || GetTickCount64()-layer->tick>=FreshMs || layer->sceneRevision!=overlay.sceneRevision())return;
         auto frame=std::make_shared<PresentedFrame>();ComposeFrame(*camera,*layer,frame->pixels);
         frame->live=true;frame->version=version;frame->tick=std::min(camera->tick,layer->tick);frame->cameraTick=camera->tick;
         frame->sceneRevision=layer->sceneRevision;frame->hiddenTextId=hiddenText;
@@ -262,10 +262,10 @@ struct App {
         if(syncSidebar)syncCards();
         InvalidateRect(window,syncSidebar?nullptr:&previewRect,FALSE);
 #ifdef CALLAYERS_ULTRALIGHT_CPU
-        const bool movingCard=dragging && selectedCard>=0;
-        if(movingCard)refreshCardPreview();
+        const bool liveGeometry=(dragging && selectedCard>=0) || editingShape();
+        if(liveGeometry)refreshGesturePreview();
         // Paint the input result now instead of waiting behind more mouse moves.
-        if(livePen || movingCard)UpdateWindow(window);
+        if(livePen || liveGeometry)UpdateWindow(window);
 #endif
     }
     void enumerate(bool initial = false) {
@@ -351,6 +351,7 @@ struct App {
     double hitTolerance() const {return double(px(7))*Width/std::max(1L,previewRect.right-previewRect.left);}
     int annotationAt(InkPoint p) const {for(int i=int(annotations.size())-1;i>=0;--i)if(HitAnnotation(annotations[i],p,hitTolerance()))return i;return -1;}
     static bool isShape(AnnotationTool type) {return type>=AnnotationTool::Rectangle && type<=AnnotationTool::Arrow;}
+    bool editingShape()const{return (drawing || draggingAnnotation) && selectedAnnotation>=0 && selectedAnnotation<int(annotations.size()) && isShape(annotations[selectedAnnotation].kind);}
     const std::wstring& drawingColor() const {return isShape(tool)?shapeColor:inkColor;}
     void syncAnnotationControls() {
         if(!workspace)return;
@@ -451,6 +452,9 @@ struct App {
 #endif
         bool edited=drawing || draggingAnnotation;
         const bool movedCard=dragging && selectedCard>=0;
+#ifdef CALLAYERS_ULTRALIGHT_CPU
+        const bool editedShape=editingShape();
+#endif
         const bool erased=erasing && eraseChanged;
         if(erasing && cancel && erased){annotations=std::move(eraseOriginal);nextAnnotationId=eraseOriginalNextId;selectedAnnotation=hoveredAnnotation=-1;}
         erasing=eraseChanged=eraseInside=false;std::vector<Annotation>().swap(eraseOriginal);
@@ -467,7 +471,7 @@ struct App {
 #endif
         if(edited || erased || movedCard){changed();syncAnnotationControls();if((edited || erased) && !cancel)saveAnnotations();}
 #ifdef CALLAYERS_ULTRALIGHT_CPU
-        if(movedCard){refreshCardPreview();UpdateWindow(window);}
+        if(movedCard || editedShape){refreshGesturePreview();UpdateWindow(window);}
 #endif
         if(GetCapture()==window)ReleaseCapture();
 #ifdef CALLAYERS_ULTRALIGHT_CPU
@@ -588,7 +592,9 @@ i
             }
             else {c.x=std::clamp(original.x+p.x-dragStart.x,0.0,Width-c.w);c.y=std::clamp(original.y+p.y-dragStart.y,0.0,Height-c.h);}
         }else return;
-        changed(!((drawing && selectedAnnotation>=0 && annotations[selectedAnnotation].kind==AnnotationTool::Pen) || (dragging && selectedCard>=0)));
+        // Geometry changes do not affect sidebar rows. Synchronize them once
+        // when the gesture finishes rather than on every pointer movement.
+        changed(false);
     }
     void doubleClick(int x,int y){POINT at{x,y};if(!PtInRect(&previewRect,at) || !demand || FAILED(captureError.load()))return;InkPoint p=canvasPoint(x,y);int hit=annotationAt(p);if((tool==AnnotationTool::Select || tool==AnnotationTool::Text)&&hit>=0&&annotations[hit].kind==AnnotationTool::Text){finishGesture();beginText(p,hit);}else pointerDown(x,y);}
     void text(HDC dc, const std::wstring& value, RECT rect, UINT flags = DT_LEFT | DT_WORDBREAK) { DrawTextW(dc, value.c_str(), -1, &rect, flags); }
@@ -911,7 +917,7 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam
 #ifdef CALLAYERS_INTERACTIVE
         if(app->htmlDrag>=0){app->htmlUp(GET_X_LPARAM(lParam),GET_Y_LPARAM(lParam));return 0;}
 #endif
-        if((app->drawing && app->tool==AnnotationTool::Pen) || app->erasing || app->dragging)app->pointerMove(GET_X_LPARAM(lParam),GET_Y_LPARAM(lParam));
+        if(app->drawing || app->draggingAnnotation || app->erasing || app->dragging)app->pointerMove(GET_X_LPARAM(lParam),GET_Y_LPARAM(lParam));
         app->finishGesture();return 0;
 #ifdef CALLAYERS_INTERACTIVE
     case WM_CHAR:case WM_KEYUP:if(app->focusedCard>=0){app->overlay.key(message,wParam,lParam);return 0;}break;
