@@ -2,9 +2,9 @@
 
 Cloud Run service `callayers-v2-api` uses the named Firestore database `callayers-v2` in Google project `callayers`. Firebase Authentication identities and the installed-app Google OAuth client are shared with the original app; the original service and default database are not migration inputs.
 
-The user deployed generation and accepted the creation/show/+1/Reset check on October 13, 2026. Tested desktop SHA256: `3B052EDFE3D4749A466362C72827CAA5D0B8348D7063F010C8EE80F283B4C0EA`. Saving/reopening and cancellation remain for the guided walkthrough. Delivery order and acceptance live in the [consolidated plan](../spec-v2/README.md#consolidated-plan--session-handoff) and [AI implementation](../spec-v2/AI-IMPLEMENTATION.md).
+The user deployed generation and accepted the creation/show/+1/Reset check on October 13, 2026. Tested desktop SHA256: `3B052EDFE3D4749A466362C72827CAA5D0B8348D7063F010C8EE80F283B4C0EA`. The user subsequently accepted hide/show/restart restoration and cancellation, plus deployment/verification of the styling/configuration update. Delivery order and acceptance live in the [consolidated plan](../spec-v2/README.md#consolidated-plan--session-handoff) and [AI implementation](../spec-v2/AI-IMPLEMENTATION.md).
 
-The current local update separates runtime settings from deployment and adds the opacity prompt and optional reasoning effort. It has not been deployed. Seventeen synthetic backend tests pass without paid calls or cloud record writes.
+The accepted backend update separates runtime settings from deployment and adds the opacity prompt and optional reasoning effort. Backend source commit at acceptance: `d7ec643`. Seventeen synthetic backend tests pass without paid calls or cloud record writes.
 
 ## Runtime configuration
 
