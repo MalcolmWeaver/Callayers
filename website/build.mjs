@@ -10,4 +10,5 @@ for(const name of ['index.html','styles.css','download.js','privacy.html','_head
  if(name.endsWith('.html')&&(!content.includes('<title>')||!content.includes('lang="en"')))throw Error(`Missing page metadata: ${name}`);
  await writeFile(new URL(name,output),content);
 }
+await writeFile(new URL('callayers-zoom-windows.png',output),await readFile(new URL('callayers-zoom-windows.png',source)));
 console.log(`Website ready: ${fileURLToPath(output)}`);

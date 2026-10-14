@@ -39,6 +39,27 @@ try{
  try{Assert (-not(Test-CameraFileIdle $camera)) 'calling-app lock defers update'}finally{$locked.Dispose()}
  Reject {Receive-UpdateFile 'http://downloads.callayers.com/setup.exe' (Join-Path $directory 'bad') 10} 'unencrypted download rejected'
  Reject {Receive-UpdateFile 'https://evil.example/setup.exe' (Join-Path $directory 'bad') 10} 'untrusted host rejected before request'
+ # Exercise the actual updater in an isolated installation, never executing the fixture installer.
+ $root=Join-Path $directory 'installed';[IO.Directory]::CreateDirectory((Join-Path $root 'versions/0.3.0'))|Out-Null
+ [IO.Directory]::CreateDirectory((Join-Path $root 'updates/0.3.1'))|Out-Null
+ $repo=Split-Path $PSScriptRoot -Parent
+ Copy-Item -LiteralPath (Join-Path $repo 'release/update.ps1'),(Join-Path $repo 'release/update-common.ps1') -Destination $root
+ [IO.File]::WriteAllText((Join-Path $root 'current-version.txt'),'0.3.0')
+ [IO.File]::WriteAllText((Join-Path $root 'update-public-key.json'),($key|ConvertTo-Json -Compress))
+ $staged=Join-Path $root 'updates/0.3.1/setup.exe';[IO.File]::WriteAllText($staged,'fixture; never executed')
+ $payload.size=(Get-Item $staged).Length;$payload.sha256=(Get-FileHash $staged).Hash.ToLowerInvariant()
+ [IO.File]::WriteAllText((Join-Path $root 'updates/pending.json'),(Envelope $payload))
+ $camera=Join-Path $root 'versions/0.3.0/CallayersCamera.dll';[IO.File]::WriteAllText($camera,'fixture camera')
+ $locked=[IO.File]::Open($camera,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+ try{& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'update.ps1') -Mode Apply}finally{$locked.Dispose()}
+ $state=[IO.File]::ReadAllText((Join-Path $root 'update-status.json'))|ConvertFrom-Json
+ Assert ($state.state -eq 'waiting-for-camera') 'real updater defers locked-camera installation'
+ Assert ((Get-CurrentRelease $root) -eq '0.3.0') 'deferred update preserves current version'
+ [IO.File]::AppendAllText($staged,'tampered')
+ & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'update.ps1') -Mode Apply
+ $state=[IO.File]::ReadAllText((Join-Path $root 'update-status.json'))|ConvertFrom-Json
+ Assert ($state.state -eq 'deferred') 'real updater rejects modified staged file'
+ Assert ((Get-CurrentRelease $root) -eq '0.3.0') 'rejected update preserves current version'
  Write-Host "$count release/update checks passed."
 }finally{
  $rsa.Dispose()

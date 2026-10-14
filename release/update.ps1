@@ -3,7 +3,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'update-common.ps1')
 $root = $PSScriptRoot
 $updates = Join-Path $root 'updates'
-$lock = $null; $ownsLock = $false
+$lock = $null; $ownsLock = $false; $launchAllowed = $true
 
 function Write-UpdateStatus([string]$State, [string]$Version = '') {
     try { [IO.File]::WriteAllText((Join-Path $root 'update-status.json'), (@{state=$State;version=$Version;at=[DateTimeOffset]::UtcNow.ToString('o')} | ConvertTo-Json -Compress)) } catch { }
@@ -21,8 +21,15 @@ function Test-AppIdle {
 
 try {
     if ($WaitForPid -gt 0) { Wait-Process -Id $WaitForPid -Timeout 30 -ErrorAction SilentlyContinue }
-    $lock = New-Object Threading.Mutex($false, 'Local\Callayers.Updater.tester')
-    try { $ownsLock = $lock.WaitOne(0) } catch [Threading.AbandonedMutexException] { $ownsLock = $true }
+    $lockName = if($Mode -eq 'Stage'){'Local\Callayers.Updater.Stage.tester'}else{'Local\Callayers.Updater.Apply.tester'}
+    $lock = New-Object Threading.Mutex($false, $lockName)
+    $timeout = if($Mode -eq 'ApplyAndLaunch'){30000}else{0}
+    try { $ownsLock = $lock.WaitOne($timeout) } catch [Threading.AbandonedMutexException] { $ownsLock = $true }
+    if(-not $ownsLock -and $Mode -eq 'ApplyAndLaunch'){
+        $launchAllowed = $false
+        Add-Type -AssemblyName System.Windows.Forms
+        [Windows.Forms.MessageBox]::Show('Callayers is finishing an update. Open it again in a moment.', 'Callayers') | Out-Null
+    }
     if ($ownsLock) {
         $current = Get-CurrentRelease $root
         $key = [IO.File]::ReadAllText((Join-Path $root 'update-public-key.json')) | ConvertFrom-Json
@@ -56,9 +63,15 @@ try {
             elseif (-not (Test-AppIdle) -or -not (Test-CameraFileIdle (Join-Path $root ('versions/' + $current + '/CallayersCamera.dll')))) {
                 Write-UpdateStatus 'waiting-for-camera' $release.version
             } else {
+                Write-UpdateStatus 'installing' $release.version
                 $process = Start-Process -FilePath $installer -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOCLOSEAPPLICATIONS','/NORESTARTAPPLICATIONS') -WindowStyle Hidden -Wait -PassThru
                 if ($process.ExitCode -ne 0 -or (Get-CurrentRelease $root) -cne $release.version) { throw 'Update installation deferred or failed.' }
-                Remove-Item -LiteralPath $pending -Force
+                if([IO.File]::Exists($pending)){
+                    $stillPending=Get-VerifiedRelease ([IO.File]::ReadAllText($pending)) $key
+                    if($stillPending.version -ceq $release.version){Remove-Item -LiteralPath $pending -Force}
+                }
+                # Remove only the authenticated, consumed installer. Retain app versions for recovery.
+                Remove-Item -LiteralPath $installer -Force
                 Write-UpdateStatus 'installed' $release.version
             }
         }
@@ -66,7 +79,7 @@ try {
 } catch { Write-UpdateStatus 'deferred' }
 finally {
     if ($ownsLock) { $lock.ReleaseMutex() }; if ($lock) { $lock.Dispose() }
-    if ($Mode -eq 'ApplyAndLaunch') {
+    if ($Mode -eq 'ApplyAndLaunch' -and $launchAllowed) {
         try {
             $current = Get-CurrentRelease $root
             $directory = Join-Path $root ('versions/' + $current)

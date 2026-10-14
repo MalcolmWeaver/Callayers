@@ -93,14 +93,20 @@ begin
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
-var Code: Integer; Camera: String; Pointer: String; OldVersion: AnsiString;
+var Code: Integer; Camera: String; Pointer: String; OldVersion: AnsiString; OldCamera: String;
 begin
   if CurStep = ssPostInstall then begin
     Camera := ExpandConstant('{app}\versions\{#ReleaseVersion}\CallayersCamera.dll');
-    if not Exec(ExpandConstant('{sys}\regsvr32.exe'), '/s "' + Camera + '"', '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
+    RegQueryStringValue(HKCU, 'Software\Classes\CLSID\{49C2DCA8-F030-4C75-9B0E-C51E33C1A291}\InprocServer32', '', OldCamera);
+    if not Exec(ExpandConstant('{sys}\regsvr32.exe'), '/s "' + Camera + '"', '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then begin
+      if FileExists(OldCamera) then Exec(ExpandConstant('{sys}\regsvr32.exe'), '/s "' + OldCamera + '"', '', SW_HIDE, ewWaitUntilTerminated, Code);
       RaiseException('Camera registration failed. Your previous version remains selected.');
+    end;
     Pointer := ExpandConstant('{app}\current-version.txt');
-    if not SaveStringToFile(Pointer + '.tmp', '{#ReleaseVersion}', False) then RaiseException('Could not select the installed version.');
+    if not SaveStringToFile(Pointer + '.tmp', '{#ReleaseVersion}', False) then begin
+      if FileExists(OldCamera) then Exec(ExpandConstant('{sys}\regsvr32.exe'), '/s "' + OldCamera + '"', '', SW_HIDE, ewWaitUntilTerminated, Code);
+      RaiseException('Could not select the installed version.');
+    end;
     // Replace the tiny version pointer only after registration succeeds.
     if FileExists(Pointer) then begin
       LoadStringFromFile(Pointer, OldVersion);
@@ -134,3 +140,4 @@ end;
 Type: files; Name: "{app}\current-version.txt"
 Type: files; Name: "{app}\current-version.txt.previous"
 Type: files; Name: "{app}\update-status.json"
+Type: filesandordirs; Name: "{app}\updates"
