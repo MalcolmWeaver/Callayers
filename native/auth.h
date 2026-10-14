@@ -9,6 +9,9 @@
 #include <thread>
 #include <functional>
 #include "auth_store.h"
+#ifdef CALLAYERS_TELEMETRY
+#include "telemetry.h"
+#endif
 
 namespace callayers {
 enum class AuthPhase { SignedOut, Checking, SigningIn, SignedIn };
@@ -50,6 +53,9 @@ public:
     AuthSnapshot snapshot();
     std::wstring takeBrowserUrl();
     std::wstring idToken();
+#ifdef CALLAYERS_TELEMETRY
+    TelemetryCredentials telemetryCredentials();
+#endif
     bool outputAllowed() const {return gate_;}
     void onRevoke(std::function<void()> callback);
 };

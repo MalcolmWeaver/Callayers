@@ -86,8 +86,23 @@ On October 13, 2026, the user accepted browser sign-in/return to webcam, remembe
 
 The desktop uses PKCE and a temporary loopback callback. `/client-config` supplies the installed client ID/secret and Firebase API key; Google treats installed-app secrets as public client configuration. Provider credentials stay on the server. Session credentials are secured with Windows DPAPI. No tokens, prompts, card HTML, annotations or webcam images enter operational logs.
 
-Google Auth Platform Audience is External and publishing is In production, as confirmed by the user. Branding/verification and an external-account/clean-profile check remain release items. Telemetry, trial gates and payments are deferred.
+Google Auth Platform Audience is External and publishing is In production, as confirmed by the user. Branding/verification and an external-account/clean-profile check remain release items. Trial gates and payments are deferred; MVP telemetry is described below.
 
 References: [Cloud Run source deployment](https://docs.cloud.google.com/run/docs/deploying-source-code), [Google installed-app OAuth](https://developers.google.com/identity/protocols/oauth2/native-app), [Firebase token verification](https://firebase.google.com/docs/auth/admin/verify-id-tokens), [Firestore TTL](https://docs.cloud.google.com/firestore/native/docs/ttl), [OpenAI structured output](https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=responses).
+
+## MVP telemetry
+
+`POST /events` authenticates Google/Firebase credentials and enabled-account access, validates only the four event families in [DATA.md](../spec-v2/DATA.md#telemetry-mvp), and forwards them to PostHog. Owner identity is server-derived (`callayers:<uid>`). No body/token/content logging, profile enrichment, GeoIP, Firestore telemetry collection or AI allowance consumption is added. Requests are bounded to 32 events / 32 KiB; delivery has a four-second timeout. In-memory rate windows are bounded and reset after a minute. Provider outages return 503 for bounded desktop retries. PostHog eventually deduplicates stable UUID/name/timestamp/owner tuples; briefly repeated activity rows are possible before merging. [Capture API](https://posthog.com/docs/api/capture), [deduplication](https://posthog.com/docs/data/events#event-deduplication).
+
+The user selected Default project **660809**, US ingestion host `https://us.i.posthog.com`. Keep `POSTHOG_PROJECT_TOKEN` server-side in the `callayers-v2-posthog` Secret Manager secret; it is excluded from public configuration and source. Configure once using a file containing the ingestion token:
+
+```powershell
+.\scripts\setup-backend-v2.ps1 -TelemetryOnly -PosthogHost 'https://us.i.posthog.com' -PosthogTokenPath 'C:\path\to\project-token.txt'
+.\scripts\deploy-backend-v2.ps1
+```
+
+Telemetry-only setup adds access to that single secret and the PostHog host/token binding; it preserves existing service settings. Routine deployment also checks that unsigned telemetry requests are rejected and reports `telemetryReady`. Without PostHog configuration, sign-in/generation still work and telemetry returns 503. Twenty-nine backend synthetic checks pass; they make no provider calls or cloud writes. Runtime acceptance remains user-run.
+
+Deployed October 13, 2026 as `callayers-v2-api-00014-29l`, with `telemetryReady`, `generationReady` and `revisionReady` all true. Existing environment/secret entries, runtime identity, concurrency, timeout and resource settings match the snapshot before telemetry setup. The selected project's token is bound through `callayers-v2-posthog`; the temporary local token file was removed. Event arrival and consuming-app identity still require user runtime verification.
 
 Revision update deployed by the user and Edit accepted on October 13, 2026: `/generate` accepts an optional selected `currentCard` (name, HTML, intrinsic dimensions and image IDs). It shares the existing daily allowance and request reservation; imported pixels/paths are never uploaded. Placeholder-preserving image revisions are validated before returning output. Twenty-one synthetic tests pass. The user reported successful deployment and confirmed Edit working. No new deployment was performed by the assistant for that acceptance report; a service revision identifier was not provided.

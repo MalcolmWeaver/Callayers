@@ -11,6 +11,8 @@ Callayers lets people put cards and annotations over their webcam. Keep the [ref
 
 There is no setup wizard or saved setup progress. If the camera disconnects later, preserve the user's work and offer reconnection.
 
+MVP telemetry records authenticated sessions, successful creation and best-effort camera/card usage timestamps, including the consuming app's normalized identity. There is no telemetry-off setting. Prompts, card names/content, annotations, image filenames, webcam footage and browsing information are excluded; see [DATA.md](DATA.md#telemetry-mvp). Collection/delivery failure never interrupts the editor or video.
+
 AI creation uses your prompt and pasted text. Website reading is deferred beyond the MVP; paste the relevant page text instead. See [AI.md](AI.md).
 
 ## Sign in

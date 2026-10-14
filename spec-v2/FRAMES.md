@@ -59,11 +59,11 @@ Minimizing during a call keeps cards and timers running. Without a consumer, sav
 
 This is a fresh implementation. Git history provides design references and evidence that transparent iframe cards, minimized animation, and virtual-camera delivery worked previously; do not restore or port v1. The previous output used Media Foundation, so it does not establish DirectShow compatibility or a performance advantage. Verify the new output in one chosen calling app. Keep the accepted v2 CPU workspace available and compare full-app memory under matched conditions before selecting the renderer.
 
-## Consumer identity (implement with telemetry)
+## Consumer identity (MVP)
 
-When implementing telemetry, extend the consumer-side DirectShow source and local camera bridge to report the host application for the active consumer. Resolve identity when consumption starts, outside the per-frame delivery work, and expose a normalized app label to the desktop for `video_state_changed`; see [DATA.md](DATA.md#telemetry-implement-later). Verify identity in the target calling apps because helper or broker processes may obscure the application. Report `unknown` when attribution is unreliable and clear identity to `none` when consumption stops or its heartbeat expires. Identity failure must not interrupt video.
+The consumer-side DirectShow source reports its host application's normalized name when consumption starts, outside per-frame delivery work. A separate versioned local mapping exposes identity, connection freshness and successful fresh-delivery metadata to the desktop for `video_state_changed`; see [DATA.md](DATA.md#telemetry-mvp). The existing pixel bridge layout stays compatible. Verify identity in target calling apps because helper/broker processes can obscure it. Report `unknown` when attribution is unreliable and `none` when consumption stops or its heartbeat expires. Identity failure must not interrupt video.
 
-Keep the existing one-consumer MVP assumption. Identify browsers as browsers, without trying to identify the calling website. This work is deferred with telemetry: no consumer-identity implementation, bridge changes, or new network heartbeat is required before then. The existing local consumer heartbeat continues to support video lifecycle behavior.
+Keep the existing one-consumer MVP assumption. Identify browsers as browsers without reading calling websites. Record a fresh-output heartbeat only after a fresh frame is successfully accepted by the DirectShow consumer, carrying producer-session and rendered-scene counters. Connected consumers receiving neutral/stale video are not active output. Metadata on immutable rendered pictures identifies the cards applied to preview/output; no card contents cross the telemetry mapping and no network work runs in the filter or compositor. Best-effort observation/expiry is sufficient; no exact duration subsystem or network heartbeat is required.
 
 ## Open, minimized, and closed
 

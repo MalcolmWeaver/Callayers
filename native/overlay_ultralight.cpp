@@ -99,7 +99,11 @@ void Overlay::retry(HINSTANCE instance){
     {std::lock_guard lock(state->mutex);state->image.reset();state->privateImage.reset();state->privateTextId=0;}
     ++state->currentEpoch;initialize(instance);
 }
-void Overlay::update(const std::wstring& json){scene_=json;scenePending_=true;}
+void Overlay::update(const std::wstring& json){scene_=json;scenePending_=true;
+#ifdef CALLAYERS_TELEMETRY
+    ++telemetryScene_;telemetryPicture_.reset();
+#endif
+}
 void Overlay::enable(bool enabled){
     if(enabled_==enabled)return;
     enabled_=enabled;++state->currentEpoch;scenePending_=true;
@@ -124,7 +128,12 @@ std::shared_ptr<OverlayImage> Overlay::copy(std::array<std::shared_ptr<OverlayIm
     auto surface=view_->surface();if(!surface)return {};
     auto pixels=static_cast<const uint8_t*>(surface->LockPixels());if(!pixels)return {};
     for(int y=0;y<Height;++y)memcpy((*slot)->pixels.data()+size_t(y)*Width*4,pixels+size_t(y)*surface->row_bytes(),Width*4);
-    surface->UnlockPixels();(*slot)->tick=tick;return *slot;
+    surface->UnlockPixels();(*slot)->tick=tick;
+#ifdef CALLAYERS_TELEMETRY
+    if(!telemetryPicture_){auto picture=std::make_shared<TelemetryPicture>();picture->scene=telemetryScene_;for(const auto& c:generated_)if(c.visible)picture->cards.push_back({winrt::to_string(c.id),c.image.empty()?"ai":"image"});telemetryPicture_=std::move(picture);}
+    (*slot)->telemetry=telemetryPicture_;
+#endif
+    return *slot;
 }
 void Overlay::capture(){
     if(!view_ || !enabled_ || state->failed)return;
@@ -157,7 +166,11 @@ void Overlay::capture(){
 #endif
 #ifdef CALLAYERS_GENERATION
         restoreGenerated();generatedCheckpoint(false);
-        if(generatedRevision_){auto result=generatedStore_.result();if(result.revision==generatedRevision_){state->generatedSaveError=result.error;generatedRevision_=0;}}
+        if(generatedRevision_){auto result=generatedStore_.result();if(result.revision==generatedRevision_){state->generatedSaveError=result.error;
+#ifdef CALLAYERS_TELEMETRY
+            telemetrySaved(result.revision,result.error);
+#endif
+            generatedRevision_=0;}}
 #endif
         const auto epoch=state->currentEpoch.load();const auto tick=GetTickCount64();
         renderer_->Render();
@@ -271,7 +284,14 @@ bool Overlay::addGenerated(GeneratedCard card){
     if(replacement_)return false;card.renderId=nextRenderId_++;card.layer=int(generated_.size());card.edited=GetSystemTimeAsFileTimeStamp();
 #endif
     generated_.push_back(std::move(card));documentsPending_=true;scenePending_=true;
-    lastGeneratedJson_=GeneratedCardsJson(generated_);generatedRevision_=generatedStore_.save(lastGeneratedJson_);return true;
+#ifdef CALLAYERS_TELEMETRY
+    auto creationKind=generated_.back().image.empty()?"ai_create":"image_import";
+#endif
+    lastGeneratedJson_=GeneratedCardsJson(generated_);generatedRevision_=generatedStore_.save(lastGeneratedJson_);
+#ifdef CALLAYERS_TELEMETRY
+    pendingCreations_.push_back({generated_.back().id,creationKind,generatedRevision_});
+#endif
+    return true;
 }
 void Overlay::generatedLayout(int index,double x,double y,double w,double h,bool visible){
     if(index<0||index>=int(generated_.size()))return;auto& c=generated_[index];
@@ -337,10 +357,14 @@ bool Overlay::stackCard(int index,bool front){
 bool Overlay::queueReplacement(int index,GeneratedCard card){
     if(generatedBlocked_ || replacement_ || index<0 || index>=int(generated_.size()) || !ValidGeneratedCard(card))return false;
     generatedCheckpoint(true);card.edited=GetSystemTimeAsFileTimeStamp();auto saved=generated_;saved[index]=card;
-    auto revision=generatedStore_.save(GeneratedCardsJson(saved));replacement_=Replacement{generated_[index].id,generated_[index].contentVersion,std::move(card),revision};return true;
+    auto revision=generatedStore_.save(GeneratedCardsJson(saved));replacement_=Replacement{generated_[index].id,generated_[index].contentVersion,std::move(card),revision};
+#ifdef CALLAYERS_TELEMETRY
+    replacement_->telemetryGeneration=telemetryGeneration_;
+#endif
+    return true;
 }
 bool Overlay::reviseCard(const std::wstring& id,unsigned long long version,const GeneratedCard& result){
-    for(size_t i=0;i<generated_.size();++i)if(MatchesRevisionTarget(generated_[i],id,version)){GeneratedCard card;if(!RevisedCard(generated_[i],result,card))return false;return queueReplacement(int(i),std::move(card));}return false;
+    for(size_t i=0;i<generated_.size();++i)if(MatchesRevisionTarget(generated_[i],id,version)){GeneratedCard card;if(!RevisedCard(generated_[i],result,card))return false;bool queued=queueReplacement(int(i),std::move(card));if(queued)replacement_->revised=true;return queued;}return false;
 }
 bool Overlay::restorePrevious(int index){if(index<0 || index>=int(generated_.size()))return false;GeneratedCard card;if(!RestorePrevious(generated_[index],card))return false;return queueReplacement(index,std::move(card));}
 int Overlay::pollReplacement(){
@@ -348,11 +372,23 @@ int Overlay::pollReplacement(){
     state->generatedSaveError=result.error;if(FAILED(result.error)){replacement_->failed=true;return -1;}
     for(auto& current:generated_)if(MatchesRevisionTarget(current,replacement_->id,replacement_->version)){
         auto card=std::move(replacement_->card);card.x=current.x;card.y=current.y;card.w=current.w;card.h=card.w*card.height/card.width;double fit=std::min({1.0,(1280-card.x)/card.w,(720-card.y)/card.h});card.w*=fit;card.h*=fit;card.visible=current.visible;card.layer=current.layer;card.renderId=nextRenderId_++;current=std::move(card);
+#ifdef CALLAYERS_TELEMETRY
+        if(replacement_->revised && replacement_->telemetryGeneration==telemetryGeneration_ && creation_)creation_("ai_revision",winrt::to_string(current.id));
+#endif
         replacement_.reset();documentsPending_=scenePending_=true;generatedCheckpoint(true);return 1;
     }
     replacement_.reset();generatedCheckpoint(true);return -1;
 }
 void Overlay::retryReplacement(){if(replacement_ && replacement_->failed){auto saved=generated_;for(auto& c:saved)if(c.id==replacement_->id)c=replacement_->card;replacement_->saveRevision=generatedStore_.save(GeneratedCardsJson(saved));replacement_->failed=false;}}
+#endif
+#ifdef CALLAYERS_TELEMETRY
+void Overlay::telemetrySaved(unsigned revision,HRESULT error){
+    if(FAILED(error))return;
+    for(auto it=pendingCreations_.begin();it!=pendingCreations_.end();){if(it->revision>revision){++it;continue;}
+        if(std::any_of(generated_.begin(),generated_.end(),[&](const auto& c){return c.id==it->id;}) && creation_)creation_(it->kind,winrt::to_string(it->id));
+        it=pendingCreations_.erase(it);
+    }
+}
 #endif
 #endif
 }

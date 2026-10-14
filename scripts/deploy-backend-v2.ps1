@@ -33,6 +33,8 @@ if($health.generationReady){
     try { Invoke-RestMethod -Uri "$url/generate" -Method Post -ContentType 'application/json' -Body '{}' | Out-Null; throw 'Generation unexpectedly accepted an unsigned request.' }
     catch { if (-not $_.Exception.Response -or [int]$_.Exception.Response.StatusCode -ne 401) { throw 'Generation access validation failed.' } }
 }
+try { Invoke-RestMethod -Uri "$url/events" -Method Post -ContentType 'application/json' -Body '{}' | Out-Null; throw 'Telemetry unexpectedly accepted an unsigned request.' }
+catch { if (-not $_.Exception.Response -or [int]$_.Exception.Response.StatusCode -ne 401) { throw 'Telemetry access validation failed.' } }
 try { Invoke-RestMethod -Uri "$url/account" | Out-Null; throw 'Account endpoint unexpectedly accepted a request without sign-in.' }
 catch { if (-not $_.Exception.Response -or [int]$_.Exception.Response.StatusCode -ne 401) { throw 'Account endpoint access validation failed.' } }
 $output = Join-Path $repo 'build/workspace-x64/Release'
@@ -40,4 +42,5 @@ if (-not (Test-Path -LiteralPath $output)) { throw 'Build the workspace desktop 
 [IO.File]::WriteAllText((Join-Path $output 'service-url.txt'), $url, [Text.UTF8Encoding]::new($false))
 Write-Host "V2 service ready: $url"
 Write-Host "Generation ready: $($health.generationReady)"
+Write-Host "Telemetry ready: $($health.telemetryReady)"
 Write-Host 'Desktop address configured. Runtime verification remains user-run.'

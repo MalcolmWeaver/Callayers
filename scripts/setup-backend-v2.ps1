@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$OAuthJsonPath, [switch]$BuildOnly, [switch]$GenerationOnly)
+param([string]$OAuthJsonPath, [switch]$BuildOnly, [switch]$GenerationOnly, [switch]$TelemetryOnly, [string]$PosthogHost, [string]$PosthogTokenPath)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
 $source = Join-Path $repo 'backend-v2'
@@ -21,6 +21,23 @@ function RulesRequest($Method, $Uri, $Body, $Headers) {
     catch { throw 'Could not publish the v2 database access rules; deployment stopped.' }
 }
 
+if (([int]$BuildOnly.IsPresent + [int]$GenerationOnly.IsPresent + [int]$TelemetryOnly.IsPresent) -gt 1) { throw 'Choose one setup mode.' }
+if ($TelemetryOnly) {
+    if ($PosthogHost -notin @('https://us.i.posthog.com','https://eu.i.posthog.com') -or -not $PosthogTokenPath) { throw 'Specify the selected project ingestion host and token file.' }
+    $tokenFile = (Resolve-Path -LiteralPath $PosthogTokenPath).Path
+    $projectToken = [IO.File]::ReadAllText($tokenFile).Trim()
+    if ($projectToken -notmatch '^[A-Za-z0-9_-]{16,200}$') { throw 'The file must contain only the project ingestion token.' }
+    $secret = 'callayers-v2-posthog'
+    $existing = Cloud -Arguments @('secrets','list',"--filter=name:$secret",'--format=value(name)')
+    if (-not ($existing | Where-Object { ($_ -split '/')[-1] -eq $secret })) {
+        Cloud -Arguments @('secrets','create',$secret,'--replication-policy=automatic') | Out-Null
+    }
+    Cloud -Arguments @('secrets','versions','add',$secret,"--data-file=$tokenFile") | Out-Null
+    Cloud -Arguments @('secrets','add-iam-policy-binding',$secret,"--member=serviceAccount:$identity",'--role=roles/secretmanager.secretAccessor') | Out-Null
+    Cloud -Arguments @('run','services','update',$service,"--region=$region","--update-env-vars=POSTHOG_HOST=$PosthogHost","--update-secrets=POSTHOG_PROJECT_TOKEN=${secret}:latest") | Out-Null
+    Write-Host 'PostHog host and ingestion token binding configured. Routine deployments preserve these settings.'
+    return
+}
 if ($GenerationOnly) {
     if ($BuildOnly -or $OAuthJsonPath) { throw 'Choose GenerationOnly separately from OAuth/database/build setup.' }
     # Explicit generation provisioning for an existing service. Model, effort

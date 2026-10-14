@@ -22,7 +22,10 @@ export function loadConfig(env) {
   const aiReasoningEffort=(env.AI_REASONING_EFFORT||'').trim()||null;
   if (aiReasoningEffort && !['none','minimal','low','medium','high','xhigh','max'].includes(aiReasoningEffort))
     throw new Error('Invalid AI_REASONING_EFFORT');
-  return Object.freeze({ projectId, databaseId, dailyLimit, openaiKey, aiModel, aiReasoningEffort, publicConfig: Object.freeze({
+  const posthogToken=(env.POSTHOG_PROJECT_TOKEN||'').trim(),posthogHost=(env.POSTHOG_HOST||'').trim().replace(/\/+$/,'');
+  if ((posthogToken || posthogHost) && (!/^[A-Za-z0-9_-]{16,200}$/.test(posthogToken) || !['https://us.i.posthog.com','https://eu.i.posthog.com'].includes(posthogHost)))
+    throw new Error('Configure POSTHOG_HOST and POSTHOG_PROJECT_TOKEN together for the selected cloud region');
+  return Object.freeze({ projectId, databaseId, dailyLimit, openaiKey, aiModel, aiReasoningEffort, posthogToken, posthogHost, publicConfig: Object.freeze({
     version: 2, firebaseProjectId: projectId,
     googleDesktopClientId: installed.client_id,
     googleDesktopClientSecret: installed.client_secret,

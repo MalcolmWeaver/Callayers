@@ -13,6 +13,10 @@
 #include <mutex>
 #include <sstream>
 #include <thread>
+#ifdef CALLAYERS_TELEMETRY
+#include "telemetry.h"
+#include <deque>
+#endif
 #include "capture.h"
 #ifdef CALLAYERS_ULTRALIGHT_CPU
 #include "overlay_ultralight.h"
@@ -48,7 +52,11 @@ struct Card {
     // changes presentation scale, so scripts/animation and text layout survive.
     double contentW = w, contentH = h;
 };
-struct PresentedFrame { std::vector<uint8_t> pixels; bool live = false; ULONGLONG tick = 0; unsigned version = 0; uint64_t hiddenTextId=0; };
+struct PresentedFrame { std::vector<uint8_t> pixels; bool live = false; ULONGLONG tick = 0; unsigned version = 0; uint64_t hiddenTextId=0;
+#ifdef CALLAYERS_TELEMETRY
+    std::shared_ptr<const TelemetryPicture> telemetry;
+#endif
+};
 struct App {
     HWND window = nullptr;
     std::unique_ptr<Workspace> workspace;
@@ -146,6 +154,39 @@ struct App {
     bool authenticated=false,rendererInitialized=false;
     unsigned authRevision=unsigned(-1);
     Auth auth;
+#ifdef CALLAYERS_TELEMETRY
+    TelemetrySender telemetry;
+    TelemetryState telemetryState{[this](TelemetryEvent event){telemetry.record(std::move(event));}};
+    std::wstring telemetryAccount;
+    std::deque<std::shared_ptr<const TelemetryPicture>> telemetryPictures;
+    struct AnnotationCreation {uint64_t id;unsigned revision;};
+    std::vector<AnnotationCreation> pendingAnnotations;
+    void syncTelemetryAccount(){
+        try{
+            auto credentials=auth.telemetryCredentials();bool newSession=telemetryAccount!=credentials.uid;
+            if(newSession){telemetryState.end();pendingAnnotations.clear();overlay.clearTelemetryCreations();telemetryAccount=credentials.uid;}
+            telemetry.account(std::move(credentials),newSession);
+            if(newSession && !telemetryAccount.empty())telemetryState.begin();
+        }catch(...){}
+    }
+    void refreshTelemetry(){
+        try{
+            syncTelemetryAccount();if(telemetryAccount.empty())return;
+            overlay.pollTelemetryCreations();
+            auto saved=annotationStore.result();if(SUCCEEDED(saved.error))for(auto it=pendingAnnotations.begin();it!=pendingAnnotations.end();){
+                if(it->revision>saved.revision){++it;continue;}
+                if(std::any_of(annotations.begin(),annotations.end(),[&](const auto& a){return a.id==it->id;}))telemetryState.created("annotation");
+                it=pendingAnnotations.erase(it);
+            }
+            auto consumer=bridge.consumerTelemetry();if(!consumer.valid)return;
+            TelemetryVideo video{IsWindowVisible(window)!=FALSE && !IsIconic(window),consumer.connected,consumer.output,consumer.connected?ConsumerLabel(consumer.app):"none",consumer.connection};
+            std::vector<TelemetryCard> previewCards,outputCards;
+            {std::lock_guard lock(previewMutex);if(preview && preview->telemetry && preview->live && preview->version==commandVersion && GetTickCount64()-preview->tick<FreshMs)previewCards=preview->telemetry->cards;
+                if(video.output)for(const auto& picture:telemetryPictures)if(picture->scene==consumer.scene){outputCards=picture->cards;break;}}
+            telemetryState.observe(video,previewCards,outputCards);
+        }catch(...){} // Metrics never disable the editor or camera.
+    }
+#endif
     int px(double value) const { return int(std::lround(value * dpi)); }
     int cardCount()const{return int(std::size(cards));}
     ~App() {
@@ -174,6 +215,9 @@ struct App {
             if(workspace && workspace->editingText())workspace->finishText(false);
             finishGesture(true);
         }else if(!rendererInitialized){rendererInitialized=true;overlay.initialize(GetModuleHandleW(nullptr));}
+#ifdef CALLAYERS_TELEMETRY
+        syncTelemetryAccount();
+#endif
         if(workspace)workspace->authentication(login);
         if(was!=authenticated){if(authenticated)enumerate();layout();updateDemand();if(authenticated){ShowWindow(window,SW_RESTORE);SetForegroundWindow(window);}}
     }
@@ -339,9 +383,16 @@ struct App {
         if(found==annotations.end()){if(annotations.size()>=MaxAnnotations){MessageBoxW(window,L"There are too many annotations. Remove a few to continue.",L"Annotations",MB_OK);return false;}a.id=nextAnnotationId;}
         if(!std::isfinite(height) || height<=0 || height>Height-a.box.y){MessageBoxW(window,L"This text runs past the bottom of the picture. Shorten it before finishing.",L"Text doesn't fit",MB_OK|MB_ICONINFORMATION);return false;}
         a.text=std::move(value);a.box.h=height;
+        bool created=found==annotations.end();uint64_t createdId=a.id;
         if(found!=annotations.end()){selectedAnnotation=int(found-annotations.begin());*found=std::move(a);}
         else {++nextAnnotationId;annotations.push_back(std::move(a));selectedAnnotation=int(annotations.size())-1;}
-        editingAnnotationId=0;overlay.privatePreview(0);changed();syncAnnotationControls();saveAnnotations();return true;
+        editingAnnotationId=0;overlay.privatePreview(0);changed();syncAnnotationControls();saveAnnotations();
+#ifdef CALLAYERS_TELEMETRY
+        if(created && SUCCEEDED(annotationRestoreError))pendingAnnotations.push_back({createdId,annotationRevision});
+#else
+        (void)created;(void)createdId;
+#endif
+        return true;
     }
     void beginText(InkPoint p,int existing=-1) {
         if(workspace && !workspace->finishText())return;
@@ -387,6 +438,9 @@ struct App {
         if(htmlDrag>=0){overlay.mouse(2,-1000,-1000);overlay.pointerTarget(-1);htmlDrag=-1;}
 #endif
         bool edited=drawing || draggingAnnotation;
+#ifdef CALLAYERS_TELEMETRY
+        uint64_t createdId=!cancel && drawing && selectedAnnotation>=0?annotations[selectedAnnotation].id:0;
+#endif
         if(cancel && edited && selectedAnnotation>=0){if(drawing)annotations.erase(annotations.begin()+selectedAnnotation);else annotations[selectedAnnotation]=originalInk;selectedAnnotation=-1;}
         else if(drawing && selectedAnnotation>=0){const auto& a=annotations[selectedAnnotation];auto b=Bounds(a);if((a.kind==AnnotationTool::Rectangle || a.kind==AnnotationTool::Ellipse) && (b.w<3 || b.h<3)){annotations.erase(annotations.begin()+selectedAnnotation);selectedAnnotation=-1;}}
         drawing=dragging=draggingAnnotation=resizing=false;
@@ -394,6 +448,9 @@ struct App {
         syncGeneratedLayout();overlay.saveGenerated();
 #endif
         if(edited){changed();syncAnnotationControls();if(!cancel)saveAnnotations();}
+#ifdef CALLAYERS_TELEMETRY
+        if(createdId && selectedAnnotation>=0 && SUCCEEDED(annotationRestoreError))pendingAnnotations.push_back({createdId,annotationRevision});
+#endif
         if(GetCapture()==window)ReleaseCapture();
     }
     void pointerDown(int x,int y) {
@@ -682,12 +739,23 @@ i
                             auto result=std::make_shared<PresentedFrame>();
                             compose(*image,*overlayFrame,result->pixels); result->live=true; result->version=version;
                             result->tick=std::min(image->tick,overlayFrame->tick);
+#ifdef CALLAYERS_TELEMETRY
+                            result->telemetry=overlayFrame->telemetry;
+#endif
                             if(version==commandVersion && demand && auth.outputAllowed() && !quitting) {
-                                { StageTimer timing(VideoStage::Publish); bridge.publish(result->pixels,session,result->tick); }
+                                { StageTimer timing(VideoStage::Publish); bridge.publish(result->pixels,session,result->tick
+#ifdef CALLAYERS_TELEMETRY
+                                    ,result->telemetry?result->telemetry->scene:0
+#endif
+                                ); }
                                 // The completed overlay alone crosses the camera bridge. Only
                                 // this window's preview hides the text being privately edited.
                                 if(privateOverlayFrame && privateTextId && privateTextId==overlay.state->requestedPrivateTextId){compose(*image,*privateOverlayFrame,result->pixels);result->hiddenTextId=privateTextId;}
-                                std::lock_guard lock(previewMutex);preview=std::move(result);
+                                std::lock_guard lock(previewMutex);
+#ifdef CALLAYERS_TELEMETRY
+                                if(result->telemetry && (telemetryPictures.empty() || telemetryPictures.back()->scene!=result->telemetry->scene)){telemetryPictures.push_back(result->telemetry);if(telemetryPictures.size()>8)telemetryPictures.pop_front();}
+#endif
+                                preview=std::move(result);
                             }
                         } else {
                             // Let the last publication expire. A producer stall must
@@ -788,6 +856,9 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam
             actions.signOut=[app]{app->signOut();};
             actions.layout=[app]{app->layout();};
             app->restoreAnnotations();
+#ifdef CALLAYERS_TELEMETRY
+            app->overlay.onCreation([app](const std::string& kind,const std::string& id){app->telemetryState.created(kind,id);});
+#endif
 #ifdef CALLAYERS_GENERATION
             app->restoreGeneratedCards();
 #endif
@@ -802,6 +873,9 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam
     case WM_TIMER:app->refreshAuth();app->updateDemand();app->overlay.capture();
 #ifdef CALLAYERS_GENERATION
         app->refreshGeneration();
+#endif
+#ifdef CALLAYERS_TELEMETRY
+        app->refreshTelemetry();
 #endif
         app->refreshWorkspace();if(!IsIconic(window))InvalidateRect(window,nullptr,FALSE);return 0;
     case WM_SIZE:if(app->workspace){app->layout();app->updateDemand();}return 0;
@@ -848,6 +922,9 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam
 #endif
 #ifdef CALLAYERS_GENERATION
         app->generation.cancel();app->overlay.saveGenerated();
+#endif
+#ifdef CALLAYERS_TELEMETRY
+        app->refreshTelemetry();app->telemetryState.end();
 #endif
         app->quitting=true;app->demand=false;app->bridge.stop();KillTimer(window,1);app->overlay.enable(false);app->workspace.reset();
         DestroyWindow(window);return 0;

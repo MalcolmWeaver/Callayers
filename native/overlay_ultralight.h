@@ -7,6 +7,9 @@
 #include <mutex>
 #include <string>
 #include <vector>
+#ifdef CALLAYERS_TELEMETRY
+#include "telemetry_state.h"
+#endif
 #ifdef CALLAYERS_INTERACTIVE
 #include "annotation_store.h"
 #include "card_state.h"
@@ -18,7 +21,11 @@
 
 namespace callayers {
 class RendererLog;
-struct OverlayImage {std::vector<uint8_t> pixels;ULONGLONG tick=0;};
+struct OverlayImage {std::vector<uint8_t> pixels;ULONGLONG tick=0;
+#ifdef CALLAYERS_TELEMETRY
+    std::shared_ptr<const TelemetryPicture> telemetry;
+#endif
+};
 struct OverlayState {
     std::mutex mutex;
     std::shared_ptr<OverlayImage> image,privateImage;
@@ -44,6 +51,15 @@ class Overlay {
     std::wstring scene_;
     bool enabled_=true,scenePending_=true;
     ULONGLONG opened_=0;
+#ifdef CALLAYERS_TELEMETRY
+    uint64_t telemetryScene_=1;
+    std::shared_ptr<const TelemetryPicture> telemetryPicture_;
+    std::function<void(const std::string&,const std::string&)> creation_;
+    struct PendingCreation {std::wstring id;std::string kind;unsigned revision=0;};
+    std::vector<PendingCreation> pendingCreations_;
+    unsigned telemetryGeneration_=0;
+    void telemetrySaved(unsigned revision,HRESULT error);
+#endif
     void script(const std::string& code);
     std::shared_ptr<OverlayImage> copy(std::array<std::shared_ptr<OverlayImage>,3>& pool,ULONGLONG tick);
     void fail(HRESULT error);
@@ -62,7 +78,11 @@ class Overlay {
     ULONGLONG lastGeneratedPoll_=0;
     std::wstring lastGeneratedJson_;
 #ifdef CALLAYERS_LIBRARY
-    struct Replacement {std::wstring id;unsigned long long version;GeneratedCard card;unsigned saveRevision;bool failed=false;};
+    struct Replacement {std::wstring id;unsigned long long version;GeneratedCard card;unsigned saveRevision;bool failed=false;bool revised=false;
+#ifdef CALLAYERS_TELEMETRY
+        unsigned telemetryGeneration=0;
+#endif
+    };
     std::optional<Replacement> replacement_;
     int nextRenderId_=0;
     bool queueReplacement(int index,GeneratedCard card);
@@ -91,6 +111,11 @@ public:
     void enable(bool enabled);
     void capture();
     void privatePreview(uint64_t textId){state->requestedPrivateTextId=textId;}
+#ifdef CALLAYERS_TELEMETRY
+    void onCreation(std::function<void(const std::string&,const std::string&)> callback){creation_=std::move(callback);}
+    void pollTelemetryCreations(){auto result=generatedStore_.result();telemetrySaved(result.revision,result.error);}
+    void clearTelemetryCreations(){pendingCreations_.clear();++telemetryGeneration_;}
+#endif
 #ifdef CALLAYERS_GENERATION
     bool loadGenerated();
     bool addGenerated(GeneratedCard card);
