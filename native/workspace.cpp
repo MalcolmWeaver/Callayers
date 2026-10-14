@@ -371,6 +371,10 @@ struct Workspace::Impl {
         find<controls::TextBlock>(aboutContent,L"Version").Text(std::wstring(L"Version ")+CALLAYERS_VERSION_TEXT);
         updateMessage=find<controls::TextBlock>(aboutContent,L"UpdateMessage");updateButton=find<controls::Button>(aboutContent,L"Update");
         about=controls::Flyout();about.Content(aboutContent);
+        // These islands are only as tall as their toolbars. Let the popovers
+        // measure against the monitor work area so all their content fits.
+        about.ShouldConstrainToRootBounds(false);
+        find<controls::Button>(toolbar,L"Color").Flyout().ShouldConstrainToRootBounds(false);
         about.Closed([this](auto&&,auto&&){aboutOpen=false;});
         showUpdate(ReleaseRoot().empty()?L"development":L"idle");
         find<controls::MenuFlyoutItem>(header,L"About").Click([this](auto&&,auto&&){aboutOpen=true;updatePoll=0;pollUpdate();about.ShowAt(find<controls::Button>(header,L"File"));});
