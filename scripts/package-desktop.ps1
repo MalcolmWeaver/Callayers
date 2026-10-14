@@ -15,12 +15,12 @@ $redist=Get-ChildItem (Join-Path $vs.installationPath 'VC/Redist/MSVC') -Directo
 $crt=Get-ChildItem (Join-Path $redist.FullName 'x64') -Directory -Filter '*.CRT'|Select-Object -First 1
 Copy-Item -Path (Join-Path $crt.FullName '*.dll') -Destination $payload -Force
 $deps=Join-Path $repo '.deps/release-tools';[IO.Directory]::CreateDirectory($deps)|Out-Null
-$compiler=Join-Path $deps 'inno/ISCC.exe'
+$compiler=Join-Path $deps 'inno-6.4.3/ISCC.exe'
 if(-not(Test-Path -LiteralPath $compiler)){
-    $download=Join-Path $deps 'innosetup-7.1.0-x64.exe'
-    Invoke-WebRequest 'https://github.com/jrsoftware/issrc/releases/download/is-7_1_0/innosetup-7.1.0-x64.exe' -OutFile $download
-    if((Get-FileHash $download).Hash -ine '0362a383ed217d4c4239b5933866dd96d3eb2102737da92f80f6057a4b40df2f'){throw 'Inno Setup checksum mismatch.'}
-    $tool=Start-Process -FilePath $download -ArgumentList @('/PORTABLE=1','/CURRENTUSER','/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-',('/DIR="'+(Join-Path $deps 'inno')+'"')) -WindowStyle Hidden -Wait -PassThru
+    $download=Join-Path $deps 'innosetup-6.4.3.exe'
+    Invoke-WebRequest 'https://github.com/jrsoftware/issrc/releases/download/is-6_4_3/innosetup-6.4.3.exe' -OutFile $download
+    if((Get-FileHash $download).Hash -ine 'f3c42116542c4cc57263c5ba6c4feabfc49fe771f2f98a79d2f7628b8762723b'){throw 'Inno Setup checksum mismatch.'}
+    $tool=Start-Process -FilePath $download -ArgumentList @('/PORTABLE=1','/CURRENTUSER','/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-',('/DIR="'+(Join-Path $deps 'inno-6.4.3')+'"')) -WindowStyle Hidden -Wait -PassThru
     if($tool.ExitCode -ne 0){throw 'Could not prepare installer compiler.'}
 }
 $runtime=Join-Path $deps 'WindowsAppRuntimeInstall-1.6.9-x64.exe'

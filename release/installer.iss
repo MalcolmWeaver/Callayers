@@ -50,16 +50,23 @@ Name: "{userprograms}\Callayers"; Filename: "{app}\Callayers.exe"; WorkingDir: "
 Filename: "{app}\Callayers.exe"; Description: "Open Callayers"; Flags: postinstall nowait skipifsilent
 
 [Code]
+function CreateFileW(Name: String; Access, Share, Security, Creation, Flags, Template: LongWord): LongWord;
+  external 'CreateFileW@kernel32.dll stdcall';
+function CloseHandle(Handle: LongWord): Boolean;
+  external 'CloseHandle@kernel32.dll stdcall';
+function MoveFileExW(Existing, Replacement: String; Flags: LongWord): Boolean;
+  external 'MoveFileExW@kernel32.dll stdcall';
+
 function CameraIdle: Boolean;
-var OldVersion: AnsiString; Handle: Integer; Camera: String;
+var OldVersion: AnsiString; Handle: LongWord; Camera: String;
 begin
   Result := True;
   if LoadStringFromFile(ExpandConstant('{app}\current-version.txt'), OldVersion) then begin
     Camera := ExpandConstant('{app}\versions\') + Trim(String(OldVersion)) + '\CallayersCamera.dll';
     if FileExists(Camera) then begin
-      Handle := FileOpen(Camera, fmOpenReadWrite or fmShareExclusive);
-      Result := Handle <> -1;
-      if Result then FileClose(Handle);
+      Handle := CreateFileW(Camera, $C0000000, 0, 0, 3, $80, 0);
+      Result := Handle <> $FFFFFFFF;
+      if Result then CloseHandle(Handle);
     end;
   end;
 end;
@@ -76,12 +83,17 @@ begin
   if Exec(Shell, '-NoProfile -NonInteractive -Command "if (Get-AppxPackage Microsoft.WindowsAppRuntime.1.6) { exit 0 } else { exit 1 }"', '', SW_HIDE, ewWaitUntilTerminated, Code) and (Code = 0) then exit;
   ExtractTemporaryFile('WindowsAppRuntimeInstall.exe');
   if not Exec(ExpandConstant('{tmp}\WindowsAppRuntimeInstall.exe'), '--quiet', '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then begin
+    if (Code = 5) or (Code = -2147024891) then begin
+      if MsgBox('Windows needs administrator permission to install its required runtime. Allow this prerequisite installation?', mbConfirmation, MB_YESNO) = IDYES then begin
+        if ShellExec('runas', ExpandConstant('{tmp}\WindowsAppRuntimeInstall.exe'), '--quiet', '', SW_HIDE, ewWaitUntilTerminated, Code) and (Code = 0) then exit;
+      end;
+    end;
     Result := 'Windows could not install the required runtime for your account. Ask your administrator to install Windows App Runtime 1.6, then run this installer again.';
   end;
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
-var Code: Integer; Camera: String; Pointer: String;
+var Code: Integer; Camera: String; Pointer: String; OldVersion: AnsiString;
 begin
   if CurStep = ssPostInstall then begin
     Camera := ExpandConstant('{app}\versions\{#ReleaseVersion}\CallayersCamera.dll');
@@ -91,11 +103,11 @@ begin
     if not SaveStringToFile(Pointer + '.tmp', '{#ReleaseVersion}', False) then RaiseException('Could not select the installed version.');
     // Replace the tiny version pointer only after registration succeeds.
     if FileExists(Pointer) then begin
+      LoadStringFromFile(Pointer, OldVersion);
       if not FileCopy(Pointer, Pointer + '.previous', False) then RaiseException('Could not preserve the previous version.');
-      if not DeleteFile(Pointer) then RaiseException('Could not select the installed version.');
     end;
-    if not RenameFile(Pointer + '.tmp', Pointer) then begin
-      FileCopy(Pointer + '.previous', Pointer, False);
+    if not MoveFileExW(Pointer + '.tmp', Pointer, 9) then begin
+      if OldVersion <> '' then Exec(ExpandConstant('{sys}\regsvr32.exe'), '/s "' + ExpandConstant('{app}\versions\') + Trim(String(OldVersion)) + '\CallayersCamera.dll"', '', SW_HIDE, ewWaitUntilTerminated, Code);
       RaiseException('Could not select the installed version.');
     end;
   end;

@@ -27,6 +27,7 @@ h2 { font-size: 25px; line-height: 1.25; font-weight: 650; letter-spacing: -.8px
 .intro { font-size: 20px; color: var(--muted); max-width: 590px; margin: 28px 0 32px; }
 .button { display: inline-flex; gap: 40px; align-items: center; padding: 14px 24px; background: var(--accent); color: #201d33; font-weight: 650; border: 1px solid transparent; border-radius: 8px; text-decoration: none; }
 .button:hover { background: #bbb4ff; }
+.download-icon { display: block; flex: none; }
 .button:focus-visible, a:focus-visible { outline: 3px solid var(--brand); outline-offset: 5px; }
 .button[hidden] { display: none; }
 .fine { font-size: 12px; color: var(--muted); line-height: 1.7; }
