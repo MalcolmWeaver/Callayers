@@ -5,7 +5,7 @@ Sign in, choose a webcam, create interactive cards, annotate, and show the resul
 ## Read the specs
 
 - [APP.md](APP.md): user experience.
-- [AI.md](AI.md): generation and website tools.
+- [AI.md](AI.md): generation, revision and deferred website ideas.
 - [DATA.md](DATA.md): local saving, state and allowances.
 - [BACKEND.md](BACKEND.md): API and deployment.
 - [FRAMES.md](FRAMES.md): rendering, input and video delivery.
@@ -18,9 +18,9 @@ These define the target product. This is a fresh implementation; v1 is a design 
 
 ### Current position
 
-Updated October 13, 2026. The video foundation, resource investigation, WinUI workspace, remembered webcam, annotations (including text-editing fixes), proportional card scaling and Google sign-in are accepted for their tested builds. Ultralight CPU integration, fixed interactive cards and AI creation are now accepted for their tested builds. GPU composition remains optional and is not implemented. Website tools are next.
+Updated October 13, 2026. The video foundation, resource investigation, WinUI workspace, remembered webcam, annotations (including text-editing fixes), proportional card scaling and Google sign-in are accepted for their tested builds. Ultralight CPU integration, fixed interactive cards and AI creation are now accepted for their tested builds. GPU composition remains optional and is not implemented. Website tools are deferred beyond the MVP.
 
-**Next: step 6, interactive AI cards.** User-run full-app samples show 44.6–46.7% less private memory for the isolated Ultralight CPU workspace, with lower CPU, as recorded in [AI implementation](AI-IMPLEMENTATION.md). Build 1b is accepted, including picture quality, private editing and idle/resume. Build 2 is accepted for its tested executable, including input, positioning, saved values and annotation priority. Build 3 is accepted, including generated-card restoration/cancellation and the deployed styling/configuration follow-up. Next is build 4: website tools. Text-editor memory remains unmeasured. Memory is the priority; GPU rendering is optional and should be selected only if it lowers RAM. Full local interaction and explicit backend website-tool use remain MVP requirements. No completion date is set.
+**Next: step 7, image import and saved library.** User-run full-app samples show 44.6–46.7% less private memory for the isolated Ultralight CPU workspace, with lower CPU, as recorded in [AI implementation](AI-IMPLEMENTATION.md). Build 1b is accepted, including picture quality, private editing and idle/resume. Build 2 is accepted for its tested executable, including input, positioning, saved values and annotation priority. Build 3 is accepted, including generated-card restoration/cancellation and the deployed styling/configuration follow-up. The user accepted the glass styling and pasted-text fallback, and explicitly closed the interactive AI milestone. Next is image import and library management. Text-editor memory remains unmeasured. Memory is the priority; GPU rendering is optional and should be selected only if it lowers RAM. Full local interaction remains an MVP requirement; website reading is no longer required. No completion date is set.
 
 ### Complete MVP sequence
 
@@ -31,15 +31,15 @@ Updated October 13, 2026. The video foundation, resource investigation, WinUI wo
 | 3. Remembered webcam | Reopen the same working device; offer Retry/selection without silently substituting another. | Accepted |
 | 4. Annotations | Pen/shapes/text, selection, resizing, eraser, clear and autosave; editing stays private. | Accepted |
 | 5. Google sign-in | Browser return, remembered session, account validation and sign-out stopping output while retaining local work. | Accepted |
-| 6. Interactive AI cards | Memory-focused HTML rendering/composition, direct HTML interaction, saved state, AI creation, allowances and website tools. Ultralight CPU integration accepted; fixed interactive input/state is accepted. AI creation, generated-card restoration/cancellation and the backend follow-up are accepted. Website tools are next. Architecture and small build steps live in [AI implementation](AI-IMPLEMENTATION.md). | In progress |
+| 6. Interactive AI cards | Memory-focused HTML rendering/composition, direct HTML interaction, saved state, AI creation and allowances. Ultralight CPU integration accepted; fixed interactive input/state is accepted. AI creation, generated-card restoration/cancellation, independent runtime configuration and glass styling are accepted. The user explicitly closed this milestone. Website tools are deferred beyond the MVP. Evidence lives in [AI implementation](AI-IMPLEMENTATION.md). | Done |
 | 7. Image import and saved library | Import images; search, rename, visibility, stacking and confirmed delete. Restore cards, placement and visibility. Basic card/state saving arrives in step 6. | Not started |
 | 8. AI revision and previous version | Revise a selected card, preserve referenced images and keep one previous version. Restore content/name with current placement/visibility and default replacement state. Failed/late responses preserve newer work. See [AI implementation](AI-IMPLEMENTATION.md#revision-in-step-8). | Not started |
-| 9. Telemetry and consumer identity | Requirements remain in DATA.md/BACKEND.md/FRAMES.md. Retained in the roadmap, explicitly deferred beyond the runnable MVP. | Deferred |
+| 9. Telemetry and consumer identity | Requirements remain in DATA.md/BACKEND.md/FRAMES.md. Retained in the roadmap, explicitly deferred beyond the runnable MVP. | Not Started |
 | 10. Runnable MVP release | Installer handles registration/prerequisites/backend address. Confirm Google branding and external-account sign-in on a clean Windows profile. Integrated creation/interaction/Meet/restoration demo. | Not started |
 
-Deliver each step through small improvements with short verification in chat. Website reading is required for step 6 to finish. Lower resource cost is a measured goal, not an assumed GPU benefit. Preserve accepted behavior throughout.
+Deliver each step through small improvements with short verification in chat. Step 6 is complete by explicit user acceptance; proceed to image import and library management. Fix reported regressions in the affected feature without reopening a completed milestone or adding another closing checklist. Lower resource cost is a measured goal, not an assumed GPU benefit. Preserve accepted behavior throughout.
 
-Billing/trials, cloud sync, remote participant interaction and other explicitly excluded features remain outside this MVP.
+Website reading is retained as future work: one public page's text, favicon and styling cues, without page-image or arbitrary-logo downloads. It is not part of the MVP plan; see [AI.md](AI.md#website-reading-deferred-beyond-mvp). Billing/trials, cloud sync, remote participant interaction and other explicitly excluded features also remain outside this MVP.
 
 ### How we build and verify
 

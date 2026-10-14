@@ -11,28 +11,17 @@
 - Keep user-imported images local. Never send webcam frames or other cards.
 - After a successful revision, the desktop keeps one previous version. **Restore previous version** works locally without an AI call; see [APP.md](APP.md#everyday-behavior).
 
-## Use a website
+## Website reading (deferred beyond MVP)
 
-**Website reading is required AI tool use on the backend, not a guess from the URL.** During `/generate`, the model can call a website reader for the supplied page. The tool returns public text, styling cues and requested logo/assets; the model uses those results to summarize or create the card. Website content is source material, never instructions for the tools.
+MVP generation uses the user's prompt and pasted text. It does not retrieve websites or infer page contents from an address; ask for pasted text when a request depends on a website.
 
-- Accept one supplied address: `x.com`, `example.com/about`, or a full HTTPS URL.
-- Read its public text.
-- When requested, use its colors, typography cues, and logo.
-- Approximate the branding; do not promise an exact copy.
-- Embed the logo so the saved card works offline.
-- When requested, include relevant page images as embedded assets. Images, stylesheets and logos count toward the same download limits; do not copy the site's scripts or entire asset library.
-- If the page is unreadable, ask for pasted text or an imported image.
-- If only branding is missing, use the available text and explain the omission.
-- Never invent missing content.
-- No web search, crawling, or logged-in browsing.
+Future work: a backend model tool reads one supplied public page's text, favicon and styling cues. Support bare domains and HTTPS paths/queries, normalize and embed the favicon for offline use, and explain unavailable content or branding. No page photos, illustrations, arbitrary logo downloads, crawling, search or login. Bound downloads/elapsed time and validate DNS, each redirect and resource destination to reject private/local addresses and unsupported schemes. Page content is untrusted source material, never tool instructions. Model/tool exchanges share one generation allowance unit. No reader implementation is part of this MVP.
 
-**The backend can retrieve a website. The finished card cannot access the internet.**
-
-Pasted text and ordinary card generation need no external tool. Web search, document-reading tools, image generation and live-data integrations are outside this MVP. Tool calls within one generation share its allowance unit; they are not separate generations.
+Document-reading tools, image generation and live-data integrations are also outside this MVP.
 
 ## Card quality
 
-- Transparent outer canvas by default, with content grouped on a dark translucent panel around 80% background opacity. Text and controls remain fully opaque; use background alpha rather than whole-card opacity. Avoid backdrop blur and honor explicit visual requests.
+- Fully transparent outer canvas, with a nearly clear glass panel using 10–20% background alpha (default 16%). Use a thin translucent border, faint highlight and restrained shadow; keep text/icons fully opaque and give controls similarly light tinted backgrounds. Avoid opaque headers, solid fills and blur filters. Keep background alpha at or below 25% unless the user explicitly asks for an opaque background.
 - Large, readable text; simple layout; restrained color.
 - Fits its bounds and works offline.
 - Fully interactive local HTML: buttons, inputs, timers, slides, forms and games can respond to the presenter's mouse and keyboard.
@@ -50,18 +39,15 @@ Pasted text and ordinary card generation need no external tool. Web search, docu
 - Validate structured output, size limits, and image IDs. The desktop assigns identity and retains referenced assets; see [DATA.md](DATA.md).
 - Authenticate and reserve allowance first. Repeated request IDs return status only, never another model call or saved output. Use a new ID for a deliberate new generation.
 - A generation may include model/tool exchanges. Do not automatically start a second generation to repair output. Record uncertain outcomes without automatically refunding or reissuing them.
-- Treat prompts, HTML, and website text as untrusted input.
+- Treat prompts, HTML, and pasted text as untrusted input.
 - Enforce browser isolation: no network, external navigation, downloads, arbitrary host access, camera/microphone, or browser storage. Only the validated local state interface is allowed.
-- Add HTTPS to bare domains. Preserve paths/queries and handle surrounding punctuation. Ignore email addresses; ask which URL to use if several are supplied.
-- Fetch inside `/generate`. Limit downloads, redirects, and elapsed time. Check DNS and every resource/redirect destination; reject private/local addresses and unsupported schemes.
-- Return normalized website logos as embedded assets within card limits. Do not upload local image bytes, paths, or credentials.
+- Reject website-dependent prompts before reserving allowance. Do not upload local image bytes, paths, or credentials.
 
 ## Verify
 
 - Name tag, agenda, countdown, and image caption.
 - Revision preserves images; failure or late results never overwrite newer work.
 - A lost response cannot be recovered; repeated IDs do not regenerate or consume another allowance unit. Explicit new generation does.
-- Bare/full URLs, paths, queries, and trailing punctuation.
-- Blocked pages, missing branding, and unsafe redirects.
-- Saved cards and logos render offline; animation meets [FRAMES.md](FRAMES.md).
+- Website-dependent prompts ask for pasted text and do not use allowance.
+- Saved cards render offline; animation meets [FRAMES.md](FRAMES.md).
 - Buttons and keyboard input work after resizing; saved values survive hiding and reopening.

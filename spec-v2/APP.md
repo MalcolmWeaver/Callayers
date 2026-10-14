@@ -11,7 +11,7 @@ Callayers lets people put cards and annotations over their webcam. Keep the [ref
 
 There is no setup wizard or saved setup progress. If the camera disconnects later, preserve the user's work and offer reconnection.
 
-AI prompts can include a website address, with or without `https://`, to use its text and basic branding. See [AI.md](AI.md).
+AI creation uses your prompt and pasted text. Website reading is deferred beyond the MVP; paste the relevant page text instead. See [AI.md](AI.md).
 
 ## Sign in
 
@@ -82,7 +82,7 @@ AI cards get descriptive names; imported images use their filename. Users can re
 
 ## Out of scope
 
-Saved-card import/export, migration from the old app, choosing save locations, Save/Save as, recovery screens, cloud card sync, multiple scenes, recording, audio, zoom, open-ended web search, site crawling, billing, admin screens, background replacement, and remote participant interaction. Local interactive games/forms, image import and animation are supported. Save meaningful card values, not the JavaScript runtime.
+Saved-card import/export, migration from the old app, choosing save locations, Save/Save as, recovery screens, cloud card sync, multiple scenes, recording, audio, zoom, website reading, open-ended web search, site crawling, billing, admin screens, background replacement, and remote participant interaction. Local interactive games/forms, image import and animation are supported. Save meaningful card values, not the JavaScript runtime.
 
 ## Implementation details
 
