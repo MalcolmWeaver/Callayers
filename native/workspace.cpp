@@ -138,6 +138,10 @@ struct Workspace::Impl {
 #ifdef CALLAYERS_LIBRARY
     struct LibraryItem {std::wstring id,name;bool previous=false;unsigned long long edited=0;};
     std::vector<LibraryItem> library;
+    // Keep projected editor controls alive for the lifetime of their rows.
+    // Event handlers use weak references to avoid cycles through the visual tree.
+    std::vector<controls::TextBox> libraryRenameFields;
+    std::vector<controls::TextBlock> libraryNameLabels;
     std::wstring selectedId,editingId,submittedTarget,submittedPrompt,requestName;
     controls::TextBlock composerTitle{nullptr},composerDescription{nullptr};
     controls::ProgressRing composerProgress{nullptr};
@@ -460,7 +464,7 @@ void Workspace::generatedCards(const std::vector<std::pair<std::wstring,bool>>& 
 void Workspace::libraryCards(const std::vector<GeneratedCard>& cards,int selected){auto& ui=*impl_;
     bool rebuild=cards.size()!=ui.library.size();if(!rebuild)for(size_t i=0;i<cards.size();++i)rebuild|=cards[i].id!=ui.library[i].id || cards[i].name!=ui.library[i].name || cards[i].previous.has_value()!=ui.library[i].previous || cards[i].edited!=ui.library[i].edited;
     ui.syncing=true;
-    if(rebuild){ui.generatedPanel.Children().Clear();ui.library.clear();ui.generatedRows.clear();ui.generatedChecks.clear();
+    if(rebuild){ui.generatedPanel.Children().Clear();ui.library.clear();ui.generatedRows.clear();ui.generatedChecks.clear();ui.libraryRenameFields.clear();ui.libraryNameLabels.clear();
         for(size_t i=0;i<cards.size();++i){const auto& card=cards[i];ui.library.push_back({card.id,card.name,card.previous.has_value(),card.edited});
             controls::Border row;row.CornerRadius(ux::CornerRadius{6});row.Padding(ux::Thickness{4,2,4,2});controls::Grid grid;
             controls::ColumnDefinition checkColumn;checkColumn.Width(ux::GridLength{36,ux::GridUnitType::Pixel});grid.ColumnDefinitions().Append(checkColumn);
@@ -468,19 +472,43 @@ void Workspace::libraryCards(const std::vector<GeneratedCard>& cards,int selecte
             controls::ColumnDefinition menuColumn;menuColumn.Width(ux::GridLength{32,ux::GridUnitType::Pixel});grid.ColumnDefinitions().Append(menuColumn);
             controls::CheckBox check;check.MinWidth(32);check.Width(32);check.IsChecked(card.visible);ux::Automation::AutomationProperties::SetName(check,L"Show "+card.name);grid.Children().Append(check);
             controls::ContentControl nameTarget;nameTarget.IsTabStop(true);nameTarget.HorizontalContentAlignment(ux::HorizontalAlignment::Stretch);nameTarget.Background(ux::Media::SolidColorBrush(winrt::Windows::UI::Color{0,0,0,0}));controls::Grid::SetColumn(nameTarget,1);grid.Children().Append(nameTarget);
-            controls::Grid titleArea;nameTarget.Content(titleArea);controls::TextBlock label;label.Text(card.name);label.TextTrimming(ux::TextTrimming::CharacterEllipsis);label.TextWrapping(ux::TextWrapping::NoWrap);label.Padding(ux::Thickness{6,8,6,8});label.VerticalAlignment(ux::VerticalAlignment::Center);titleArea.Children().Append(label);
+            controls::Grid titleArea;titleArea.Background(ux::Media::SolidColorBrush(winrt::Windows::UI::Color{0,0,0,0}));nameTarget.Content(titleArea);controls::TextBlock label;label.Text(card.name);label.TextTrimming(ux::TextTrimming::CharacterEllipsis);label.TextWrapping(ux::TextWrapping::NoWrap);label.Padding(ux::Thickness{6,8,6,8});label.VerticalAlignment(ux::VerticalAlignment::Center);titleArea.Children().Append(label);
             controls::ToolTipService::SetToolTip(nameTarget,winrt::box_value(card.name+L"\nDouble-click to rename"));ux::Automation::AutomationProperties::SetName(nameTarget,L"Select "+card.name);
             controls::TextBox rename;rename.Text(card.name);rename.MaxLength(80);rename.MinWidth(0);rename.Padding(ux::Thickness{4});rename.Visibility(ux::Visibility::Collapsed);ux::Automation::AutomationProperties::SetName(rename,L"Card name");titleArea.Children().Append(rename);
-            auto renaming=std::make_shared<bool>(false);auto weakRename=winrt::make_weak(rename);auto weakLabel=winrt::make_weak(label);auto id=card.id;
-            auto finishRename=[&ui,weakRename,weakLabel,renaming,id](bool save){if(!*renaming)return;*renaming=false;auto field=weakRename.get();auto text=weakLabel.get();if(!field || !text)return;auto value=std::wstring(field.Text());field.Visibility(ux::Visibility::Collapsed);text.Visibility(ux::Visibility::Visible);if(save && !ui.syncing && value!=std::wstring(text.Text()))ui.actions.renameCard(id,value);};
-            auto beginRename=[&ui,weakRename,weakLabel,renaming,id]{auto field=weakRename.get();auto text=weakLabel.get();if(!field || !text || *renaming)return;for(size_t j=0;j<ui.library.size();++j)if(ui.library[j].id==id){ui.actions.selectCard(int(j));break;}*renaming=true;field.Text(text.Text());text.Visibility(ux::Visibility::Collapsed);field.Visibility(ux::Visibility::Visible);field.Focus(ux::FocusState::Programmatic);field.SelectAll();};
+            ui.libraryRenameFields.push_back(rename);ui.libraryNameLabels.push_back(label);
+            auto renaming=std::make_shared<bool>(false);auto renameFocused=std::make_shared<bool>(false);auto weakRename=winrt::make_weak(rename);auto weakLabel=winrt::make_weak(label);auto id=card.id;
+            auto finishRename=[&ui,weakRename,weakLabel,renaming,renameFocused,id](bool save){if(!*renaming)return;*renaming=false;*renameFocused=false;Resources().event(save?"card_rename_finished_save":"card_rename_finished_cancel");auto field=weakRename.get();auto text=weakLabel.get();if(!field || !text)return;auto value=std::wstring(field.Text());field.Visibility(ux::Visibility::Collapsed);text.Visibility(ux::Visibility::Visible);if(save && !ui.syncing && value!=std::wstring(text.Text()))ui.actions.renameCard(id,value);};
+            auto weakLifetime=std::weak_ptr<int>(ui.lifetime);
+            auto beginRename=[&ui,weakLifetime,weakRename,weakLabel,renaming,renameFocused,id]{
+                if(weakLifetime.expired())return;
+                Resources().event("card_rename_requested");
+                // Let routed input finish before taking focus; otherwise its default
+                // focus handling can immediately dismiss the newly opened editor.
+                bool queued=ui.sidebar.DispatcherQueue().TryEnqueue([&ui,weakLifetime,weakRename,weakLabel,renaming,renameFocused,id]{
+                    if(weakLifetime.expired() || *renaming)return;
+                    for(size_t j=0;j<ui.library.size();++j)if(ui.library[j].id==id){ui.actions.selectCard(int(j));break;}
+                    auto field=weakRename.get();auto text=weakLabel.get();if(!field || !text){Resources().event("card_rename_controls_unavailable");return;}
+                    field.Text(text.Text());*renaming=true;*renameFocused=false;
+                    text.Visibility(ux::Visibility::Collapsed);field.Visibility(ux::Visibility::Visible);
+                    field.UpdateLayout();bool focused=field.Focus(ux::FocusState::Programmatic);field.SelectAll();
+                    Resources().event(focused?"card_rename_opened_focused":"card_rename_opened_without_focus");
+                });
+                if(!queued)Resources().event("card_rename_dispatch_failed");
+            };
             nameTarget.Tapped([&ui,id,renaming](auto&&,ux::Input::TappedRoutedEventArgs const& args){if(*renaming)return;for(size_t j=0;j<ui.library.size();++j)if(ui.library[j].id==id){ui.actions.selectCard(int(j));break;}args.Handled(true);});
-            titleArea.DoubleTapped([beginRename,renaming](auto&&,ux::Input::DoubleTappedRoutedEventArgs const& args){if(!*renaming){beginRename();args.Handled(true);}});
+            nameTarget.IsDoubleTapEnabled(true);nameTarget.DoubleTapped([beginRename,renaming](auto&&,ux::Input::DoubleTappedRoutedEventArgs const& args){Resources().event("card_rename_double_tapped");if(!*renaming){beginRename();args.Handled(true);}});
             nameTarget.KeyDown([&ui,id,beginRename,renaming](auto&&,ux::Input::KeyRoutedEventArgs const& args){if(*renaming)return;if(args.Key()==winrt::Windows::System::VirtualKey::F2){beginRename();args.Handled(true);}else if(args.Key()==winrt::Windows::System::VirtualKey::Enter || args.Key()==winrt::Windows::System::VirtualKey::Space){ui.openEdit(id);args.Handled(true);}});
-            rename.KeyDown([finishRename](auto&&,ux::Input::KeyRoutedEventArgs const& args){if(args.Key()==winrt::Windows::System::VirtualKey::Enter || args.Key()==winrt::Windows::System::VirtualKey::Escape){finishRename(args.Key()==winrt::Windows::System::VirtualKey::Enter);args.Handled(true);}});rename.LostFocus([finishRename](auto&&,auto&&){finishRename(true);});
+            rename.KeyDown([finishRename](auto&&,ux::Input::KeyRoutedEventArgs const& args){if(args.Key()==winrt::Windows::System::VirtualKey::Enter || args.Key()==winrt::Windows::System::VirtualKey::Escape){finishRename(args.Key()==winrt::Windows::System::VirtualKey::Enter);args.Handled(true);}});
+            rename.GotFocus([renaming,renameFocused](auto&&,auto&&){if(*renaming)*renameFocused=true;});
+            rename.LostFocus([finishRename,renameFocused](auto&&,auto&&){if(*renameFocused)finishRename(true);});
             controls::Button menu;menu.Content(winrt::box_value(L"⋯"));menu.Padding(ux::Thickness{4});menu.Background(ux::Media::SolidColorBrush(winrt::Windows::UI::Color{0,0,0,0}));menu.BorderThickness(ux::Thickness{0});controls::Grid::SetColumn(menu,2);ux::Automation::AutomationProperties::SetName(menu,L"Actions for "+card.name);grid.Children().Append(menu);controls::MenuFlyout flyout;
             auto item=[&](const wchar_t* text,std::function<void()> action){controls::MenuFlyoutItem entry;entry.Text(text);entry.Click([action](auto&&,auto&&){action();});flyout.Items().Append(entry);};
-            item(L"Edit",[&ui,id]{ui.openEdit(id);});item(L"Rename",beginRename);
+            item(L"Edit",[&ui,id]{ui.openEdit(id);});
+            auto renameAfterClose=std::make_shared<bool>(false);
+            item(L"Rename",[renameAfterClose]{Resources().event("card_rename_menu_clicked");*renameAfterClose=true;});
+            // The flyout restores focus to its button as it closes. Open the
+            // editor only afterwards so that restoration cannot commit it.
+            flyout.Closed([beginRename,renameAfterClose](auto&&,auto&&){if(*renameAfterClose){*renameAfterClose=false;beginRename();}});
             item(L"Bring to front",[&ui,id]{ui.actions.stackCard(id,true);});item(L"Send to back",[&ui,id]{ui.actions.stackCard(id,false);});
             if(card.previous)item(L"Restore previous version",[&ui,id]{ui.actions.restoreCard(id);});flyout.Items().Append(controls::MenuFlyoutSeparator());item(L"Delete",[&ui,id]{ui.actions.deleteCard(id);});menu.Flyout(flyout);
             check.Click([&ui,id](auto&& sender,auto&&){if(ui.syncing)return;for(size_t j=0;j<ui.library.size();++j)if(ui.library[j].id==id){ui.actions.visibility(int(j),sender.template as<controls::CheckBox>().IsChecked().GetBoolean());return;}});
