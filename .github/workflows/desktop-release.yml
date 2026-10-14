@@ -1,0 +1,64 @@
+name: Publish desktop tester release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'New numeric version, e.g. 0.3.0 (never reuse a published version)'
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: desktop-tester-release
+  cancel-in-progress: false
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-2022
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate version and build
+        shell: pwsh
+        run: ./scripts/build.ps1 -ReleaseBuild -Version $env:VERSION -ServiceUrl 'https://callayers-v2-api-3fj7uh2a7a-uc.a.run.app'
+      - name: Test
+        shell: pwsh
+        run: |
+          ctest --test-dir "build/release-$env:VERSION-x64" -C Release --output-on-failure
+          if($LASTEXITCODE -ne 0){throw 'Desktop tests failed.'}
+          ./tests/release-update-test.ps1
+      - name: Package and authenticate release
+        shell: pwsh
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          if(-not $env:UPDATE_SIGNING_KEY){throw 'Configure UPDATE_SIGNING_KEY first.'}
+          $directory=Join-Path $env:RUNNER_TEMP 'callayers-release-key'
+          [IO.Directory]::CreateDirectory($directory)|Out-Null
+          $privatePath=Join-Path $directory 'private.json'
+          $publicPath=Join-Path $directory 'public.json'
+          try {
+            [IO.File]::WriteAllText($privatePath,$env:UPDATE_SIGNING_KEY)
+            $key=$env:UPDATE_SIGNING_KEY|ConvertFrom-Json
+            [IO.File]::WriteAllText($publicPath,(@{Modulus=$key.Modulus;Exponent=$key.Exponent}|ConvertTo-Json -Compress))
+            ./scripts/package-desktop.ps1 -Version $env:VERSION -PublicKeyFile $publicPath
+            ./scripts/sign-desktop-release.ps1 -Version $env:VERSION -Installer "build/installers/$env:VERSION/CallayersSetup-$env:VERSION.exe" -PrivateKeyFile $privatePath
+          } finally {
+            if(Test-Path -LiteralPath $privatePath){Remove-Item -LiteralPath $privatePath -Force}
+            $env:UPDATE_SIGNING_KEY=''
+          }
+      - name: Keep installer as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: callayers-${{ inputs.version }}-x64
+          path: build/installers/${{ inputs.version }}/
+      - name: Upload installer, then publish update feed
+        shell: pwsh
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: node scripts/publish-desktop.mjs $env:VERSION
