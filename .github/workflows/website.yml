@@ -1,4 +1,4 @@
-name: Website
+name: Website — Build and deploy
 on:
   pull_request:
     paths: ['website/**', 'spec-v2/assets/callayers-mark.svg', '.github/workflows/website.yml']

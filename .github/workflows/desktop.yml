@@ -1,4 +1,4 @@
-name: Desktop
+name: Windows app — Build and test
 on:
   pull_request:
     paths: ['native/**', 'web/**', 'tests/**', 'release/**', 'scripts/**', 'CMakeLists.txt', '.github/workflows/desktop.yml']

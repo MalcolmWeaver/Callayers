@@ -1,4 +1,4 @@
-name: Clean up desktop releases
+name: Windows app — Clean up old downloads
 on:
   schedule:
     - cron: '43 6 * * *'
