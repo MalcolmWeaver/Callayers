@@ -159,3 +159,38 @@ test('Google errors and incomplete listings fail closed', async () => {
     await assert.rejects(store.listInstallers());
   }
 });
+
+test('GCS uploads store cache policy and use generation preconditions', async () => {
+  const calls = [];
+  const store = createReleaseStore({token: 'test-token', fetchImpl: async (url, options) => {
+    calls.push({url: new URL(url), options});
+    if (options.method === 'POST') return Response.json({generation: '456'});
+    return new Response(null, {status: 404});
+  }});
+  await store.readJson(RETENTION_KEY);
+  const state = {schema: 1, latestVersion: '0.3.0', previousVersion: null, retired: []};
+  await store.writeRetention(state);
+  assert.equal(calls[1].url.searchParams.get('ifGenerationMatch'), '0');
+  assert.equal(calls[1].url.searchParams.get('uploadType'), 'multipart');
+  const body = calls[1].options.body.toString('utf8');
+  assert(body.includes('"cacheControl":"no-store"'));
+  assert(body.includes('"contentType":"application/json"'));
+  assert(body.includes(JSON.stringify(state)));
+  await store.writeRetention(state);
+  assert.equal(calls[2].url.searchParams.get('ifGenerationMatch'), '456');
+  await store.writeObject(installerKey('0.3.0'), Buffer.from('fixture'), 'application/octet-stream', 'immutable', {createOnly: true});
+  assert.equal(calls[3].url.searchParams.get('ifGenerationMatch'), '0');
+});
+
+test('GCS reads pin an object generation and fail if a concurrent write wins', async () => {
+  const calls = [];
+  const store = createReleaseStore({token: 'test-token', fetchImpl: async (url, options) => {
+    calls.push({url: new URL(url), options});
+    if (options.method === 'POST') return new Response(null, {status: 412});
+    if (new URL(url).searchParams.get('alt') === 'media') return Response.json({fixture: true});
+    return Response.json({generation: '123'});
+  }});
+  assert.deepEqual(await store.readJson('tester/latest.json'), {fixture: true});
+  assert.equal(calls[1].url.searchParams.get('generation'), '123');
+  await assert.rejects(store.writeObject('tester/latest.json', '{}', 'application/json', 'no-store'), /412/);
+});

@@ -20,6 +20,7 @@ jobs:
         with:
           node-version: '22'
       - run: node website/build.mjs
+      - run: node --test tests/website-release-test.mjs
       - name: Deploy main to Cloudflare Pages
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         uses: cloudflare/wrangler-action@v4
