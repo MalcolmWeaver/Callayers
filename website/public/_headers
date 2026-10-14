@@ -2,4 +2,9 @@
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   X-Frame-Options: DENY
-  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; connect-src 'self' https://downloads.callayers.com; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self'
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://us-assets.i.posthog.com https://eu-assets.i.posthog.com; style-src 'self'; font-src 'self'; connect-src 'self' https://downloads.callayers.com https://callayers-v2-api-3fj7uh2a7a-uc.a.run.app https://us.i.posthog.com https://eu.i.posthog.com https://us-assets.i.posthog.com https://eu-assets.i.posthog.com; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'none'
+
+/signed-in*
+  Cache-Control: no-store
+  Referrer-Policy: no-referrer
+  X-Robots-Tag: noindex
