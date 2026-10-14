@@ -63,12 +63,13 @@ Include account ID, card ID where applicable, timestamp, and app version. These 
 
 ## Configuration and secrets
 
-`/client-config` supplies the public desktop OAuth client ID and Firebase configuration. Store the Firebase session securely in Windows; clear it on sign-out. The callback page is local and temporary, so no hosted login origin is needed. Backend provider secrets never ship in the app.
+`/client-config` supplies the public installed-app OAuth configuration and Firebase configuration. The verified Google desktop exchange requires its installed-app client secret; Google treats that value as public client configuration, since installed clients cannot keep a shared secret confidential. It is distinct from server provider credentials. Store the Firebase session securely in Windows; clear it on sign-out. The callback page is local and temporary, so no hosted login origin is needed. Backend provider secrets never ship in the app.
 
 | Where | Settings |
 | --- | --- |
 | Desktop | Backend address: `SERVICE_URL` |
 | Backend public configuration | `GOOGLE_CLOUD_PROJECT`, `GOOGLE_DESKTOP_CLIENT_ID`, `FIREBASE_WEB_API_KEY`, `POSTHOG_HOST` |
+| Installed-app configuration | Downloaded desktop OAuth JSON, stored as `callayers-v2-desktop-oauth` in Secret Manager; `/client-config` returns its installed client ID/secret |
 | Backend behavior | `AI_MODEL`, `MAX_INPUT_BYTES`, `MAX_OUTPUT_TOKENS`, `USER_DAILY_GENERATIONS` |
 | Secret Manager | `OPENAI_API_KEY`, `POSTHOG_PROJECT_TOKEN` |
 
