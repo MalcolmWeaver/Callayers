@@ -43,7 +43,7 @@ Use `.\scripts\measure-resources.ps1 -UltralightBuild -Scenario MinimizedMeet` f
 
 ### Fixed interactive card (build 2)
 
-Build with `.\scripts\build.ps1 -InteractiveBuild` and launch `.\build\interactive-workspace-x64\Release\Callayers.exe` after closing other Callayers instances. The accepted 1b and older workspace executables remain available. It uses the existing camera registration and service URL. Automated checks: `ctest --test-dir build/interactive-workspace-x64 -C Release --output-on-failure`. Runtime verification is pending.
+Build with `.\scripts\build.ps1 -InteractiveBuild` and launch `.\build\interactive-workspace-x64\Release\Callayers.exe` after closing other Callayers instances. The accepted 1b and older workspace executables remain available. It uses the existing camera registration and service URL. Automated checks: `ctest --test-dir build/interactive-workspace-x64 -C Release --output-on-failure`. The user accepted all four build 2 runtime checks on October 13, 2026. Tested executable SHA256: `21DA5307AFC1FD683AB4E75EF54C9C35CC615C11FA1E445CFFB1C0BAC501F526`.
 
 The first sample card has a name input, score buttons and a start/pause/reset timer. Select mode routes interior clicks, keyboard input and scrolling to the live HTML; borders move and four corners scale without reloading. Annotation tools and private handles take priority. Pointer targeting follows front-to-back order and stays with the original card until release; clicking other controls releases keyboard focus. Card controls are visible in outgoing video; native editing handles stay private.
 
