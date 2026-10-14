@@ -2,6 +2,8 @@
 
 Step 10 implementation uses an unsigned per-user Inno installer, versioned app directories, Windows PowerShell 5.1 for a short-lived updater, and RSA/SHA-256 authenticated release manifests. Windows publisher signing is separate. The updater checks at app startup, stages a newer release, and applies it after normal app exit or before the next launch. Calls and calling apps holding the camera DLL defer installation. Saved cards and annotations remain in their existing local store.
 
+File → About Callayers shows the running build's version and one update button. Installed releases support Check for updates, checking/downloading status, and Restart to update after an authenticated download is ready. Restart asks users to close calling apps holding the camera first, then saves through the normal quit path, applies the update, and reopens Callayers. Development builds show their version with updates disabled.
+
 ## Local build
 
 Generate the update signing identity once with `./scripts/new-update-key.ps1`. Keep `.local/release-keys/private.json` private, back it up, and reuse it for every tester release. Its matching public key is embedded by packaging. Never regenerate a key just to publish the next version.

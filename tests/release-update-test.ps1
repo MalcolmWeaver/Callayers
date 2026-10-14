@@ -64,6 +64,36 @@ try{
  $state=[IO.File]::ReadAllText((Join-Path $root 'update-status.json'))|ConvertFrom-Json
  Assert ($state.state -eq 'deferred') 'real updater rejects modified staged file'
  Assert ((Get-CurrentRelease $root) -eq '0.3.0') 'rejected update preserves current version'
+ # Run the real Stage mode with deterministic transport in the isolated fixture.
+ # Assert that each network operation exposes its matching user-visible state.
+ $source=Join-Path $root 'installer-fixture.exe';[IO.File]::WriteAllText($source,'new authenticated fixture; never executed')
+ $payload.size=(Get-Item $source).Length;$payload.sha256=(Get-FileHash $source).Hash.ToLowerInvariant()
+ [IO.File]::WriteAllText((Join-Path $root 'feed-fixture.json'),(Envelope $payload))
+ Add-Content -LiteralPath (Join-Path $root 'update-common.ps1') -Value @'
+function Receive-UpdateFile([string]$Url,[string]$Destination,[long]$Maximum) {
+ $status=Get-Content (Join-Path $PSScriptRoot 'update-status.json') -Raw|ConvertFrom-Json
+ if($Url.EndsWith('/tester/latest.json')) {
+  if($status.state -ne 'checking'){throw 'Missing checking state'}
+  Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'feed-fixture.json') -Destination $Destination -Force
+ } else {
+  if($status.state -ne 'downloading'){throw 'Missing downloading state'}
+  Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'installer-fixture.exe') -Destination $Destination -Force
+ }
+}
+'@
+ & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'update.ps1') -Mode Stage
+ $state=Get-Content (Join-Path $root 'update-status.json') -Raw|ConvertFrom-Json
+ Assert ($state.state -eq 'ready' -and $state.version -eq '0.3.1') 'manual check downloads authenticated update and reports ready'
+ $pending=Get-VerifiedRelease (Get-Content (Join-Path $root 'updates/pending.json') -Raw) $key
+ Assert (Test-ReleaseFile $staged $pending) 'ready status follows validated staged installer'
+ [IO.File]::WriteAllText((Join-Path $root 'current-version.txt'),'0.3.1')
+ & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'update.ps1') -Mode Stage
+ $state=Get-Content (Join-Path $root 'update-status.json') -Raw|ConvertFrom-Json
+ Assert ($state.state -eq 'current') 'manual check reports up to date'
+ [IO.File]::WriteAllText((Join-Path $root 'feed-fixture.json'),'invalid feed')
+ & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'update.ps1') -Mode Stage
+ $state=Get-Content (Join-Path $root 'update-status.json') -Raw|ConvertFrom-Json
+ Assert ($state.state -eq 'deferred') 'failed manual check reports retryable failure'
  Write-Host "$count release/update checks passed."
 }finally{
  $rsa.Dispose()

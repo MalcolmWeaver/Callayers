@@ -6,7 +6,12 @@ $updates = Join-Path $root 'updates'
 $lock = $null; $ownsLock = $false; $launchAllowed = $true
 
 function Write-UpdateStatus([string]$State, [string]$Version = '') {
-    try { [IO.File]::WriteAllText((Join-Path $root 'update-status.json'), (@{state=$State;version=$Version;at=[DateTimeOffset]::UtcNow.ToString('o')} | ConvertTo-Json -Compress)) } catch { }
+    try {
+        $statusFile = Join-Path $root 'update-status.json'
+        $temporary = $statusFile + '.' + $PID + '.tmp'
+        [IO.File]::WriteAllText($temporary, (@{state=$State;version=$Version;at=[DateTimeOffset]::UtcNow.ToString('o')} | ConvertTo-Json -Compress))
+        Move-Item -LiteralPath $temporary -Destination $statusFile -Force
+    } catch { }
 }
 
 function Test-AppIdle {
@@ -35,6 +40,7 @@ try {
         $key = [IO.File]::ReadAllText((Join-Path $root 'update-public-key.json')) | ConvertFrom-Json
         $pending = Join-Path $updates 'pending.json'
         if ($Mode -eq 'Stage') {
+            Write-UpdateStatus 'checking'
             [IO.Directory]::CreateDirectory($updates) | Out-Null
             $feed = Join-Path $updates 'feed.part'
             Receive-UpdateFile ($script:ReleaseDownloadBase + '/tester/latest.json') $feed 65536
@@ -45,6 +51,7 @@ try {
                 [IO.Directory]::CreateDirectory($directory) | Out-Null
                 $installer = Join-Path $directory 'setup.exe'
                 if (-not (Test-ReleaseFile $installer $release)) {
+                    Write-UpdateStatus 'downloading' $release.version
                     $partial = $installer + '.part'
                     Receive-UpdateFile $release.url $partial $release.size
                     if (-not (Test-ReleaseFile $partial $release)) { throw 'Downloaded update rejected.' }
