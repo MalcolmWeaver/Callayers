@@ -10,8 +10,10 @@ $identity='callayers-release-ci@callayers.iam.gserviceaccount.com'
 $pool='callayers-github';$provider='callayers-main'
 if($ConfigureCi){
     # Do not run or change the separately approved backend identity setup implicitly.
-    Cloud @('iam','workload-identity-pools','providers','describe',$provider,"--workload-identity-pool=$pool",'--location=global','--format=value(name)')|Out-Null
     $repoInfo=Invoke-RestMethod 'https://api.github.com/repos/MalcolmWeaver/Callayers'
+    $providerInfo=(Cloud @('iam','workload-identity-pools','providers','describe',$provider,"--workload-identity-pool=$pool",'--location=global','--format=json'))|ConvertFrom-Json
+    $expectedCondition="assertion.repository_id=='$($repoInfo.id)' && assertion.repository_owner_id=='$($repoInfo.owner.id)' && assertion.ref=='refs/heads/main'"
+    if($providerInfo.attributeCondition -cne $expectedCondition -or $providerInfo.oidc.issuerUri -cne 'https://token.actions.githubusercontent.com'){throw 'Existing Google provider is not restricted to this repository/main as expected. No release permissions granted.'}
 }
 $token=(Cloud @('auth','print-access-token')).Trim()
 $headers=@{Authorization="Bearer $token"}
