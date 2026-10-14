@@ -1,130 +1,55 @@
-# Callayers development workspace
+# Callayers
 
-Fresh Windows x64 implementation of [the v2 specs](spec-v2/README.md). The video foundation and WinUI workspace are accepted by the user. The first verification setup is **USB Camera → Callayers → Google Meet in Brave**.
+Windows app that combines webcam video with interactive cards and annotations, then exposes the result as a virtual camera for video calls.
 
-The [consolidated delivery plan](spec-v2/README.md#consolidated-plan--session-handoff) is the only source of delivery order and status. Follow its current phase; this README describes the existing build, not the target architecture.
+## Code overview
 
-## Build and open
+Video flow: **webcam → Media Foundation capture → CPU composition → native preview + DirectShow virtual camera**. Ultralight renders cards and annotations; editing controls stay private to the app.
 
-Requires Windows 10/11 x64, Visual Studio C++ Build Tools with the Windows SDK, CMake 3.24 or newer and Windows App Runtime 1.6. Acquire the pinned Ultralight SDK once with `scripts/build-renderer-test.ps1`. All current app builds use Ultralight for cards and the private text editor; no WebView2 Runtime or loader is required. The build script obtains the pinned Windows App SDK package and WebView2 **type metadata only**, because WinUI describes its unused browser control. This compile-time reference does not install, package or start a browser. Windows App Runtime installation remains a separate prerequisite.
+| Location | Purpose |
+| --- | --- |
+| `native/app.cpp`, `native/workspace.*` | Application coordination and WinUI 3 interface |
+| `native/capture.*`, `native/overlay_ultralight.*` | Webcam capture and HTML rendering |
+| `native/frame_bridge.h`, `native/camera_filter.cpp` | Shared video frames and virtual camera |
+| Other `native/` modules | Authentication, saved cards, AI requests, annotations and private text editing |
+| `web/` | Card overlay and text-editor HTML/CSS |
+| `backend-v2/` | Node.js API for authentication, AI creation/editing and telemetry |
+| `scripts/`, `tests/`, `renderer-test/` | Build/deployment helpers and automated checks |
+| `release/`, `website/` | Installer/updates and public website |
+| `spec-v2/` | Specifications and delivery plan |
+
+## Development setup
+
+Use Windows 10/11 x64, 64-bit PowerShell, Visual Studio Build Tools with **Desktop development with C++** and the Windows SDK, CMake 3.24+, and Windows App Runtime 1.6. The build script downloads the pinned SDK dependencies, including Ultralight.
+
+From the repository root, build all app features into the stable `build/dev-x64` folder:
 
 ```powershell
-./scripts/build.ps1
+.\scripts\build.ps1 -DevelopmentBuild -ServiceUrl 'https://callayers-v2-api-3fj7uh2a7a-uc.a.run.app'
 ```
 
-Double-click **Start Callayers.cmd**. It registers the new DirectShow camera for the current Windows user and opens the development app. No administrator prompt is intended. Restart Brave after the first registration if its camera list was already open. Choose **Callayers** in Meet. Registration/launch are preparation for user verification, not proof of compatibility.
+Development builds run directly; installer and automatic-update tooling are covered in the release guide. `-ServiceUrl` writes the backend address beside the executable; replace it when using another deployment. Sign-in requires backend access. See [backend setup](backend-v2/README.md) for API configuration and development (Node.js 22).
 
-This is a development harness with fixed cards, a five-minute timer, an animated card, annotations, visibility toggles, and proportional whole-card scaling. Choose a webcam explicitly on first use. After a fresh picture, its device identity and display name are remembered for this Windows user; later launches reopen that identity automatically. The preview area shows “Opening your webcam…” without camera selection while connecting; selection and Retry appear if the camera is missing, reports an error, or no picture arrives within 15 seconds. The user accepted remembered-webcam verification on October 13, 2026. Missing choices stay visible and Retry never substitutes another webcam. Annotations save automatically; sample-card changes remain temporary. Google sign-in, remembered encrypted sessions, account access checks and sign-out output gating are implemented in the workspace build. The separate v2 backend is deployed, its public endpoints and rejection of missing/invalid credentials are checked, and the workspace desktop address is configured. The user accepted all three integrated sign-in checks on October 13, 2026: sign-in/return to webcam, remembered session/annotations after restart, and sign-out stopping Meet video while preserving saved annotations. The user confirmed Google Auth Platform Audience is External and publishing is In production; branding/verification status and a new external-user/clean-profile check remain public-release items. AI, the saved-card library and a release installer are later milestones; this development build is not ready for distribution.
-
-The WinUI workspace has a dark header, webcam selector/status, searchable sample-card sidebar, independent card selection/visibility, Hide all, a large native preview, and actionable camera help. Its annotation bar provides Select, Pen, rectangle/ellipse/line/arrow, Text, color swatches, Small/Medium/Large size, whole-object Eraser and confirmed Clear. Select moves and resizes annotations; double-click text to edit and click away to finish. Text editors, selection handles and erase highlights stay private. AI/import controls are disabled pending their planned milestones. The full annotation workflow, including text formatting, the editing outline and immediate newline rendering, was accepted by the user on October 13, 2026.
-
-To preserve the accepted executable during the workspace walkthrough, build and launch the isolated output:
+Close Callayers and fully exit calling apps before registering this build's camera. Run once after building, and again if the build output path changes:
 
 ```powershell
-.\scripts\build.ps1 -WorkspaceBuild
-& .\build\workspace-x64\Release\Callayers.exe
+$camera = (Resolve-Path '.\build\dev-x64\Release\CallayersCamera.dll').Path
+$registration = Start-Process "$env:WINDIR\System32\regsvr32.exe" -ArgumentList @('/s', ('"' + $camera + '"')) -Wait -PassThru -WindowStyle Hidden
+if ($registration.ExitCode -ne 0) { throw 'Camera registration failed.' }
 ```
 
-Close any other Callayers instance before launching. The already registered foundation camera shares the same video bridge; no new registration is necessary on this workspace. For a new PC, first build/register the standard output with `Start Callayers.cmd`. Workspace verification evidence is preserved in Git. Follow [AGENTS.md](AGENTS.md#feature-verification) for verification in the feature-ready chat response. Use `-WorkspaceBuild` with the measurement helper to count the correct executable.
+Launch directly, sign in, select a webcam, then select **Callayers** as the camera in your calling app:
 
-The user performs every runtime check. The foundation and current resource cost have been accepted for the MVP; final evidence is preserved in Git. Follow [the delivery plan](spec-v2/README.md) and [feature verification guidance](AGENTS.md) for the next improvement. Compilation alone does not establish that video, transparency, minimize behavior, DirectShow discovery, or performance work.
+```powershell
+& .\build\dev-x64\Release\Callayers.exe
+```
 
-## Ultralight private text editor (accepted)
+Run automated checks:
 
-Build with `.\scripts\build.ps1 -TextEditorBuild` and launch `.\build\text-editor-x64\Release\Callayers.exe` after closing other Callayers instances. This isolated output includes the accepted library/revision/telemetry features, shares their saved files and service address, and uses the already registered camera. On October 14, 2026, the user explicitly stated "done, verified" after the guided multiline-text/Ctrl+Enter check and accepted the improvement. Ten automated checks passed, including actual Ultralight input, clipboard, undo/redo, Unicode, private-surface separation, cancellation and click-away. Tested executable SHA256: `2E301DB30147091C48CEDEFD0CB28CC7ADE6E38D69F275F8B533CCADEB15B57C`. Earlier accepted executable outputs are preserved.
+```powershell
+ctest --test-dir build/dev-x64 -C Release --output-on-failure
+```
 
-The text editor uses a separate transparent CPU view and nonpersistent session on the existing Ultralight renderer. Windows keyboard/mouse input, text selection, Unicode/emoji, native composition, guarded plain-text clipboard and Ctrl+Y redo are supported. A native child window paints its private surface over the clean preview; it never enters the camera bridge. Escape discards, Ctrl+Enter and click-away finish. Closing destroys the view, timer and paint buffer. No second browser process or browser profile is created. Resource savings during/after editing have not been measured.
+Run one Callayers instance at a time. Close it and any calling app using its camera before rebuilding; a loaded camera DLL can block the build. Keep the registered output folder in place. `Start Callayers.cmd` launches the older default build; use the commands above for full features.
 
-## Isolated Ultralight CPU workspace
-
-Build 1b was accepted by the user on October 13, 2026 for picture quality, private text editing in Meet, minimized calls and idle/resume. Its tested executable remains preserved in `build/ultralight-workspace-x64` (SHA256 `2AB6194E08961397502FCD32E692C6D62FB70EF853E1B15AFCC18647062A5C5E`). Matched full-app samples measured 44.6–46.7% less private memory than the previous CPU workspace; see the implementation plan for the reports.
-
-Build with `.\scripts\build.ps1 -UltralightBuild` and launch `.\build\ultralight-workspace-x64\Release\Callayers.exe` after closing other Callayers instances. The old `workspace-x64` output and its camera registration stay available; no new registration or backend deployment is needed. The build copies the workspace's existing service URL and the pinned Ultralight Free SDK 2.0.0-beta.2 runtime/resources/license.
-
-The overlay uses the same fixed HTML cards and annotation stylesheet. Ultralight renders transparent 720p pixels directly; a bounded three-entry reusable pool hands immutable frames to the existing CPU compositor and DirectShow bridge, with no PNG encoding/decoding. A separate bounded pool supplies private text-editing pictures. Inactive overlay work stops, and finished annotations alone enter outgoing video. The preserved build 1b used a WebView2 private text editor; current sources use the separate Ultralight editor described above. Historical resource samples did not measure text editing. This fixed-content experiment does not establish isolation or compatibility for arbitrary generated cards.
-
-Use `.\scripts\measure-resources.ps1 -UltralightBuild -Scenario MinimizedMeet` for the new executable and `-WorkspaceBuild` for the old one. Keep the webcam, all three sample cards, one annotation and Meet conditions matched. Reports count the desktop and its attributed browser processes. Compare committed private memory and CPU alongside user-observed smoothness; no full-app savings or runtime pass is claimed before user verification. Run `ctest --test-dir build/ultralight-workspace-x64 -C Release --output-on-failure` for automated checks.
-
-## Structure
-
-### MVP telemetry (prepared)
-
-Build with `.\scripts\build.ps1 -TelemetryBuild`. After closing other Callayers instances and fully exiting Brave once, launch `.\scripts\start-telemetry.ps1`; it registers this isolated build's camera DLL against the existing current-user camera identity and opens `build/telemetry-workspace-x64/Release/Callayers.exe`. Earlier accepted executables remain available; their launcher can restore their camera registration. The telemetry build shares the current revision library and existing backend address.
-
-The desktop records authenticated session starts, consuming-app identity, best-effort camera connect/disconnect and fresh-output transitions, card application/removal in preview/output, and saved creation/revision/import/completed-annotation actions. Immutable rendered-card metadata follows the accepted picture through the compatible video bridge; no telemetry network/disk work runs on video/UI threads. There is no telemetry-off setting. Consumer identity is best effort (browser names do not identify sites), and unknown/broker identities never disable video. Counts/timestamps support approximate usage; crashes/outages can lose events.
-
-The backend forwards the exact allowed events to user-selected PostHog Default project 660809; configuration/setup is described in [backend-v2/README.md](backend-v2/README.md#mvp-telemetry). No prompts, card names/content, images, filenames, annotation text, email, device identifiers or webcam footage are collected. The sender has a 128-event in-memory limit, 32-event batches, at most three attempts and five-minute queue expiry. Stable event IDs/timestamps preserve eventual deduplication. `diagnostics/telemetry.jsonl` beside this executable contains only approved event envelopes without account IDs/tokens and delivery status/count/attempt; writes run on the telemetry worker, reset at launch and are bounded to 1 MiB. No runtime acceptance is claimed before user verification.
-
-Prepared desktop SHA256: `F1C7F047EA7654D94283CB2C98A23E81F249CEEC30C4A2E4D8CEABACB11BDDF1`; camera DLL SHA256: `7DD3CF2CD5AD3D0916B4DE50043F5EADED7D420A70FD90A2CED5B8404FB1EC31`. Nine desktop checks and 29 backend checks pass. Backend revision `callayers-v2-api-00014-29l` is deployed; health reports telemetry, generation and revision ready, and unsigned events are rejected. Existing environment variables, secrets, service identity, concurrency, timeout and resource settings were compared and preserved. Setup added only the PostHog host/token binding and access to its named secret. User runtime observations remain pending.
-
-Partial runtime acceptance, October 13, 2026: the user performed the three checks and confirmed cards appeared in Meet. PostHog inspection confirmed two distinct sessions for the same account, preview card application/removal, one image-import event and one newly completed annotation event. Camera telemetry is still pending: Brave had the older `workspace-x64` camera DLL loaded while the desktop and current registration used the telemetry build. Fully restarting Brave is required before repeating the camera check; no code change or new build is needed. These observations do not establish camera telemetry acceptance.
-
-### AI creation (build 3, creation check accepted)
-
-Build with `.\scripts\build.ps1 -GenerationBuild`; the executable is `build/generation-workspace-x64/Release/Callayers.exe`. Accepted builds 1b and 2 remain unchanged. The new desktop has Create with AI, a prompt/Create/Cancel flyout, background authenticated generation, hidden saved-card rows, searching, visibility, positioning/input and bounded persisted card state. Generated cards save atomically in `%LOCALAPPDATA%/Callayers/WorkspaceV2/generated-cards.json`; no prompts or webcam frames enter those records. Cancel closes the local request and discards late results; it does not guarantee a refund of provider work already started. Lost responses never regenerate automatically.
-
-The backend reserves the independently configured per-day allowance transactionally, tracks request ownership/status/24-hour expiry without prompts or outputs, and performs one structured Responses API call with storage disabled. `AI_MODEL` and `USER_DAILY_GENERATIONS` are required runtime configuration when generation is enabled; optional `AI_REASONING_EFFORT` is sent only when set. The separate `backend-v2/src/card-prompt.txt` supplies translucent panel styling and offline/state instructions. Website-dependent prompts are rejected before reservation; website reading is deferred beyond the MVP. Saved HTML uses opaque sandboxed frames and strict CSP; WebCore's file system exposes only its two packaged resource files. The Free SDK has no network interception hook; the actual renderer probe confirms denial of external fetch, synchronous XHR, image/nested-frame loads, browser storage and parent DOM access for the tested fixture. This does not promise protection against every engine defect or a slow script.
-
-The user deployed generation and accepted creation/show/+1/Reset, saved value/visibility/placement restoration after hiding/restarting, and cancellation discarding late results. The current local opacity/configuration update passes 17 synthetic backend tests; the accepted desktop has 7 passing native/script checks and needs no rebuild for this update. Routine `.\scripts\deploy-backend-v2.ps1` publishes code and checks health/access while leaving runtime environment variables, secret bindings, IAM/TTL, service identity and capacity settings alone. Generation provisioning is an explicit `setup-backend-v2.ps1 -GenerationOnly` operation; the existing service already has it. The user also confirmed deployment and verification of these backend/prompt changes; see [backend configuration](backend-v2/README.md).
-
-Glass styling follow-up: `backend-v2/src/card-prompt.txt` now requests 10–20% panel alpha (default 16%), thin highlights/borders, fully opaque text/icons and light control tints. Deploy with `.\scripts\deploy-backend-v2.ps1`; this affects new cards only. The isolated desktop `build/glass-workspace-x64/Release/Callayers.exe` changes the website error to ask for pasted text. The accepted generation executable remains available. Seventeen backend tests and seven isolated desktop checks passed; the user accepted the glass styling and pasted-text fallback and explicitly closed the interactive AI milestone. Tested glass desktop SHA256: `ED2AD01EBFF460DB3ED49F4C5E01F83584628E7C2EE07B5466758FAB755C8AEB`. Next is image import and saved-library management.
-
-Optional resource sampling uses `-GenerationBuild` with the existing measurement helper. Card library capacity in this isolated milestone is bounded to 16 generated cards; rename/delete and wider library management remain step 7.
-
-### Image import (step 7, first build)
-
-Build with `.\scripts\build.ps1 -ImageBuild`; launch `.\build\image-workspace-x64\Release\Callayers.exe` after closing other Callayers instances. Eight automated checks pass. On October 13, 2026, the user explicitly accepted image import, search, preview/Meet behavior, proportional resizing, transparency and saved placement/visibility restoration for executable SHA256 `FA7D3F4CD387BA1B2A74753ABB1D84698E2D7052F0586A6D7A902CC38DBF4D32`. The existing camera registration and service URL are reused.
-
-Import image accepts local PNG, JPEG and BMP files up to 32 MB / 24 million pixels. It preserves alpha and proportions, fits within 1280×720, and reduces detailed images further to bound each saved PNG to 1 MiB. Imported cards start hidden, use the filename, and support existing search, visibility, private border movement/corner resizing and saved placement/visibility. The combined library retains the current 16-card limit; rename, stacking and confirmed delete are the next small improvement.
-
-This isolated build saves the combined AI/image library atomically in `%LOCALAPPDATA%/Callayers/WorkspaceV2/library-cards.json`. On first use, it reads existing `generated-cards.json` as a starting copy. Subsequent image-build saves use the new file; switching back to an earlier executable uses that earlier library. Images are embedded local copies and remain available when the source file moves or disappears. No image upload or backend deployment is needed. Final per-card storage under `Callayers/Cards` remains part of completing step 7.
-### Saved library and Edit (steps 7–8, prepared)
-
-Build with `.\scripts\build.ps1 -RevisionBuild` and launch `.\build\revision-workspace-x64\Release\Callayers.exe` after closing other Callayers instances. Eight desktop checks and 21 backend checks pass. On October 13, 2026 the user confirmed deploying the backend and verified Edit working; sidebar UX and previous-version runtime acceptance remain pending. The first sidebar build was superseded by the inline-rename/shared-chat follow-up requested by the user; its current executable fingerprint is recorded below. The user subsequently deployed the revision API and accepted Edit working.
-
-The sidebar uses consistent checkbox/name/menu rows, double-click inline renaming, a shared bottom chat area for Create/Edit with target descriptions and Send/Cancel, recent-edit sorting independent of stacking, front/back controls, confirmed Delete and Restore previous version. Temporary sample cards are absent. Edit works for generated cards and imported-image layouts, retains the library name, and sends only the selected HTML and local placeholder references. Local image bytes remain on this computer. A validated revision saves atomically before display, retains one previous content/name version with the same local image, and resets interactive state. Restore consumes that version, resets its state, and keeps current placement/visibility. A name/content version guard discards responses for changed or deleted cards; cancellation discards late responses. Stable renderer identities let unrelated card frames keep running through rename, stacking, delete and replacement.
-
-The isolated revision build starts from `library-cards.json` and saves `revision-cards.json` in `%LOCALAPPDATA%/Callayers/WorkspaceV2`. Earlier executables keep their earlier library; final per-card `Callayers/Cards` storage remains a separate step 7 improvement. The original image/AI executables and their saved library are retained. Backend changes extend `/generate` with optional validated `currentCard`, share the existing allowance/reservation logic, and reject image-data uploads or missing image references. `/health` reports `revisionReady` after deployment; no runtime setting, secret, IAM or allowance changes are included.
-### Fixed interactive card (build 2)
-
-Build with `.\scripts\build.ps1 -InteractiveBuild` and launch `.\build\interactive-workspace-x64\Release\Callayers.exe` after closing other Callayers instances. The accepted 1b and older workspace executables remain available. It uses the existing camera registration and service URL. Automated checks: `ctest --test-dir build/interactive-workspace-x64 -C Release --output-on-failure`. The user accepted all four build 2 runtime checks on October 13, 2026. Tested executable SHA256: `21DA5307AFC1FD683AB4E75EF54C9C35CC615C11FA1E445CFFB1C0BAC501F526`.
-
-The first sample card has a name input, score buttons and a start/pause/reset timer. Select mode routes interior clicks, keyboard input and scrolling to the live HTML; borders move and four corners scale without reloading. Annotation tools and private handles take priority. Pointer targeting follows front-to-back order and stays with the original card until release; clicking other controls releases keyboard focus. Card controls are visible in outgoing video; native editing handles stay private.
-
-The trusted fixture exposes `CallayersCard.snapshot()` and `.restore()` inside its named sandboxed frame. Native code reads and validates only score 0–9999, title up to 120 UTF-16 units and remaining time 0–300 seconds. The app restores these before first publication; hidden/unloaded/reopened timers stay paused. State saves after value changes, bounded five-second timer checkpoints, before unload and on normal quit, using one background writer and atomic replacement in `%LOCALAPPDATA%/Callayers/WorkspaceV2/interactive-card.json`. Failed restores prevent overwriting unreadable data; save errors offer Retry. Card placement and visibility remain temporary until the saved-workspace milestone. Arbitrary generated content is not enabled by this fixture.
-
-The optional resource helper accepts `-InteractiveBuild` to attribute this executable and any retained text-editor browser processes.
-
-- `native/auth.*`, `native/auth_protocol.*` and `native/auth_store.*`: background Google/Firebase sign-in, PKCE/state and a single-use temporary loopback callback, account validation, renewal, and current-user DPAPI protection of the refresh session in the isolated v2 registry key. Signed-out startup has no camera/editor access. A temporary outage preserves an already running call; confirmed invalid access and sign-out invalidate the shared output immediately. No credentials are logged. The v2 backend is deployed and configured; the user accepted browser sign-in, remembered-session restoration and sign-out output gating on October 13, 2026.
-- `backend-v2/`: fresh sign-in API and transactional account records in a separate named database. [Deployment and configuration](backend-v2/README.md) describe the one setup/routine source-deployment script. No old backend code or account data is imported.
-
-- `native/capture.*`: asynchronous Media Foundation webcam capture; latest image only.
-- `native/camera_preferences.*`: isolated v2 per-Windows-user camera preference, one background writer and one replaceable pending setting. Identity/name are saved together as `Camera` under `HKCU\Software\Callayers\WorkspaceV2`; no old preferences are read or migrated. Normal quit waits for pending preference writes. Save failures keep video running and offer Retry.
-- `native/annotations.*` and `native/annotation_store.*`: annotation geometry, hit testing, validation and automatic local saving to `%LOCALAPPDATA%\Callayers\WorkspaceV2\workspace.json`. One background writer replaces the file atomically after completed edits; normal quit drains pending writes. Save/restore failures keep current work available and offer Retry. A failed restore prevents overwriting the unreadable file. This file currently contains annotations only; no old workspaces are read or migrated.
-- `native/overlay_ultralight.*` and `web/overlay.html`: transparent Ultralight CPU rendering, sandboxed iframe per visible card, parent-owned placement and annotations. Immutable pooled surfaces feed the CPU compositor; the private editor has its own surface.
-- `native/text_editor.*`, `web/text-editor.html` and `web/text-style.css`: transparent private Ultralight text editor with the same renderer and stylesheet as outgoing annotations, preserving font, color and wrapping width. A cyan outline matches selection; an independent measuring element includes the empty line after Enter without shrinking the focused field. The editor saves the browser-measured height on completion. Drafts and the editor never enter video composition. Enter adds a line, Ctrl+Enter/clicking away finishes and Escape cancels. The user accepted the formatting improvement on October 13, 2026.
-- `native/workspace.*`: WinUI 3 XAML islands, controls and UI-thread callbacks. The application message loop filters island keyboard input; XAML and dispatcher lifetimes finish before runtime shutdown.
-- `native/app.cpp`: existing background compositor, scaled native preview, private selection handles and workspace integration. The UI is separate from the finished outgoing picture.
-
-While existing text is edited, the overlay captures a completed picture for outgoing video and a separate private picture with that text hidden, then restores it before the next outgoing capture. This keeps the live preview visible through the editor without duplicate lettering, while Meet retains the completed text. The page and its card frames stay loaded, so editing does not restart timers. Only existing-text editing uses the additional capture/composition; new text needs no removal from the preview. The user accepted these runtime behaviors on October 13, 2026.
-- `native/frame_bridge.h`: fixed-size local shared memory, non-waiting copy lock, session identity, source freshness and consumer heartbeat.
-- `native/camera_filter.cpp`: x64 DirectShow source, RGB24/RGB32 720p at 30 fps, paced delivery, neutral output generated in the consumer process.
-
-The current app uses direct Ultralight pixels and CPU composition. Bounded reusable pools hold completed and private-preview overlays; slow work drops superseded images. GPU composition remains optional and unimplemented. Card documents stay active during minimized calls; idle minimization unloads their documents and resuming restores them.
-
-Local `diagnostics/renderer.log` records renderer startup/failure stages without card contents or images. Previous accepted WebView2 executable outputs and their profiles remain historical artifacts; current sources do not read or create those profiles. The camera retains its COM identity. If two cameras named Callayers appear, report that before proceeding.
-
-For resource diagnosis, `./scripts/build.ps1 -DiagnosticsBuild` compiles into `build/diagnostics-x64/Release`, preserving the current measurement build. After closing the current app, launch that folder's `Callayers.exe` directly; the already registered foundation camera uses the same frame bridge and need not be re-registered. Run the measurement helper with `-DiagnosticsBuild` to attribute the diagnostic executable correctly. Run only one Callayers instance at a time.
-
-`diagnostics/resources.log` beside the running executable records the requested and negotiated native camera dimensions, subtype GUID and frame rate, RGB32 reader dimensions/stride, and five-second summaries for camera-frame copying, overlay capture, composition and frame publication. `camera_copy` rate reports delivered usable frames per second. Timings are elapsed wall time, not CPU attribution: camera copying excludes Media Foundation decoding/conversion, and publication excludes consumer-side DirectShow work. These diagnostics guide profiling; they do not establish a CPU bottleneck or acceptable video quality on their own. Logs reset at launch, contain no images or device identifiers, and write on a separate thread.
-
-If the card renderer fails, Retry recreates its Ultralight view. Runtime recovery remains a user verification.
-
-Close the app and release its camera in the calling app before rebuilding a loaded DLL. `scripts/unregister-camera.ps1` removes only this build's current-user registration. Registration points to the build output, so unregister before moving or deleting that folder.
-
-Implementation references: [Ultralight text editing](https://ultralig.ht/docs/2.0/text-editing-and-clipboard), [DirectShow live sources](https://learn.microsoft.com/en-us/windows/win32/directshow/live-sources), and [IAMPushSource](https://learn.microsoft.com/en-us/windows/win32/api/strmif/nn-strmif-iampushsource).
-
-After building, `ctest --test-dir build/workspace-x64 -C Release --output-on-failure` checks annotation geometry, selection and saved-data restoration/validation. It does not open the app or establish a runtime pass.
-
-Sidebar follow-up: build with `.\scripts\build.ps1 -SidebarBuild` and launch `.\build\sidebar-workspace-x64\Release\Callayers.exe` after closing the running app. It shares the revision library. Double-click a name (or use Rename/F2) to edit it inside the row. Enter/focus loss saves; Escape cancels. Selecting a card targets Edit in the bottom chat area, while Create with AI targets New card in that same area. The composer has one bounded multiline prompt, Send/Ctrl+Enter, Cancel/progress while working, a short operation description, and a bounded scrollable response/status. The user subsequently confirmed backend deployment and Edit working. At that acceptance report, the running executable was this sidebar build. The user subsequently accepted the compact sidebar follow-up; previous-version runtime verification remains pending. The isolated sidebar build passes all eight existing checks. Edit-tested executable SHA256: `A9F698AEE7E09A1BF0F399CC15F758BD1D8C339A311DBC2BF41415917593B0B7`.
-Compact chat follow-up: the user approved the overall sidebar UX and requested less space below Use in a call. The prepared executable is `build/compact-sidebar-x64/Release/Callayers.exe`, sharing the revision library and service address. The bottom chat removes its padded background container, uses shorter helper text and a smaller multiline message box/buttons, and collapses the status area when empty. Long responses still scroll in a bounded area. Eight existing automated checks pass. The user explicitly accepted the sidebar on October 13, 2026. Tested executable SHA256: `C67FB6F293071CFD45F160BBB6870E31E3CA10C2B09A583C6B1C2584A1EA95B8`. Rebuild that configured output with `cmake --build build/compact-sidebar-x64 --config Release --parallel 4`; the usual `-SidebarBuild` also builds the updated UI after closing that app.
+More: [release and website setup](release/README.md) · [delivery plan](spec-v2/README.md) · [feature verification](AGENTS.md)

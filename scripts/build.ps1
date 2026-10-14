@@ -1,11 +1,13 @@
-param([ValidateSet('Debug','Release')][string]$Configuration = 'Release', [switch]$DiagnosticsBuild, [switch]$WorkspaceBuild, [switch]$UltralightBuild, [switch]$InteractiveBuild, [switch]$GenerationBuild, [switch]$ImageBuild, [switch]$RevisionBuild, [switch]$SidebarBuild, [switch]$TelemetryBuild, [switch]$TextEditorBuild, [switch]$ReleaseBuild, [string]$Version='0.3.0', [string]$ServiceUrl)
+param([ValidateSet('Debug','Release')][string]$Configuration = 'Release', [switch]$DiagnosticsBuild, [switch]$WorkspaceBuild, [switch]$UltralightBuild, [switch]$InteractiveBuild, [switch]$GenerationBuild, [switch]$ImageBuild, [switch]$RevisionBuild, [switch]$SidebarBuild, [switch]$TelemetryBuild, [switch]$TextEditorBuild, [switch]$ReleaseBuild, [switch]$DevelopmentBuild, [string]$Version='0.3.0', [string]$ServiceUrl)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
 if($ReleaseBuild){
     . (Join-Path $repo 'release/update-common.ps1')
     Assert-ReleaseVersion $Version
+}
+if($ReleaseBuild -or $DevelopmentBuild){
     $serviceAddress=$null
-    if(-not [Uri]::TryCreate($ServiceUrl,[UriKind]::Absolute,[ref]$serviceAddress) -or $serviceAddress.Scheme -ne 'https' -or $serviceAddress.UserInfo -or $serviceAddress.Query -or $serviceAddress.Fragment){throw 'Release builds require an explicit HTTPS -ServiceUrl.'}
+    if(-not [Uri]::TryCreate($ServiceUrl,[UriKind]::Absolute,[ref]$serviceAddress) -or $serviceAddress.Scheme -ne 'https' -or $serviceAddress.UserInfo -or $serviceAddress.Query -or $serviceAddress.Fragment){throw 'Release and development builds require an explicit HTTPS -ServiceUrl.'}
 }
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
 if (-not (Test-Path -LiteralPath $vswhere)) { throw 'Install Visual Studio Build Tools with Desktop development with C++.' }
@@ -37,22 +39,23 @@ if (-not (Test-Path -LiteralPath (Join-Path $winui 'include\MddBootstrap.h'))) {
         Expand-Archive -LiteralPath $package -DestinationPath $winui -Force
     }
 }
-if (([int]$DiagnosticsBuild.IsPresent + [int]$WorkspaceBuild.IsPresent + [int]$UltralightBuild.IsPresent + [int]$InteractiveBuild.IsPresent + [int]$GenerationBuild.IsPresent + [int]$ImageBuild.IsPresent + [int]$RevisionBuild.IsPresent + [int]$SidebarBuild.IsPresent + [int]$TelemetryBuild.IsPresent + [int]$TextEditorBuild.IsPresent + [int]$ReleaseBuild.IsPresent) -gt 1) { throw 'Choose one build output.' }
+if (([int]$DiagnosticsBuild.IsPresent + [int]$WorkspaceBuild.IsPresent + [int]$UltralightBuild.IsPresent + [int]$InteractiveBuild.IsPresent + [int]$GenerationBuild.IsPresent + [int]$ImageBuild.IsPresent + [int]$RevisionBuild.IsPresent + [int]$SidebarBuild.IsPresent + [int]$TelemetryBuild.IsPresent + [int]$TextEditorBuild.IsPresent + [int]$ReleaseBuild.IsPresent + [int]$DevelopmentBuild.IsPresent) -gt 1) { throw 'Choose one build output.' }
 if (-not (Test-Path "$repo/.deps/ultralight/include/Ultralight/Ultralight.h")) { & "$PSScriptRoot/acquire-ultralight.ps1" }
 if ((Get-Content "$repo/.deps/ultralight/VERSION.txt" -Raw).Trim() -ne '2.0.0-beta.2') { throw 'Expected the pinned Ultralight 2.0.0-beta.2 SDK.' }
-$build = Join-Path $repo $(if ($ReleaseBuild) { "build\release-$Version-x64" } elseif ($TextEditorBuild) { 'build\text-editor-x64' } elseif ($TelemetryBuild) { 'build\telemetry-workspace-x64' } elseif ($SidebarBuild) { 'build\sidebar-workspace-x64' } elseif ($RevisionBuild) { 'build\revision-workspace-x64' } elseif ($ImageBuild) { 'build\image-workspace-x64' } elseif ($GenerationBuild) { 'build\generation-workspace-x64' } elseif ($InteractiveBuild) { 'build\interactive-workspace-x64' } elseif ($UltralightBuild) { 'build\ultralight-workspace-x64' } elseif ($WorkspaceBuild) { 'build\workspace-x64' } elseif ($DiagnosticsBuild) { 'build\diagnostics-x64' } else { 'build\x64' })
+$build = Join-Path $repo $(if ($DevelopmentBuild) { 'build\dev-x64' } elseif ($ReleaseBuild) { "build\release-$Version-x64" } elseif ($TextEditorBuild) { 'build\text-editor-x64' } elseif ($TelemetryBuild) { 'build\telemetry-workspace-x64' } elseif ($SidebarBuild) { 'build\sidebar-workspace-x64' } elseif ($RevisionBuild) { 'build\revision-workspace-x64' } elseif ($ImageBuild) { 'build\image-workspace-x64' } elseif ($GenerationBuild) { 'build\generation-workspace-x64' } elseif ($InteractiveBuild) { 'build\interactive-workspace-x64' } elseif ($UltralightBuild) { 'build\ultralight-workspace-x64' } elseif ($WorkspaceBuild) { 'build\workspace-x64' } elseif ($DiagnosticsBuild) { 'build\diagnostics-x64' } else { 'build\x64' })
 $generationOption=if ($GenerationBuild -or $ImageBuild -or $RevisionBuild -or $SidebarBuild -or $TelemetryBuild -or $TextEditorBuild) {'ON'} else {'OFF'}
 $interactiveOption=if ($InteractiveBuild -or $GenerationBuild -or $ImageBuild -or $RevisionBuild -or $SidebarBuild -or $TelemetryBuild -or $TextEditorBuild) {'ON'} else {'OFF'}
 $imageOption=if ($ImageBuild -or $RevisionBuild -or $SidebarBuild -or $TelemetryBuild -or $TextEditorBuild) {'ON'} else {'OFF'}
 $libraryOption=if ($RevisionBuild -or $SidebarBuild -or $TelemetryBuild -or $TextEditorBuild) {'ON'} else {'OFF'}
 $telemetryOption=if ($TelemetryBuild -or $TextEditorBuild) {'ON'} else {'OFF'}
+if($DevelopmentBuild){$generationOption='ON';$interactiveOption='ON';$imageOption='ON';$libraryOption='ON';$telemetryOption='ON'}
 $releaseOption=if($ReleaseBuild){$generationOption='ON';$interactiveOption='ON';$imageOption='ON';$libraryOption='ON';$telemetryOption='ON';'ON'}else{'OFF'}
 & cmake -S $repo -B $build -G $generator -A x64 "-DCMAKE_GENERATOR_INSTANCE=$($installation.installationPath)" "-DWEBVIEW2_METADATA=$metadata" "-DWINDOWSAPPSDK_ROOT=$winui" "-DCALLAYERS_INTERACTIVE=$interactiveOption" "-DCALLAYERS_GENERATION=$generationOption" "-DCALLAYERS_IMAGES=$imageOption" "-DCALLAYERS_LIBRARY=$libraryOption" "-DCALLAYERS_TELEMETRY=$telemetryOption" "-DCALLAYERS_RELEASE=$releaseOption" "-DCALLAYERS_VERSION=$Version"
 if ($LASTEXITCODE -ne 0) { throw 'Build configuration failed.' }
 & cmake --build $build --config $Configuration --parallel 4
 if ($LASTEXITCODE -ne 0) { throw 'Compilation failed. Close Callayers and any calling app holding its camera DLL before rebuilding.' }
 $backendFile=Join-Path $repo 'build/workspace-x64/Release/service-url.txt'
-if($ReleaseBuild){[IO.File]::WriteAllText("$build/$Configuration/service-url.txt",$ServiceUrl.TrimEnd('/'),[Text.UTF8Encoding]::new($false))}
+if($ReleaseBuild -or $DevelopmentBuild){[IO.File]::WriteAllText("$build/$Configuration/service-url.txt",$ServiceUrl.TrimEnd('/'),[Text.UTF8Encoding]::new($false))}
 elseif (Test-Path $backendFile) { Copy-Item -LiteralPath $backendFile -Destination "$build/$Configuration/service-url.txt" }
 Write-Host "Build ready: $build\$Configuration\Callayers.exe"
 Write-Host 'This compilation is not a runtime pass. Follow the active feature checklist and AGENTS.md with the user.'
