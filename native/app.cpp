@@ -25,6 +25,9 @@
 #include "annotations.h"
 #include "annotation_store.h"
 #include "auth.h"
+#ifdef CALLAYERS_INTERACTIVE
+#include "card_input.h"
+#endif
 #include <Microsoft.UI.Dispatching.Interop.h>
 #include <winrt/base.h>
 
@@ -65,7 +68,19 @@ struct App {
     std::atomic<bool> opening{false};
     std::thread worker;
     std::shared_ptr<const PresentedFrame> preview;
+#ifdef CALLAYERS_INTERACTIVE
+    Card cards[3]{{48, 328, 480, 340}, {870, 62, 340, 148}, {902, 470, 300, 180}};
+    int focusedCard=-1,htmlDrag=-1;
+    CardPart resizePart=CardPart::BottomRight;
+    void blurCard(){overlay.blur();focusedCard=-1;}
+    InkPoint inputPoint(int x,int y)const{return {double(x-previewRect.left)*Width/std::max(1L,previewRect.right-previewRect.left),double(y-previewRect.top)*Height/std::max(1L,previewRect.bottom-previewRect.top)};}
+    void htmlUp(int x,int y){
+        if(htmlDrag<0)return;auto p=inputPoint(x,y);overlay.mouse(2,int(p.x),int(p.y));overlay.pointerTarget(-1);htmlDrag=-1;
+        if(GetCapture()==window)ReleaseCapture();
+    }
+#else
     Card cards[3]{{48, 540, 420, 128}, {870, 62, 340, 148}, {902, 470, 300, 180}};
+#endif
     std::vector<Annotation> annotations;
     AnnotationStore annotationStore;
     AnnotationTool tool=AnnotationTool::Select;
@@ -103,6 +118,9 @@ struct App {
         if(authRevision==login.revision && authenticated==login.allowed)return;
         bool was=authenticated;authenticated=login.allowed;authRevision=login.revision;
         if(!authenticated){
+#ifdef CALLAYERS_INTERACTIVE
+            blurCard();
+#endif
             lockVideo();overlay.enable(false);
             {std::lock_guard lock(previewMutex);preview.reset();}
             if(workspace && workspace->editingText())workspace->finishText(false);
@@ -273,6 +291,9 @@ struct App {
         InvalidateRect(window,nullptr,FALSE);
     }
     void setTool(AnnotationTool chosen) {
+#ifdef CALLAYERS_INTERACTIVE
+        blurCard();
+#endif
         finishGesture();if(workspace && !workspace->finishText()){syncAnnotationControls();return;}
         tool=chosen;hoveredAnnotation=-1;if(tool!=AnnotationTool::Select)selectedCard=-1;
         if(isShape(tool))selectedAnnotation=-1;
@@ -295,6 +316,9 @@ struct App {
         syncAnnotationControls();
     }
     void finishGesture(bool cancel=false) {
+#ifdef CALLAYERS_INTERACTIVE
+        if(htmlDrag>=0){overlay.mouse(2,-1000,-1000);overlay.pointerTarget(-1);htmlDrag=-1;}
+#endif
         bool edited=drawing || draggingAnnotation;
         if(cancel && edited && selectedAnnotation>=0){if(drawing)annotations.erase(annotations.begin()+selectedAnnotation);else annotations[selectedAnnotation]=originalInk;selectedAnnotation=-1;}
         else if(drawing && selectedAnnotation>=0){const auto& a=annotations[selectedAnnotation];auto b=Bounds(a);if((a.kind==AnnotationTool::Rectangle || a.kind==AnnotationTool::Ellipse) && (b.w<3 || b.h<3)){annotations.erase(annotations.begin()+selectedAnnotation);selectedAnnotation=-1;}}
@@ -304,7 +328,12 @@ struct App {
     }
     void pointerDown(int x,int y) {
         if(workspace && !workspace->finishText())return;
-        POINT at{x,y};if(!authenticated || !auth.outputAllowed() || !PtInRect(&previewRect,at) || !demand || FAILED(captureError.load()))return;
+        POINT at{x,y};if(!authenticated || !auth.outputAllowed() || !PtInRect(&previewRect,at) || !demand || FAILED(captureError.load())){
+#ifdef CALLAYERS_INTERACTIVE
+            blurCard();
+#endif
+            return;
+        }
         SetFocus(window);InkPoint p=canvasPoint(x,y);dragStart=p;
         if(tool==AnnotationTool::Text){int hit=annotationAt(p);beginText(p,hit>=0 && annotations[hit].kind==AnnotationTool::Text?hit:-1);return;}
         if(tool==AnnotationTool::Eraser){eraseAnnotation(annotationAt(p));return;}
@@ -315,6 +344,15 @@ struct App {
             if(tool==AnnotationTool::Pen || tool==AnnotationTool::Line || tool==AnnotationTool::Arrow)a.points={p,{std::min(double(Width),p.x+0.1),p.y}};
             annotations.push_back(std::move(a));selectedAnnotation=int(annotations.size())-1;selectedCard=-1;drawing=true;
         }else {
+#ifdef CALLAYERS_INTERACTIVE
+            if(selectedCard>=0 && cards[selectedCard].visible){const auto& c=cards[selectedCard];
+                auto part=HitCardPart(c.x,c.y,c.w,c.h,p.x,p.y,hitTolerance());
+                if(part!=CardPart::None && part!=CardPart::Inside){
+                    original=c;dragging=true;resizing=part!=CardPart::Border;resizePart=part;
+                    selectedAnnotation=-1;blurCard();SetCapture(window);changed();syncAnnotationControls();return;
+                }
+            }
+#endif
             // Private handles are hit before the painted objects, especially an
             // arrow's endpoint and a stroke's empty lower-right bounding corner.
             bool handle=false;
@@ -322,12 +360,33 @@ struct App {
             int hit=handle?selectedAnnotation:annotationAt(p);
             selectedAnnotation=hit;
             if(hit>=0){selectedCard=-1;originalInk=annotations[hit];draggingAnnotation=true;resizing=handle;}
-            else {selectedCard=-1;for(int i=2;i>=0;--i){const auto& c=cards[i];if(c.visible && p.x>=c.x && p.x<=c.x+c.w && p.y>=c.y && p.y<=c.y+c.h){selectedCard=i;original=c;dragging=true;resizing=p.x>c.x+c.w-28 && p.y>c.y+c.h-28;break;}}}
+            else {selectedCard=-1;for(int i=2;i>=0;--i){const auto& c=cards[i];
+#ifdef CALLAYERS_INTERACTIVE
+                if(!c.visible)continue;
+                auto part=HitCardPart(c.x,c.y,c.w,c.h,p.x,p.y,hitTolerance());
+                if(part==CardPart::None)continue;
+                selectedCard=i;original=c;
+                if(part==CardPart::Inside){
+                    focusedCard=i;htmlDrag=i;overlay.pointerTarget(i);overlay.mouse(1,int(p.x),int(p.y));SetCapture(window);
+                    hoveredAnnotation=-1;changed();syncAnnotationControls();return;
+                }
+                blurCard();dragging=true;resizing=part!=CardPart::Border;resizePart=part;break;
+#else
+                if(c.visible && p.x>=c.x && p.x<=c.x+c.w && p.y>=c.y && p.y<=c.y+c.h){selectedCard=i;original=c;dragging=true;resizing=p.x>c.x+c.w-28 && p.y>c.y+c.h-28;break;}
+#endif
+            }}
         }
+#ifdef CALLAYERS_INTERACTIVE
+        blurCard();
+#endif
         hoveredAnnotation=-1;SetCapture(window);changed();syncAnnotationControls();
     }
     void pointerMove(int x,int y) {
         InkPoint p=canvasPoint(x,y);
+#ifdef CALLAYERS_INTERACTIVE
+        if(htmlDrag>=0){auto point=inputPoint(x,y);overlay.mouse(0,int(point.x),int(point.y));return;}
+        if(tool==AnnotationTool::Select && !dragging && !draggingAnnotation){POINT at{x,y};if(PtInRect(&previewRect,at))overlay.mouse(0,int(p.x),int(p.y));}
+#endif
         if(tool==AnnotationTool::Eraser){POINT at{x,y};int hover=PtInRect(&previewRect,at)?annotationAt(p):-1;if(hover!=hoveredAnnotation){hoveredAnnotation=hover;InvalidateRect(window,nullptr,FALSE);}TRACKMOUSEEVENT track{sizeof(track),TME_LEAVE,window,0};TrackMouseEvent(&track);return;}
         if(drawing && selectedAnnotation>=0) {
             auto& a=annotations[selectedAnnotation];
@@ -339,7 +398,20 @@ struct App {
             else MoveAnnotation(annotations[selectedAnnotation],originalInk,p.x-dragStart.x,p.y-dragStart.y);
         }else if(dragging && selectedCard>=0) {
             auto& c=cards[selectedCard];
-            if(resizing){double factor=1+((p.x-dragStart.x)*original.w+(p.y-dragStart.y)*original.h)/(original.w*original.w+original.h*original.h);double maximum=std::min((Width-c.x)/original.w,(Height-c.y)/original.h),minimum=std::min(maximum,std::max(180.0/original.w,100.0/original.h));factor=std::clamp(factor,minimum,maximum);c.w=original.w*factor;c.h=original.h*factor;}
+            if(resizing){
+#ifdef CALLAYERS_INTERACTIVE
+                const bool left=resizePart==CardPart::TopLeft||resizePart==CardPart::BottomLeft;
+                const bool top=resizePart==CardPart::TopLeft||resizePart==CardPart::TopRight;
+                double dx=(p.x-dragStart.x)*(left?-1:1),dy=(p.y-dragStart.y)*(top?-1:1);
+                double factor=1+(dx*original.w+dy*original.h)/(original.w*original.w+original.h*original.h);
+                double maxW=left?original.x+original.w:Width-original.x,maxH=top?original.y+original.h:Height-original.y;
+                double maximum=std::min(maxW/original.w,maxH/original.h),minimum=std::min(maximum,std::max(180.0/original.w,100.0/original.h));
+                factor=std::clamp(factor,minimum,maximum);c.w=original.w*factor;c.h=original.h*factor;
+                c.x=left?original.x+original.w-c.w:original.x;c.y=top?original.y+original.h-c.h:original.y;
+#else
+                double factor=1+((p.x-dragStart.x)*original.w+(p.y-dragStart.y)*original.h)/(original.w*original.w+original.h*original.h);double maximum=std::min((Width-c.x)/original.w,(Height-c.y)/original.h),minimum=std::min(maximum,std::max(180.0/original.w,100.0/original.h));factor=std::clamp(factor,minimum,maximum);c.w=original.w*factor;c.h=original.h*factor;
+#endif
+            }
             else {c.x=std::clamp(original.x+p.x-dragStart.x,0.0,Width-c.w);c.y=std::clamp(original.y+p.y-dragStart.y,0.0,Height-c.h);}
         }else return;
         changed();
@@ -388,7 +460,13 @@ struct App {
                 auto oldPen = SelectObject(dc, outline), oldBrush = SelectObject(dc, GetStockObject(NULL_BRUSH));
                 Rectangle(dc, r.left, r.top, r.right, r.bottom);
                 SelectObject(dc, oldBrush); SelectObject(dc, oldPen); DeleteObject(outline);
-                RECT handle{r.right-px(12),r.bottom-px(12),r.right,r.bottom}; HBRUSH b=CreateSolidBrush(RGB(109,211,255)); FillRect(dc,&handle,b); DeleteObject(b);
+                HBRUSH b=CreateSolidBrush(RGB(109,211,255));
+#ifdef CALLAYERS_INTERACTIVE
+                for(auto x:{r.left,r.right})for(auto y:{r.top,r.bottom}){RECT handle{x-px(6),y-px(6),x+px(6),y+px(6)};FillRect(dc,&handle,b);}
+#else
+                RECT handle{r.right-px(12),r.bottom-px(12),r.right,r.bottom};FillRect(dc,&handle,b);
+#endif
+                DeleteObject(b);
             }
             paintAnnotationControls(dc);
         }
@@ -424,11 +502,18 @@ struct App {
         else state=bridge.consumerActive()?L"Video is reaching your calling app":L"Ready for your call";
         if(fresh && preferenceSaveFailed)state=L"Couldn't remember webcam";
         if(fresh && annotationSaveFailed)state=L"Couldn't save annotations";
+#ifdef CALLAYERS_INTERACTIVE
+        if(fresh && FAILED(overlay.state->saveError.load())){state=L"Couldn't save card state";message=L"Your card values couldn't be saved or restored. Your video can continue. Choose Retry. An unreadable saved file will not be overwritten.";}
+#endif
         if(fresh && FAILED(annotationRestoreError))state=L"Couldn't restore annotations";
         auto login=auth.snapshot();if(fresh && !login.message.empty())state=login.message;
         status=state;
         bool cameraChoices=!fresh && (selectedCamera<0 || overlay.state->failed || FAILED(error) || pictureTimedOut);
-        if(workspace)workspace->state(state,message,fresh,error==E_ACCESSDENIED,fresh && (preferenceSaveFailed || annotationSaveFailed || FAILED(annotationRestoreError) || !login.message.empty()),cameraChoices);
+        bool cardSaveFailed=false;
+#ifdef CALLAYERS_INTERACTIVE
+        cardSaveFailed=FAILED(overlay.state->saveError.load());
+#endif
+        if(workspace)workspace->state(state,message,fresh,error==E_ACCESSDENIED,fresh && (preferenceSaveFailed || annotationSaveFailed || FAILED(annotationRestoreError) || cardSaveFailed || !login.message.empty()),cameraChoices);
     }
     static void compose(const CameraImage& camera, const OverlayImage& overlay, std::vector<uint8_t>& output) {
         StageTimer timing(VideoStage::Compose);
@@ -549,6 +634,9 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam
             actions.size=[app](int size){app->setInkSize(size);};
             actions.text=[app](std::wstring text,bool commit,double height){return app->commitText(std::move(text),commit,height);};
             actions.retry=[app]{
+#ifdef CALLAYERS_INTERACTIVE
+                if(app->status==L"Couldn't save card state"){app->overlay.retryState();return;}
+#endif
                 auto login=app->auth.snapshot();if(login.allowed && !login.message.empty()){app->auth.retry();return;}
                 if(app->status==L"Couldn't restore annotations"){if(app->restoreAnnotations(!app->annotations.empty())){app->changed();app->syncAnnotationControls();app->saveAnnotations();}return;}
                 if(app->status==L"Couldn't save annotations"){app->saveAnnotations();return;}
@@ -581,12 +669,25 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam
     }
     case WM_GETMINMAXINFO: {auto limits=reinterpret_cast<MINMAXINFO*>(lParam);limits->ptMinTrackSize={app->px(1000),app->px(760)};return 0;}
     case WM_KEYDOWN:
+#ifdef CALLAYERS_INTERACTIVE
+        if(app->focusedCard>=0){if(wParam==VK_ESCAPE){app->blurCard();return 0;}app->overlay.key(message,wParam,lParam);return 0;}
+#endif
         if(wParam==VK_TAB && app->workspace){app->workspace->focus((GetKeyState(VK_SHIFT)&0x8000)!=0);return 0;}
         if(wParam==VK_ESCAPE){app->finishGesture(true);return 0;}
         if(wParam==VK_DELETE && app->authenticated && app->auth.outputAllowed()){app->eraseAnnotation(app->selectedAnnotation);return 0;}break;
     case WM_LBUTTONDOWN:app->pointerDown(GET_X_LPARAM(lParam),GET_Y_LPARAM(lParam));return 0;
     case WM_MOUSEMOVE:app->pointerMove(GET_X_LPARAM(lParam),GET_Y_LPARAM(lParam));return 0;
-    case WM_LBUTTONUP:app->finishGesture();return 0;
+    case WM_LBUTTONUP:
+#ifdef CALLAYERS_INTERACTIVE
+        if(app->htmlDrag>=0){app->htmlUp(GET_X_LPARAM(lParam),GET_Y_LPARAM(lParam));return 0;}
+#endif
+        app->finishGesture();return 0;
+#ifdef CALLAYERS_INTERACTIVE
+    case WM_CHAR:case WM_KEYUP:if(app->focusedCard>=0){app->overlay.key(message,wParam,lParam);return 0;}break;
+    case WM_KILLFOCUS:app->blurCard();app->finishGesture();return 0;
+    case WM_MOUSEWHEEL:{POINT point{GET_X_LPARAM(lParam),GET_Y_LPARAM(lParam)};ScreenToClient(window,&point);
+        if(app->tool==AnnotationTool::Select && PtInRect(&app->previewRect,point)){auto p=app->canvasPoint(point.x,point.y);app->overlay.scroll(int(p.x),int(p.y),GET_WHEEL_DELTA_WPARAM(wParam));return 0;}break;}
+#endif
     case WM_CAPTURECHANGED:app->finishGesture();return 0;
     case WM_LBUTTONDBLCLK:app->doubleClick(GET_X_LPARAM(lParam),GET_Y_LPARAM(lParam));return 0;
     case WM_MOUSELEAVE:app->hoveredAnnotation=-1;InvalidateRect(window,nullptr,FALSE);return 0;
@@ -601,6 +702,9 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam
         app->finishGesture();
         app->auth.cancel();
         if(app->bridge.consumerActive() && MessageBoxW(window,L"Quit Callayers and stop video in your calling app?",L"Stop video and quit",MB_YESNO|MB_ICONQUESTION)!=IDYES)return 0;
+#ifdef CALLAYERS_INTERACTIVE
+        app->overlay.saveCard();
+#endif
         app->quitting=true;app->demand=false;app->bridge.stop();KillTimer(window,1);app->overlay.enable(false);app->workspace.reset();
         DestroyWindow(window);return 0;
     case WM_DESTROY:app->quitting=true;app->bridge.stop();PostQuitMessage(0);return 0;
@@ -622,7 +726,15 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,LPWSTR,int show) {
         else {
             WNDCLASSW wc{};wc.style=CS_DBLCLKS;wc.lpfnWndProc=WindowProc;wc.hInstance=instance;wc.lpszClassName=L"CallayersFoundation";wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);wc.hIcon=LoadIconW(instance,MAKEINTRESOURCEW(1));RegisterClassW(&wc);
             HWND window=CreateWindowExW(0,wc.lpszClassName,L"Callayers",WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,CW_USEDEFAULT,CW_USEDEFAULT,1280,850,nullptr,nullptr,instance,&app);
-            if(window){ShowWindow(window,show);MSG message{};while(GetMessageW(&message,nullptr,0,0)>0){if(!ContentPreTranslateMessage(&message)){TranslateMessage(&message);DispatchMessageW(&message);}}}
+            if(window){ShowWindow(window,show);MSG message{};while(GetMessageW(&message,nullptr,0,0)>0){
+#ifdef CALLAYERS_INTERACTIVE
+                const bool cardKey=app.focusedCard>=0 && message.hwnd==window && message.message>=WM_KEYFIRST && message.message<=WM_KEYLAST;
+                if(cardKey || !ContentPreTranslateMessage(&message))
+#else
+                if(!ContentPreTranslateMessage(&message))
+#endif
+                {TranslateMessage(&message);DispatchMessageW(&message);}
+            }}
             else {app.quitting=true;result=1;}
             if(app.worker.joinable())app.worker.join();
         }

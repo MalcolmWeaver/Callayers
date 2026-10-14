@@ -20,6 +20,8 @@ Prioritize memory while preserving usable video and interaction. GPU rendering i
 
 ## Small build sequence
 
+**Build 2 prepared:** `build/interactive-workspace-x64` provides the fixed score/name/timer fixture, scaled HTML mouse/keyboard/scroll input, border/four-corner manipulation, focus release and validated autosaved state. Hiding/reopening restores a paused timer. Its runtime verification is pending; build 3 has not started. The trusted named-frame snapshot/restore interface is a proof of the state contract, not acceptance of generated-content isolation.
+
 Start with fixed content, not AI. Each row is a small build; prepare focused runtime checks in chat and wait for the user's results before advancing. Add local automated tests where they protect input/state, allowance and website handling. No backend deployment is needed to prove the renderer.
 
 | Build | What it establishes | Backend deploy? |

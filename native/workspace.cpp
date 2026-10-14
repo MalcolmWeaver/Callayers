@@ -10,6 +10,7 @@
 #include <winrt/Microsoft.UI.Dispatching.h>
 #include <winrt/Microsoft.UI.Content.h>
 #include <winrt/Microsoft.UI.Xaml.h>
+#include <winrt/Microsoft.UI.Xaml.Automation.h>
 #include <winrt/Microsoft.UI.Xaml.Controls.h>
 #include <winrt/Microsoft.UI.Xaml.Controls.Primitives.h>
 #include <winrt/Microsoft.UI.Xaml.Hosting.h>
@@ -129,7 +130,13 @@ struct Workspace::Impl {
     bool listedVisible[3]{true,true,true};
     std::wstring lastStatus, lastHelp;
     int selected = -1;
-    static constexpr const wchar_t* names[] = {L"Name card", L"Animated card", L"Five-minute timer"};
+    static constexpr const wchar_t* names[] = {
+#ifdef CALLAYERS_INTERACTIVE
+        L"Interactive card",
+#else
+        L"Name card",
+#endif
+        L"Animated card", L"Five-minute timer"};
     template<class T> T find(ux::FrameworkElement const& root, const wchar_t* name) { return root.FindName(name).as<T>(); }
     static ux::FrameworkElement load(const wchar_t* xaml) { return ux::Markup::XamlReader::Load(xaml).as<ux::FrameworkElement>(); }
     void attach(hosting::DesktopWindowXamlSource const& island, ux::FrameworkElement const& content,bool visible=true) {
@@ -214,6 +221,10 @@ struct Workspace::Impl {
         for(auto gate:{sidebarGate,toolbarGate}) {gate.HorizontalContentAlignment(ux::HorizontalAlignment::Stretch);gate.VerticalContentAlignment(ux::VerticalAlignment::Stretch);}
         attach(headerIsland, header); attach(sidebarIsland, sidebarGate); attach(toolbarIsland, toolbarGate,false); attach(helpIsland, help,false);
         attach(authIsland,authView);
+#ifdef CALLAYERS_INTERACTIVE
+        find<controls::Button>(sidebar,L"Name0").Content(winrt::box_value(L"Interactive card"));
+        ux::Automation::AutomationProperties::SetName(find<controls::CheckBox>(sidebar,L"Show0"),L"Show Interactive card");
+#endif
         headerIsland.SiteBridge().Hide();sidebarIsland.SiteBridge().Hide();toolbarIsland.SiteBridge().Hide();helpIsland.SiteBridge().Hide();
         StartupTrace("islands-ready");
         for(auto island:{headerIsland,sidebarIsland,toolbarIsland,helpIsland,authIsland}) {

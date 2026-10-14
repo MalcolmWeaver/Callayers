@@ -17,6 +17,8 @@ Cards report small, validated state objects through an app-owned interface: ente
 
 The fresh implementation uses `%LOCALAPPDATA%\Callayers\WorkspaceV2\workspace.json`, isolated from old saved work. The annotation milestone saves annotations there now; card placement, visibility and the remaining workspace fields arrive with the saved-card milestone.
 
+Build 2 isolates its trusted fixed card's score, name and remaining timer time in `interactive-card.json` alongside the annotation workspace. A bounded schema and atomic background saves protect that prototype state. This separate fixture file does not implement the saved-card library or placement/visibility restoration.
+
 An imported image is an ordinary card containing that image.
 
 Keep the previous card version locally alongside the current card; it survives restarts. Replace it only after a successful AI revision. Restoring consumes the backup and keeps the card's identity, placement, and visibility. Deleting a card deletes its backup too. No backend storage or new endpoint.

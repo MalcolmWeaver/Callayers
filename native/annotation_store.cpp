@@ -22,9 +22,9 @@ static HRESULT WriteWorkspace(const std::filesystem::path& path,const std::strin
     if(!MoveFileExW(temporary.c_str(),path.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)){failure=GetLastError();DeleteFileW(temporary.c_str());return HRESULT_FROM_WIN32(failure);}
     return S_OK;
 }
-AnnotationStore::AnnotationStore() {
+AnnotationStore::AnnotationStore(const wchar_t* fileName,const wchar_t* property):property_(property) {
     PWSTR local=nullptr;
-    if(SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData,0,nullptr,&local)))path_=std::filesystem::path(local)/L"Callayers"/L"WorkspaceV2"/L"workspace.json";
+    if(SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData,0,nullptr,&local)))path_=std::filesystem::path(local)/L"Callayers"/L"WorkspaceV2"/fileName;
     CoTaskMemFree(local);
     writer_=std::thread([this]{
         for(;;){std::unique_lock lock(mutex_);wake_.wait(lock,[this]{return stopping_||pending_.has_value();});if(!pending_)break;auto job=std::move(*pending_);pending_.reset();lock.unlock();HRESULT error=E_FAIL;try{error=WriteWorkspace(path_,job.json);}catch(...){}lock.lock();result_={job.revision,error};}
@@ -42,11 +42,11 @@ std::wstring AnnotationStore::load(HRESULT& error) {
     try {
         auto root=winrt::Windows::Data::Json::JsonObject::Parse(winrt::to_hstring(json));
         if(root.GetNamedNumber(L"version")!=2)throw std::runtime_error("Unknown workspace format");
-        return std::wstring(root.GetNamedArray(L"annotations").Stringify());
+        return std::wstring(root.GetNamedArray(property_).Stringify());
     }catch(...){error=HRESULT_FROM_WIN32(ERROR_INVALID_DATA);return L"";}
 }
 unsigned AnnotationStore::save(const std::wstring& annotations) {
-    auto json=std::string("{\"version\":2,\"annotations\":")+winrt::to_string(annotations)+"}";
+    auto json=std::string("{\"version\":2,\"")+winrt::to_string(property_)+"\":"+winrt::to_string(annotations)+"}";
     std::lock_guard lock(mutex_);unsigned revision=++revision_;
     pending_=Pending{revision,std::move(json)};wake_.notify_one();return revision;
 }

@@ -40,6 +40,7 @@ window.setScene = scene => {
     let iframe=frames.get(c.id);
     if (!iframe) {
       iframe=document.createElement('iframe');
+      iframe.name='card-'+c.id;
       iframe.setAttribute('sandbox','allow-scripts');
       iframe.setAttribute('allow',"camera 'none'; microphone 'none'; geolocation 'none'; clipboard-read 'none'; clipboard-write 'none'; fullscreen 'none'; autoplay 'none'");
       iframe.referrerPolicy='no-referrer';

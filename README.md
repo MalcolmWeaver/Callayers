@@ -31,6 +31,8 @@ The user performs every runtime check. The foundation and current resource cost 
 
 ## Isolated Ultralight CPU workspace
 
+Build 1b was accepted by the user on October 13, 2026 for picture quality, private text editing in Meet, minimized calls and idle/resume. Its tested executable remains preserved in `build/ultralight-workspace-x64` (SHA256 `2AB6194E08961397502FCD32E692C6D62FB70EF853E1B15AFCC18647062A5C5E`). Matched full-app samples measured 44.6–46.7% less private memory than the previous CPU workspace; see the implementation plan for the reports.
+
 Build with `.\scripts\build.ps1 -UltralightBuild` and launch `.\build\ultralight-workspace-x64\Release\Callayers.exe` after closing other Callayers instances. The old `workspace-x64` output and its camera registration stay available; no new registration or backend deployment is needed. The build copies the workspace's existing service URL and the pinned Ultralight Free SDK 2.0.0-beta.2 runtime/resources/license.
 
 The overlay uses the same fixed HTML cards and annotation stylesheet. Ultralight renders transparent 720p pixels directly; a bounded three-entry reusable pool hands immutable frames to the existing CPU compositor and DirectShow bridge, with no PNG encoding/decoding. A separate bounded pool supplies private text-editing pictures. Inactive overlay work stops, and finished annotations alone enter outgoing video. The existing private text editor still uses WebView2, with an isolated `UltralightWorkspace/WebView2` profile; measure its cost after editing separately. This fixed-content experiment does not establish isolation or compatibility for arbitrary generated cards.
@@ -38,6 +40,16 @@ The overlay uses the same fixed HTML cards and annotation stylesheet. Ultralight
 Use `.\scripts\measure-resources.ps1 -UltralightBuild -Scenario MinimizedMeet` for the new executable and `-WorkspaceBuild` for the old one. Keep the webcam, all three sample cards, one annotation and Meet conditions matched. Reports count the desktop and its attributed browser processes. Compare committed private memory and CPU alongside user-observed smoothness; no full-app savings or runtime pass is claimed before user verification. Run `ctest --test-dir build/ultralight-workspace-x64 -C Release --output-on-failure` for automated checks.
 
 ## Structure
+
+### Fixed interactive card (build 2)
+
+Build with `.\scripts\build.ps1 -InteractiveBuild` and launch `.\build\interactive-workspace-x64\Release\Callayers.exe` after closing other Callayers instances. The accepted 1b and older workspace executables remain available. It uses the existing camera registration and service URL. Automated checks: `ctest --test-dir build/interactive-workspace-x64 -C Release --output-on-failure`. Runtime verification is pending.
+
+The first sample card has a name input, score buttons and a start/pause/reset timer. Select mode routes interior clicks, keyboard input and scrolling to the live HTML; borders move and four corners scale without reloading. Annotation tools and private handles take priority. Pointer targeting follows front-to-back order and stays with the original card until release; clicking other controls releases keyboard focus. Card controls are visible in outgoing video; native editing handles stay private.
+
+The trusted fixture exposes `CallayersCard.snapshot()` and `.restore()` inside its named sandboxed frame. Native code reads and validates only score 0–9999, title up to 120 UTF-16 units and remaining time 0–300 seconds. The app restores these before first publication; hidden/unloaded/reopened timers stay paused. State saves after value changes, bounded five-second timer checkpoints, before unload and on normal quit, using one background writer and atomic replacement in `%LOCALAPPDATA%/Callayers/WorkspaceV2/interactive-card.json`. Failed restores prevent overwriting unreadable data; save errors offer Retry. Card placement and visibility remain temporary until the saved-workspace milestone. Arbitrary generated content is not enabled by this fixture.
+
+The optional resource helper accepts `-InteractiveBuild` to attribute this executable and any retained text-editor browser processes.
 
 - `native/auth.*`, `native/auth_protocol.*` and `native/auth_store.*`: background Google/Firebase sign-in, PKCE/state and a single-use temporary loopback callback, account validation, renewal, and current-user DPAPI protection of the refresh session in the isolated v2 registry key. Signed-out startup has no camera/editor access. A temporary outage preserves an already running call; confirmed invalid access and sign-out invalidate the shared output immediately. No credentials are logged. The v2 backend is deployed and configured; the user accepted browser sign-in, remembered-session restoration and sign-out output gating on October 13, 2026.
 - `backend-v2/`: fresh sign-in API and transactional account records in a separate named database. [Deployment and configuration](backend-v2/README.md) describe the one setup/routine source-deployment script. No old backend code or account data is imported.
