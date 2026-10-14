@@ -18,6 +18,7 @@ const measure=document.getElementById('measure');
 const outline=document.getElementById('outline');
 const handle=document.getElementById('handle');
 let format;
+window.textEditState={text:'',height:1,finish:''};
 function report() {
   if(!format)return;
   // Measure independently, without collapsing the focused field. The sentinel
@@ -30,7 +31,8 @@ function report() {
   const pad=Math.round(3*unit),half=Math.round(6*unit);
   Object.assign(outline.style,{left:(offset-pad)+'px',top:(offset-pad)+'px',width:(format.width*format.scale+2*pad)+'px',height:(height*format.scale+2*pad)+'px',borderWidth:Math.round(2*unit)+'px'});
   Object.assign(handle.style,{left:(offset+format.width*format.scale-half)+'px',top:(offset+height*format.scale-half)+'px',width:(2*half)+'px',height:(2*half)+'px'});
-  window.chrome.webview.postMessage({type:'draft',text:text.value,height});
+  window.textEditState.text=text.value;
+  window.textEditState.height=height;
 }
 window.beginTextEdit = options => {
   format=options;
@@ -53,7 +55,7 @@ text.addEventListener('keydown',event=>{
   if(event.isComposing)return;
   if(event.key==='Escape' || event.key==='Tab' || (event.key==='Enter' && event.ctrlKey)) {
     event.preventDefault();report();
-    window.chrome.webview.postMessage({type:'finish',commit:event.key!=='Escape'});
+    window.textEditState.finish=event.key==='Escape'?'cancel':'commit';
   }
 });
 </script></body></html>

@@ -105,6 +105,7 @@ class Overlay {
 public:
     std::shared_ptr<OverlayState> state=std::make_shared<OverlayState>();
     ~Overlay();
+    ultralight::Renderer* renderer() const {return renderer_.get();}
     void initialize(HINSTANCE instance);
     void retry(HINSTANCE instance);
     void update(const std::wstring& json);

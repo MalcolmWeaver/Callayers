@@ -18,11 +18,7 @@
 #include <deque>
 #endif
 #include "capture.h"
-#ifdef CALLAYERS_ULTRALIGHT_CPU
 #include "overlay_ultralight.h"
-#else
-#include "overlay.h"
-#endif
 #include "frame_bridge.h"
 #include "resource_diagnostics.h"
 #include "workspace.h"
@@ -405,7 +401,7 @@ struct App {
         selectedCard=-1;syncCards();syncAnnotationControls();
         auto at=inkRect(editingTextDraft.box);double scale=double(previewRect.right-previewRect.left)/Width;
         at.right=at.left+int(std::ceil(editingTextDraft.box.w*scale));at.bottom=previewRect.bottom;
-        workspace->editText(at,editingTextDraft.text,editingTextDraft.font,editingTextDraft.color,editingTextDraft.box.w,scale,editingTextDraft.box.h,existing>=0);
+        workspace->editText(overlay.renderer(),at,editingTextDraft.text,editingTextDraft.font,editingTextDraft.color,editingTextDraft.box.w,scale,editingTextDraft.box.h,existing>=0);
         InvalidateRect(window,nullptr,FALSE);
     }
     void setTool(AnnotationTool chosen) {
@@ -709,7 +705,6 @@ i
                         bridge.stop();camera.stop();started=false;
                     }
                     else {
-#ifdef CALLAYERS_ULTRALIGHT_CPU
                         {
                             std::lock_guard lock(overlay.state->mutex);
                             if(overlay.state->epoch==overlay.state->currentEpoch){
@@ -718,19 +713,6 @@ i
                                 privateTextId=overlay.state->privateTextId;
                             }else{overlayFrame.reset();privateOverlayFrame.reset();privateTextId=0;}
                         }
-#else
-                        std::vector<uint8_t> png,privatePng; ULONGLONG tick=0; unsigned epoch=0;uint64_t textId=0;
-                        {std::lock_guard lock(overlay.state->mutex);png.swap(overlay.state->png);privatePng.swap(overlay.state->privatePng);tick=overlay.state->tick;epoch=overlay.state->epoch;textId=overlay.state->privateTextId;}
-                        if(!png.empty() && epoch==overlay.state->currentEpoch) {
-                            auto decoded=DecodeOverlay(png,tick);
-                            auto privateDecoded=privatePng.empty()?nullptr:DecodeOverlay(privatePng,tick);
-                            if(decoded && epoch==overlay.state->currentEpoch){
-                                overlayFrame=std::move(decoded);
-                                if(privateDecoded){privateOverlayFrame=std::move(privateDecoded);privateTextId=textId;}
-                                else if(!privateTextId || privateTextId!=overlay.state->requestedPrivateTextId){privateOverlayFrame.reset();privateTextId=0;}
-                            }
-                        }
-#endif
                         std::shared_ptr<const CameraImage> image;
                         {std::lock_guard lock(camera.state->mutex);image=camera.state->latest;}
                         ULONGLONG now=GetTickCount64();
@@ -950,9 +932,9 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,LPWSTR,int show) {
             if(window){ShowWindow(window,show);MSG message{};while(GetMessageW(&message,nullptr,0,0)>0){
 #ifdef CALLAYERS_INTERACTIVE
                 const bool cardKey=app.focusedCard>=0 && message.hwnd==window && message.message>=WM_KEYFIRST && message.message<=WM_KEYLAST;
-                if(cardKey || !ContentPreTranslateMessage(&message))
+                if(cardKey || (app.workspace && app.workspace->textEditorOwns(message.hwnd)) || !ContentPreTranslateMessage(&message))
 #else
-                if(!ContentPreTranslateMessage(&message))
+                if((app.workspace && app.workspace->textEditorOwns(message.hwnd)) || !ContentPreTranslateMessage(&message))
 #endif
                 {TranslateMessage(&message);DispatchMessageW(&message);}
             }}

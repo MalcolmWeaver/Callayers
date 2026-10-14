@@ -3,6 +3,7 @@
 #include "renderer_log.h"
 #include "resource_diagnostics.h"
 #include "text_style.h"
+#include "text_clipboard.h"
 #include <AppCore/Platform.h>
 #include <algorithm>
 #include <cstring>
@@ -48,6 +49,7 @@ void Overlay::initialize(HINSTANCE instance){
             ultralight::Config config;config.memory_profile=ultralight::MemoryProfile::LowMemory;
             config.resource_path_prefix="resources/";platform.set_config(config);
             platform.set_font_loader(ultralight::GetPlatformFontLoader());
+            platform.set_clipboard(&PrivateTextClipboard());
 #ifdef CALLAYERS_GENERATION
             offlineFiles_=std::make_unique<OfflineFiles>(directory);platform.set_file_system(offlineFiles_.get());
 #else

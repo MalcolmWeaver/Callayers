@@ -10,6 +10,8 @@
 #include "generation.h"
 #endif
 
+namespace ultralight {class Renderer;}
+
 namespace callayers {
 struct WorkspaceActions {
     std::function<void(int)> camera, selectCard;
@@ -50,10 +52,11 @@ public:
 #endif
 #endif
     void annotationControls(AnnotationTool tool,const std::wstring& color,int size);
-    void editText(const RECT& area,const std::wstring& value,double font,const std::wstring& color,double width,double scale,double minimumHeight,bool waitForBackdrop);
+    void editText(ultralight::Renderer* renderer,const RECT& area,const std::wstring& value,double font,const std::wstring& color,double width,double scale,double minimumHeight,bool waitForBackdrop);
     void textBackdrop(bool clean);
     bool finishText(bool commit=true);
     bool editingText() const;
+    bool textEditorOwns(HWND window) const;
     void focus(bool reverse);
     void state(const std::wstring& status, const std::wstring& help, bool fresh, bool privacy, bool retryPreference=false, bool cameraChoices=true);
     void authentication(const AuthSnapshot& state);

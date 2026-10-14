@@ -497,19 +497,21 @@ void Workspace::libraryCards(const std::vector<GeneratedCard>& cards,int selecte
 #endif
 #endif
 bool Workspace::editingText() const {return impl_->editor.active();}
+bool Workspace::textEditorOwns(HWND window) const {return impl_->editor.owns(window);}
 bool Workspace::finishText(bool commit) {
     auto& ui=*impl_;if(!ui.editor.active())return true;if(ui.finishingText)return false;
     ui.finishingText=true;
-    bool accepted=ui.actions.text(ui.editor.text(),commit,ui.editor.height());
+    auto text=ui.editor.text();
+    bool accepted=ui.actions.text(std::move(text),commit && !ui.editor.unavailable(),ui.editor.height());
     if(accepted){++ui.editorToken;ui.editor.close();}
     ui.finishingText=false;
     if(!accepted && ui.editor.active())ui.editor.focus();
     return accepted;
 }
-void Workspace::editText(const RECT& area,const std::wstring& value,double font,const std::wstring& color,double width,double scale,double minimumHeight,bool waitForBackdrop) {
+void Workspace::editText(ultralight::Renderer* renderer,const RECT& area,const std::wstring& value,double font,const std::wstring& color,double width,double scale,double minimumHeight,bool waitForBackdrop) {
     auto& ui=*impl_;if(!finishText())return;
     auto token=++ui.editorToken;auto weak=std::weak_ptr<int>(ui.lifetime);
-    ui.editor.open(ui.window,area,value,font,color,width,scale,minimumHeight,waitForBackdrop,[this,weak,token](bool commit){
+    ui.editor.open(renderer,ui.window,area,value,font,color,width,scale,minimumHeight,waitForBackdrop,[this,weak,token](bool commit){
         if(weak.expired())return;
         impl_->header.DispatcherQueue().TryEnqueue([this,weak,token,commit]{
             if(weak.expired() || impl_->editorToken!=token)return;

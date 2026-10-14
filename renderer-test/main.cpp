@@ -3,12 +3,8 @@
 #include "text_style.h"
 #include <algorithm>
 #include <vector>
-#ifdef TEST_ULTRALIGHT
 #include <Ultralight/Ultralight.h>
 #include <AppCore/Platform.h>
-#else
-#include "overlay.h"
-#endif
 
 namespace {
 constexpr int W=1280,H=720;
@@ -18,15 +14,9 @@ struct Test {
     std::vector<unsigned char> preview=std::vector<unsigned char>(W*H*4);
     bool cards=true, sceneSet=false, failed=false;
     unsigned long long frames=0;
-#ifdef TEST_ULTRALIGHT
     ultralight::RefPtr<ultralight::Renderer> renderer;
     ultralight::RefPtr<ultralight::View> view;
-#else
-    callayers::Overlay overlay;
-    ULONGLONG lastTick=0;
-#endif
     void start(HINSTANCE instance) {
-#ifdef TEST_ULTRALIGHT
         (void)instance;
         wchar_t exe[32768]{};GetModuleFileNameW(nullptr,exe,32768);
         auto base=std::filesystem::path(exe).parent_path();
@@ -42,18 +32,11 @@ struct Test {
         view=renderer->CreateView(W,H,options,nullptr);
         auto html=winrt::to_string(callayers::ReadTextDocument(L"overlay.html"));
         view->LoadHTML(html.c_str());
-#else
-        overlay.update(Scene);overlay.initialize(instance);
-#endif
     }
     void toggle() {
         cards=!cards; sceneSet=false;
-#ifndef TEST_ULTRALIGHT
-        overlay.update(cards?Scene:L"{\"cards\":[],\"annotations\":[]}");
-#endif
     }
     void tick(HWND window) {
-#ifdef TEST_ULTRALIGHT
         renderer->Update();
         if(!view->is_loading() && !sceneSet){
             ultralight::String exception;
@@ -68,14 +51,7 @@ struct Test {
             auto source=static_cast<const unsigned char*>(surface->LockPixels());
             if(source){for(int y=0;y<H;++y)memcpy(pixels.data()+size_t(y)*W*4,source+size_t(y)*surface->row_bytes(),W*4);surface->UnlockPixels();++frames;}
         }
-#else
-        if(overlay.state->failed)throw std::runtime_error("WebView2 failed; see diagnostics/renderer.log");
-        overlay.capture();
-        std::vector<uint8_t> png;ULONGLONG tick=0;
-        {std::lock_guard lock(overlay.state->mutex);tick=overlay.state->tick;if(tick!=lastTick)png=overlay.state->png;}
-        if(!png.empty()){auto frame=callayers::DecodeOverlay(png,tick);if(frame){pixels=std::move(frame->pixels);lastTick=tick;++frames;}}
-#endif
-        // Both engines use identical CPU blending against a checkerboard.
+        // Blend the transparent view against a checkerboard.
         preview=pixels;
         for(int y=0;y<H;++y)for(int x=0;x<W;++x){auto p=&preview[(size_t(y)*W+x)*4];
             unsigned bg=((x/32+y/32)%2)?65:35, inverse=255-p[3];
@@ -83,11 +59,7 @@ struct Test {
         }
         InvalidateRect(window,nullptr,FALSE);
         std::wstring title=
-#ifdef TEST_ULTRALIGHT
             L"Ultralight CPU";
-#else
-            L"WebView2 PNG + CPU";
-#endif
         title+=cards?L" — Three cards":L" — Empty page";
         title+=L" — Space: toggle cards — Frames: "+std::to_wstring(frames);
         SetWindowTextW(window,title.c_str());

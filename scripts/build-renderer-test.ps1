@@ -23,4 +23,4 @@ $build=Join-Path $repo 'build/renderer-test-v2-x64'
 if ($LASTEXITCODE -ne 0) { throw 'Renderer test configuration failed.' }
 & cmake --build $build --config Release --parallel 4
 if ($LASTEXITCODE -ne 0) { throw 'Renderer test compilation failed.' }
-Write-Host "Ready: $build/Release/CallayersUltralightTest.exe and CallayersWebViewTest.exe"
+Write-Host "Ready: $build/Release/CallayersUltralightTest.exe"
