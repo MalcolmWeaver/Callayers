@@ -2,3 +2,4 @@
 /.deps/
 /.local/
 /backend-v2/node_modules/
+/website/dist/

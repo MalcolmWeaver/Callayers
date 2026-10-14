@@ -1,0 +1,28 @@
+name: Desktop
+on:
+  pull_request:
+    paths: ['native/**', 'web/**', 'tests/**', 'release/**', 'scripts/**', 'CMakeLists.txt', '.github/workflows/desktop.yml']
+  push:
+    branches: [main]
+    paths: ['native/**', 'web/**', 'tests/**', 'release/**', 'scripts/**', 'CMakeLists.txt', '.github/workflows/desktop.yml']
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build all MVP features
+        shell: pwsh
+        run: ./scripts/build.ps1 -ReleaseBuild -Version 0.3.0 -ServiceUrl 'https://callayers-v2-api-3fj7uh2a7a-uc.a.run.app'
+      - name: Desktop tests
+        run: ctest --test-dir build/release-0.3.0-x64 -C Release --output-on-failure
+      - name: Update authenticity and deferral tests
+        shell: pwsh
+        run: ./tests/release-update-test.ps1
+      - name: Windows PowerShell compatibility
+        shell: powershell
+        run: ./tests/release-update-test.ps1

@@ -26,6 +26,7 @@
 #include "annotations.h"
 #include "annotation_store.h"
 #include "auth.h"
+#include "release_updates.h"
 #ifdef CALLAYERS_INTERACTIVE
 #include "card_input.h"
 #endif
@@ -929,7 +930,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,LPWSTR,int show) {
         else {
             WNDCLASSW wc{};wc.style=CS_DBLCLKS;wc.lpfnWndProc=WindowProc;wc.hInstance=instance;wc.lpszClassName=L"CallayersFoundation";wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);wc.hIcon=LoadIconW(instance,MAKEINTRESOURCEW(1));RegisterClassW(&wc);
             HWND window=CreateWindowExW(0,wc.lpszClassName,L"Callayers",WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,CW_USEDEFAULT,CW_USEDEFAULT,1280,850,nullptr,nullptr,instance,&app);
-            if(window){ShowWindow(window,show);MSG message{};while(GetMessageW(&message,nullptr,0,0)>0){
+            if(window){ShowWindow(window,show);StartReleaseUpdate(L"Stage");MSG message{};while(GetMessageW(&message,nullptr,0,0)>0){
 #ifdef CALLAYERS_INTERACTIVE
                 const bool cardKey=app.focusedCard>=0 && message.hwnd==window && message.message>=WM_KEYFIRST && message.message<=WM_KEYLAST;
                 if(cardKey || (app.workspace && app.workspace->textEditorOwns(message.hwnd)) || !ContentPreTranslateMessage(&message))
@@ -944,5 +945,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,LPWSTR,int show) {
     }
     catch(winrt::hresult_error const& error) {Resources().event("workspace_runtime_failed hresult="+std::to_string(error.code().value));MessageBoxW(nullptr,L"Couldn't start the Callayers workspace. Make sure Windows App Runtime 1.6 is installed, then reopen the app.",L"Callayers",MB_OK|MB_ICONERROR);result=1;}
     catch(...) {Resources().event("workspace_runtime_failed");MessageBoxW(nullptr,L"Couldn't start the Callayers workspace. Close and reopen the app.",L"Callayers",MB_OK|MB_ICONERROR);result=1;}
-    MFShutdown();CoUninitialize();ReleaseMutex(single);CloseHandle(single);return result;
+    MFShutdown();CoUninitialize();ReleaseMutex(single);CloseHandle(single);
+    if(result==0)StartReleaseUpdate(L"Apply",GetCurrentProcessId());
+    return result;
 }

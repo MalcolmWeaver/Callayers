@@ -1,0 +1,9 @@
+Generated with the built-in image_gen tool.
+
+Use case: ui-mockup
+Asset type: Callayers website hero image showing overlays inside Zoom on Windows.
+Edit the supplied image by placing its complete camera scene inside a clearly recognizable Zoom desktop meeting window for Windows. Preserve the woman's identity, navy clothing, room, ivory agenda card, all agenda text and single lavender oval annotation. Keep this source image as the large active-speaker CAMERA VIDEO; the card and annotation are already composited into her webcam. Do not show it as a shared screen or slide.
+Wide landscape, crisp polished front-facing desktop screenshot mockup. Full Zoom window fills the composition, with a thin Windows title bar labelled "Zoom Meeting", standard minimize, maximize and close buttons at top right. A narrow participant strip across the top with three small realistic webcam thumbnails labelled "Alex", "Jordan", "Sam". Below this, the source image fills a large active-speaker video pane labelled "Maya" in a subtle bottom-left name tag. Card and woman's face both remain large and readable. Use natural Zoom dark charcoal chrome.
+Bottom Zoom meeting toolbar visibly outside the video pane: microphone icon with "Mute", camera icon with "Stop Video", "Participants", "Chat", green "Share Screen", "Reactions", and a red "Leave" button on the far right. Clear recognizable iconography, orderly spacing, legible restrained text.
+The exact card text remains "Today's plan", "Review the draft", "Choose a direction", "Agree on next steps", with numbered items 1, 2, 3 and the lavender oval around Choose a direction.
+No Callayers editor UI, no selection handles, no annotation toolbar, no screen-share border, no marketing headline, no watermark. The surrounding meeting controls should make it immediately obvious this is a Zoom call on Windows while the finished webcam overlay remains the visual focus.

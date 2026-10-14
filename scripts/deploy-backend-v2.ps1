@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param()
+param([switch]$Ci)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
 $source = Join-Path $repo 'backend-v2'
@@ -38,9 +38,11 @@ catch { if (-not $_.Exception.Response -or [int]$_.Exception.Response.StatusCode
 try { Invoke-RestMethod -Uri "$url/account" | Out-Null; throw 'Account endpoint unexpectedly accepted a request without sign-in.' }
 catch { if (-not $_.Exception.Response -or [int]$_.Exception.Response.StatusCode -ne 401) { throw 'Account endpoint access validation failed.' } }
 $output = Join-Path $repo 'build/workspace-x64/Release'
-if (-not (Test-Path -LiteralPath $output)) { throw 'Build the workspace desktop first; the backend deployed successfully.' }
-[IO.File]::WriteAllText((Join-Path $output 'service-url.txt'), $url, [Text.UTF8Encoding]::new($false))
+if(-not $Ci){
+    if (-not (Test-Path -LiteralPath $output)) { throw 'Build the workspace desktop first; the backend deployed successfully.' }
+    [IO.File]::WriteAllText((Join-Path $output 'service-url.txt'), $url, [Text.UTF8Encoding]::new($false))
+}
 Write-Host "V2 service ready: $url"
 Write-Host "Generation ready: $($health.generationReady)"
 Write-Host "Telemetry ready: $($health.telemetryReady)"
-Write-Host 'Desktop address configured. Runtime verification remains user-run.'
+if(-not $Ci){Write-Host 'Desktop address configured. Runtime verification remains user-run.'}

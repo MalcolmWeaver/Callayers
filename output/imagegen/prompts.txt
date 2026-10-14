@@ -1,0 +1,19 @@
+Generated with the built-in image_gen tool.
+
+MAIN IMAGE
+Use case: ads-marketing
+Asset type: Callayers landing-page main image, wide 16:9 landscape.
+Primary request: Show the finished virtual-camera output that other people in a video call see: a natural webcam portrait with a useful presentation card and one simple annotation.
+Scene: credible home-office webcam image, soft daylight, subtle neutral room background. An approachable adult woman with short dark curly hair wearing a simple navy shirt, looking toward the webcam, framed chest-up on the right half. Realistic everyday video-call quality, polished but not fashion photography.
+On the left half place one clean, legible ivory rounded rectangular card with dark text, subtle shadow, small lavender accent, generous spacing. Exact card text: "Today's plan" then three vertically arranged numbered lines: "1  Review the draft", "2  Choose a direction", "3  Agree on next steps". A single hand-drawn lavender oval circles "Choose a direction", demonstrating a finished on-camera annotation. No other marks.
+Composition: full-bleed camera output only. Presenter and card both fully visible, card never overlaps the face. Crisp large typography readable at landing-page scale. No application chrome, no toolbar, no selection handles, no video-call app UI, no added headline, no watermark. This is one standalone image, not a collage.
+
+SUPPORTING IMAGE
+Use case: ui-mockup
+Asset type: Callayers landing-page supporting image, wide landscape.
+Create a faithful product-window mockup of the Callayers desktop application using two references: Image 1 (the project UI screenshot) supplies dark app layout, left card library, header and preview placement only; disregard its red correction marks, old deck title, Save button and technical status text. Image 2 (the generated finished camera output) supplies the EXACT preview picture, presenter, card and lavender oval; preserve this picture as closely as possible.
+Show one crisp flat front-facing Windows application window filling the image, no monitor, no perspective, no outer marketing text.
+Dark charcoal interface, restrained lavender accent. Header: Callayers at left, then File and Annotate, webcam dropdown "HD Webcam". No deck title or Save button.
+Left sidebar about 23 percent width: "Cards" heading, lavender "Create with AI" button, "Import image" and "Hide all", search field "Search cards", three card rows with checkboxes: checked selected "Today's plan", unchecked "Project notes", unchecked "Meeting timer". Near bottom button "Use in a call" and helper "In your calling app, choose Callayers". Below this small compact card-edit area labelled "Edit Today's plan", input placeholder "Describe a change", "Send" button.
+Large preview right: same complete finished camera-output image from Image 2 with presenter on right, ivory Today’s plan card on left and lavender annotation circling Choose a direction. Preserve aspect ratio, no scene modifications.
+Above preview show a compact annotation bar with Select, Pen, Shapes, Text, Eraser, Clear and simple color swatches, lavender selected. Legible restrained UI typography, sensible spacing and clean controls. Do not reproduce the red reference corrections. No extra panels, statistics, code, watermark, imaginary call participants or conferencing logo.

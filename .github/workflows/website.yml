@@ -1,0 +1,29 @@
+name: Website
+on:
+  pull_request:
+    paths: ['website/**', 'spec-v2/assets/callayers-mark.svg', '.github/workflows/website.yml']
+  push:
+    branches: [main]
+    paths: ['website/**', 'spec-v2/assets/callayers-mark.svg', '.github/workflows/website.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: website-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node website/build.mjs
+      - name: Deploy main to Cloudflare Pages
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy website/dist --project-name=callayers --branch=main
