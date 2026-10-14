@@ -1,4 +1,4 @@
-name: Publish desktop tester release
+name: Windows app — Publish new version
 on:
   workflow_dispatch:
     inputs:
