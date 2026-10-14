@@ -9,9 +9,9 @@ function memoryStore(){const records=new Map();let queue=Promise.resolve();
 async function fixture(t,provider=async()=>card){let calls=0;const data=memoryStore();
  const server=createServer(createHandler({config:{projectId:'test',publicConfig:{},dailyLimit:2},accounts:data.store,
  auth:{verifyIdToken:async token=>({uid:token==='other'?'other':'user',aud:'test',iss:'https://securetoken.google.com/test',email_verified:true,firebase:{sign_in_provider:'google.com'}})},
- now:()=>new Date('2026-10-13T12:00:00Z'),generate:async prompt=>{calls++;return provider(prompt);}}));
+ now:()=>new Date('2026-10-13T12:00:00Z'),generate:async (prompt,currentCard)=>{calls++;return provider(prompt,currentCard);}}));
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));t.after(()=>new Promise(resolve=>{server.close(resolve);server.closeAllConnections();}));
- const send=async(id,token='user',prompt='Make a score card')=>{const r=await fetch(`http://127.0.0.1:${server.address().port}/generate`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({requestId:id,prompt})});return {status:r.status,body:await r.json()};};
+ const send=async(id,token='user',prompt='Make a score card',currentCard)=>{const r=await fetch(`http://127.0.0.1:${server.address().port}/generate`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({requestId:id,prompt,...(currentCard?{currentCard}:{})})});return {status:r.status,body:await r.json()};};
  return {...data,send,calls:()=>calls};}
 const ids=['11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222','33333333-3333-4333-8333-333333333333'];
 test('concurrent duplicate IDs call provider once; records contain no prompt/output',async t=>{const f=await fixture(t);const results=await Promise.all([f.send(ids[0]),f.send(ids[0])]);assert.deepEqual(results.map(r=>r.status).sort(),[200,409]);assert.equal(f.calls(),1);
@@ -27,4 +27,25 @@ test('chosen model and effort reach the provider; absent effort omits reasoning 
   request=JSON.parse(options.body);return new Response(JSON.stringify({status:'completed',output:[{content:[{type:'output_text',text:JSON.stringify(card)}]}]}));});
   await generate('Counter');assert.equal(request.model,'chosen-model');assert.deepEqual(request.reasoning,effort?{effort}:undefined);
  }
+});
+
+test('revision sends only selected HTML and image references, reserves once, and preserves references',async t=>{
+ const current={name:'Photo',html:'<img src="callayers-image:local">'+ '<!--padding-->'.repeat(2000),width:480,height:300,imageIds:['local']};let received;
+ const revised={...card,html:'<h1>Caption</h1><img src="callayers-image:local">'};
+ const f=await fixture(t,async(prompt,currentCard)=>{received=currentCard;return revised;});
+ const response=await f.send(ids[0],'user','Add a caption',current);assert.equal(response.status,200);assert.deepEqual(received,current);assert.equal((await f.send(ids[0],'user','Add a caption',current)).status,409);assert.equal(f.calls(),1);assert.equal(f.records.get('accounts/user').dailyGenerations,1);
+});
+test('revision rejects local image bytes or invalid references before consuming allowance',async t=>{
+ const f=await fixture(t);const current={name:'Image',html:'<img src="data:image/png;base64,private">',width:480,height:300,imageIds:['local']};
+ assert.equal((await f.send(ids[0],'user','Edit',current)).status,400);assert.equal(f.calls(),0);
+ current.html='<img src="callayers-image:local">';current.imageIds=['unexpected'];assert.equal((await f.send(ids[1],'user','Edit',current)).status,400);assert.equal(f.calls(),0);
+});
+test('revision that drops a local image is rejected without a replacement output',async t=>{
+ const f=await fixture(t);const current={name:'Image',html:'<img src="callayers-image:local">',width:480,height:300,imageIds:['local']};
+ const response=await f.send(ids[0],'user','Add a caption',current);assert.equal(response.status,502);assert(!response.body.card);assert.equal(f.calls(),1);assert.equal(f.records.get(`requests/${ids[0]}`).status,'failed');
+});
+test('provider revision instruction includes HTML context and placeholder without image data',async()=>{
+ let request;const current={name:'Photo',html:'<img src="callayers-image:local">',width:480,height:300,imageIds:['local']};
+ const generate=generationProvider({openaiKey:'synthetic',aiModel:'synthetic'},async(url,options)=>{request=JSON.parse(options.body);return new Response(JSON.stringify({status:'completed',output:[{content:[{type:'output_text',text:JSON.stringify(card)}]}]}));});
+ await generate('Add caption',current);const input=JSON.parse(request.input);assert.deepEqual(input.currentCard,current);assert.equal(input.changes,'Add caption');assert(!request.input.includes('data:image'));assert.equal(request.store,false);
 });

@@ -5,7 +5,7 @@
 ## Create and revise
 
 - Send the prompt. There is no card-shape selector; infer a suitable layout from the requested content and any sizing instructions in the prompt.
-- For revisions, include the selected card and its image references.
+- **Edit** revises the selected AI card or the surrounding HTML of an imported image. Include only the selected card HTML and placeholder image references. The desktop substitutes retained local image data for those references; never send local image bytes or paths. Keep a user-edited library name unless the user renames it locally.
 - Return a short name and self-contained HTML/CSS/JS.
 - Change what was requested; preserve the rest.
 - Keep user-imported images local. Never send webcam frames or other cards.

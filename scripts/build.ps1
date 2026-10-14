@@ -1,4 +1,4 @@
-param([ValidateSet('Debug','Release')][string]$Configuration = 'Release', [switch]$DiagnosticsBuild, [switch]$WorkspaceBuild, [switch]$UltralightBuild, [switch]$InteractiveBuild, [switch]$GenerationBuild, [switch]$ImageBuild)
+param([ValidateSet('Debug','Release')][string]$Configuration = 'Release', [switch]$DiagnosticsBuild, [switch]$WorkspaceBuild, [switch]$UltralightBuild, [switch]$InteractiveBuild, [switch]$GenerationBuild, [switch]$ImageBuild, [switch]$RevisionBuild, [switch]$SidebarBuild)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
@@ -30,16 +30,17 @@ if (-not (Test-Path -LiteralPath (Join-Path $winui 'include\MddBootstrap.h'))) {
         Expand-Archive -LiteralPath $package -DestinationPath $winui -Force
     }
 }
-if (([int]$DiagnosticsBuild.IsPresent + [int]$WorkspaceBuild.IsPresent + [int]$UltralightBuild.IsPresent + [int]$InteractiveBuild.IsPresent + [int]$GenerationBuild.IsPresent + [int]$ImageBuild.IsPresent) -gt 1) { throw 'Choose one build output.' }
-$usesUltralight=$UltralightBuild -or $InteractiveBuild -or $GenerationBuild -or $ImageBuild
+if (([int]$DiagnosticsBuild.IsPresent + [int]$WorkspaceBuild.IsPresent + [int]$UltralightBuild.IsPresent + [int]$InteractiveBuild.IsPresent + [int]$GenerationBuild.IsPresent + [int]$ImageBuild.IsPresent + [int]$RevisionBuild.IsPresent + [int]$SidebarBuild.IsPresent) -gt 1) { throw 'Choose one build output.' }
+$usesUltralight=$UltralightBuild -or $InteractiveBuild -or $GenerationBuild -or $ImageBuild -or $RevisionBuild -or $SidebarBuild
 if ($usesUltralight -and -not (Test-Path "$repo/.deps/ultralight/include/Ultralight/Ultralight.h")) { throw 'Run scripts/build-renderer-test.ps1 first to acquire the pinned Ultralight SDK.' }
 if ($usesUltralight -and (Get-Content "$repo/.deps/ultralight/VERSION.txt" -Raw).Trim() -ne '2.0.0-beta.2') { throw 'Expected the pinned Ultralight 2.0.0-beta.2 SDK.' }
-$build = Join-Path $repo $(if ($ImageBuild) { 'build\image-workspace-x64' } elseif ($GenerationBuild) { 'build\generation-workspace-x64' } elseif ($InteractiveBuild) { 'build\interactive-workspace-x64' } elseif ($UltralightBuild) { 'build\ultralight-workspace-x64' } elseif ($WorkspaceBuild) { 'build\workspace-x64' } elseif ($DiagnosticsBuild) { 'build\diagnostics-x64' } else { 'build\x64' })
+$build = Join-Path $repo $(if ($SidebarBuild) { 'build\sidebar-workspace-x64' } elseif ($RevisionBuild) { 'build\revision-workspace-x64' } elseif ($ImageBuild) { 'build\image-workspace-x64' } elseif ($GenerationBuild) { 'build\generation-workspace-x64' } elseif ($InteractiveBuild) { 'build\interactive-workspace-x64' } elseif ($UltralightBuild) { 'build\ultralight-workspace-x64' } elseif ($WorkspaceBuild) { 'build\workspace-x64' } elseif ($DiagnosticsBuild) { 'build\diagnostics-x64' } else { 'build\x64' })
 $ultralightOption=if ($usesUltralight) {'ON'} else {'OFF'}
-$generationOption=if ($GenerationBuild -or $ImageBuild) {'ON'} else {'OFF'}
-$interactiveOption=if ($InteractiveBuild -or $GenerationBuild -or $ImageBuild) {'ON'} else {'OFF'}
-$imageOption=if ($ImageBuild) {'ON'} else {'OFF'}
-& cmake -S $repo -B $build -G $generator -A x64 "-DCMAKE_GENERATOR_INSTANCE=$($installation.installationPath)" "-DWEBVIEW2_ROOT=$sdk" "-DWINDOWSAPPSDK_ROOT=$winui" "-DCALLAYERS_ULTRALIGHT_CPU=$ultralightOption" "-DCALLAYERS_INTERACTIVE=$interactiveOption" "-DCALLAYERS_GENERATION=$generationOption" "-DCALLAYERS_IMAGES=$imageOption"
+$generationOption=if ($GenerationBuild -or $ImageBuild -or $RevisionBuild -or $SidebarBuild) {'ON'} else {'OFF'}
+$interactiveOption=if ($InteractiveBuild -or $GenerationBuild -or $ImageBuild -or $RevisionBuild -or $SidebarBuild) {'ON'} else {'OFF'}
+$imageOption=if ($ImageBuild -or $RevisionBuild -or $SidebarBuild) {'ON'} else {'OFF'}
+$libraryOption=if ($RevisionBuild -or $SidebarBuild) {'ON'} else {'OFF'}
+& cmake -S $repo -B $build -G $generator -A x64 "-DCMAKE_GENERATOR_INSTANCE=$($installation.installationPath)" "-DWEBVIEW2_ROOT=$sdk" "-DWINDOWSAPPSDK_ROOT=$winui" "-DCALLAYERS_ULTRALIGHT_CPU=$ultralightOption" "-DCALLAYERS_INTERACTIVE=$interactiveOption" "-DCALLAYERS_GENERATION=$generationOption" "-DCALLAYERS_IMAGES=$imageOption" "-DCALLAYERS_LIBRARY=$libraryOption"
 if ($LASTEXITCODE -ne 0) { throw 'Build configuration failed.' }
 & cmake --build $build --config $Configuration --parallel 4
 if ($LASTEXITCODE -ne 0) { throw 'Compilation failed. Close Callayers and any calling app holding its camera DLL before rebuilding.' }

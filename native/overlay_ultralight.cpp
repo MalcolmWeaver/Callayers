@@ -12,11 +12,12 @@
 #endif
 
 namespace callayers {
+static unsigned long long GetSystemTimeAsFileTimeStamp(){FILETIME time{};GetSystemTimeAsFileTime(&time);return ((static_cast<unsigned long long>(time.dwHighDateTime)<<32)|time.dwLowDateTime)/10000;}
 Overlay::~Overlay(){
 #ifdef CALLAYERS_GENERATION
     generatedCheckpoint(true);
 #endif
-#ifdef CALLAYERS_INTERACTIVE
+#if defined(CALLAYERS_INTERACTIVE) && !defined(CALLAYERS_LIBRARY)
     checkpoint(true);
 #endif
     view_=nullptr;renderer_=nullptr;
@@ -30,7 +31,7 @@ void Overlay::initialize(HINSTANCE instance){
     (void)instance;
     if(!log_)log_=std::make_shared<RendererLog>();
     try{
-#ifdef CALLAYERS_INTERACTIVE
+#if defined(CALLAYERS_INTERACTIVE) && !defined(CALLAYERS_LIBRARY)
         if(!storeLoaded_){
             HRESULT error=S_OK;auto json=cardStore_.load(error);
             try{auto items=winrt::Windows::Data::Json::JsonArray::Parse(json);
@@ -67,7 +68,7 @@ void Overlay::initialize(HINSTANCE instance){
 #endif
         view_=renderer_->CreateView(Width,Height,config,nullptr);
         auto html=winrt::to_string(ReadTextDocument(L"overlay.html"));
-#ifdef CALLAYERS_INTERACTIVE
+#if defined(CALLAYERS_INTERACTIVE) && !defined(CALLAYERS_LIBRARY)
         auto path=std::filesystem::path([]{static wchar_t file[32768]{};GetModuleFileNameW(nullptr,file,32768);return file;}()).parent_path()/L"web"/L"interactive-card.js";
         std::ifstream input(path,std::ios::binary);std::string cardScript{std::istreambuf_iterator<char>(input),{}};
         if(!input || cardScript.empty())throw std::runtime_error("Missing interactive card fixture");
@@ -76,6 +77,10 @@ void Overlay::initialize(HINSTANCE instance){
         const std::string noInput="pointer-events:none;transform-origin";
         html.replace(html.find(noInput),noInput.size(),"pointer-events:auto;transform-origin");
         restoreNeeded_=true;
+#endif
+#ifdef CALLAYERS_LIBRARY
+        const std::string noInput="pointer-events:none;transform-origin";
+        html.replace(html.find(noInput),noInput.size(),"pointer-events:auto;transform-origin");
 #endif
         view_->LoadHTML(html.c_str());
         opened_=GetTickCount64();scenePending_=true;state->ready=false;state->failed=false;
@@ -86,7 +91,7 @@ void Overlay::retry(HINSTANCE instance){
 #ifdef CALLAYERS_GENERATION
     generatedCheckpoint(true);
 #endif
-#ifdef CALLAYERS_INTERACTIVE
+#if defined(CALLAYERS_INTERACTIVE) && !defined(CALLAYERS_LIBRARY)
     checkpoint(true);
     if(restoreBlocked_)storeLoaded_=false;
 #endif
@@ -102,7 +107,7 @@ void Overlay::enable(bool enabled){
 #ifdef CALLAYERS_GENERATION
         generatedCheckpoint(true);for(auto& card:generated_)card.restored=false;
 #endif
-#ifdef CALLAYERS_INTERACTIVE
+#if defined(CALLAYERS_INTERACTIVE) && !defined(CALLAYERS_LIBRARY)
         checkpoint(true);blur();restoreNeeded_=true;
 #endif
         try{if(view_ && state->ready)script("window.stopScene()");}catch(...){fail(E_FAIL);}
@@ -136,7 +141,7 @@ void Overlay::capture(){
 #ifdef CALLAYERS_GENERATION
             generatedCheckpoint(false);installGenerated();
 #endif
-#ifdef CALLAYERS_INTERACTIVE
+#if defined(CALLAYERS_INTERACTIVE) && !defined(CALLAYERS_LIBRARY)
             auto scene=winrt::Windows::Data::Json::JsonObject::Parse(scene_);
             auto cards=scene.GetNamedArray(L"cards");
             const bool hiding=cards.Size() && !cards.GetObjectAt(0).GetNamedBoolean(L"visible");
@@ -146,7 +151,7 @@ void Overlay::capture(){
 #endif
             if(!scene_.empty())script("window.setScene("+winrt::to_string(scene_)+")");scenePending_=false;
         }
-#ifdef CALLAYERS_INTERACTIVE
+#if defined(CALLAYERS_INTERACTIVE) && !defined(CALLAYERS_LIBRARY)
         restoreCard();checkpoint(false);
         if(saveRevision_){auto result=cardStore_.result();if(result.revision==saveRevision_){state->saveError=result.error;saveRevision_=0;}}
 #endif
@@ -156,7 +161,7 @@ void Overlay::capture(){
 #endif
         const auto epoch=state->currentEpoch.load();const auto tick=GetTickCount64();
         renderer_->Render();
-#ifdef CALLAYERS_INTERACTIVE
+#if defined(CALLAYERS_INTERACTIVE) && !defined(CALLAYERS_LIBRARY)
         if(cardVisible_ && restoreNeeded_)return; // Never publish defaults before saved values restore.
 #endif
 #ifdef CALLAYERS_GENERATION
@@ -179,7 +184,7 @@ void Overlay::capture(){
         state->privateTextId=id;state->epoch=epoch;
     }catch(const winrt::hresult_error& error){fail(error.code());}catch(...){fail(E_FAIL);}
 }
-#ifdef CALLAYERS_INTERACTIVE
+#if defined(CALLAYERS_INTERACTIVE) && !defined(CALLAYERS_LIBRARY)
 void Overlay::restoreCard(){
     if(!restoreNeeded_ || !view_ || !cardVisible_)return;
     ultralight::String error;
@@ -212,6 +217,8 @@ void Overlay::checkpoint(bool force){
         }
     }catch(...){state->saveError=E_FAIL;}
 }
+#endif
+#ifdef CALLAYERS_INTERACTIVE
 void Overlay::mouse(int type,int x,int y){
     if(!view_ || !enabled_ || !state->ready)return;
     if(type==1)view_->Focus();view_->FireMouseEvent({static_cast<ultralight::MouseEvent::Type>(type),x,y,type==0?ultralight::MouseEvent::kButton_None:ultralight::MouseEvent::kButton_Left});
@@ -225,8 +232,13 @@ void Overlay::scroll(int x,int y,int delta){if(view_ && enabled_ && state->ready
 void Overlay::blur(){if(view_){ultralight::String error;view_->EvaluateScript("window.CallayersCard && window.CallayersCard.blur()",&error,"card-0");view_->Unfocus();}}
 void Overlay::pointerTarget(int id){if(view_ && state->ready)script("for(const [id,f] of frames)f.style.pointerEvents=("+std::to_string(id)+"<0 || id==="+std::to_string(id)+")?'auto':'none'");}
 void Overlay::retryState(){
+#ifndef CALLAYERS_LIBRARY
     if(restoreBlocked_){storeLoaded_=false;retry(GetModuleHandleW(nullptr));}else checkpoint(true);
+#endif
 #ifdef CALLAYERS_GENERATION
+#ifdef CALLAYERS_LIBRARY
+    if(replacement_){retryReplacement();return;}
+#endif
     if(generatedBlocked_){generatedLoaded_=false;generatedBlocked_=false;loadGenerated();documentsPending_=true;scenePending_=true;}else generatedCheckpoint(true);
 #endif
 }
@@ -236,16 +248,28 @@ bool Overlay::loadGenerated(){
     if(generatedLoaded_)return !generatedBlocked_;
     HRESULT error=S_OK;auto json=generatedStore_.load(error);
     if(FAILED(error)||!ParseGeneratedCards(json,generated_)){generatedBlocked_=true;state->generatedSaveError=HRESULT_FROM_WIN32(ERROR_INVALID_DATA);}
+#ifdef CALLAYERS_LIBRARY
+    nextRenderId_=0;for(auto& c:generated_)c.renderId=nextRenderId_++;
+#endif
     if(!generatedBlocked_)state->generatedSaveError=S_OK;
     generatedLoaded_=true;return !generatedBlocked_;
 }
 void Overlay::installGenerated(){
     if(!documentsPending_)return;
+#ifdef CALLAYERS_LIBRARY
+    winrt::Windows::Data::Json::JsonObject documents;for(auto& c:generated_)documents.SetNamedValue(winrt::to_hstring(std::to_string(c.renderId)),winrt::Windows::Data::Json::JsonValue::CreateStringValue(CardDocument(c)));
+    script("documents.length=0;Object.assign(documents,"+winrt::to_string(documents.Stringify())+")");
+#else
     winrt::Windows::Data::Json::JsonArray items;for(auto& c:generated_)items.Append(winrt::Windows::Data::Json::JsonValue::CreateStringValue(CardDocument(c)));
-    script("documents.splice(3,documents.length-3,..."+winrt::to_string(items.Stringify())+")");documentsPending_=false;
+    script("documents.splice(3,documents.length-3,..."+winrt::to_string(items.Stringify())+")");
+#endif
+    documentsPending_=false;
 }
 bool Overlay::addGenerated(GeneratedCard card){
     if(generatedBlocked_ || generated_.size()>=16 || !ValidGeneratedCard(card))return false;
+#ifdef CALLAYERS_LIBRARY
+    if(replacement_)return false;card.renderId=nextRenderId_++;card.layer=int(generated_.size());card.edited=GetSystemTimeAsFileTimeStamp();
+#endif
     generated_.push_back(std::move(card));documentsPending_=true;scenePending_=true;
     lastGeneratedJson_=GeneratedCardsJson(generated_);generatedRevision_=generatedStore_.save(lastGeneratedJson_);return true;
 }
@@ -256,7 +280,13 @@ void Overlay::generatedLayout(int index,double x,double y,double w,double h,bool
 }
 void Overlay::restoreGenerated(){
     for(size_t i=0;i<generated_.size();++i){auto& c=generated_[i];if(!c.visible||c.restored)continue;
-        auto frame="card-"+std::to_string(i+3);ultralight::String error;
+        auto frame="card-"+std::to_string(
+#ifdef CALLAYERS_LIBRARY
+c.renderId
+#else
+i+3
+#endif
+);ultralight::String error;
         auto ready=view_->EvaluateScript("document.readyState === 'complete'",&error,frame.c_str());
         if(!error.empty() || ready!=ultralight::String("true"))continue;
         auto code="if(window.CallayersCard && typeof window.CallayersCard.restore==='function')window.CallayersCard.restore("+winrt::to_string(c.state)+")";
@@ -264,10 +294,19 @@ void Overlay::restoreGenerated(){
     }
 }
 void Overlay::generatedCheckpoint(bool force){
+#ifdef CALLAYERS_LIBRARY
+    if(replacement_)return;
+#endif
     if(generatedBlocked_)return;auto now=GetTickCount64();if(!force && now-lastGeneratedPoll_<250)return;lastGeneratedPoll_=now;
     bool changed=false;
     if(view_ && state->ready){for(size_t i=0;i<generated_.size();++i){auto& c=generated_[i];if(!c.visible||!c.restored)continue;
-        ultralight::String error;auto frame="card-"+std::to_string(i+3);
+        ultralight::String error;auto frame="card-"+std::to_string(
+#ifdef CALLAYERS_LIBRARY
+c.renderId
+#else
+i+3
+#endif
+);
         auto result=view_->EvaluateScript("window.CallayersCard && typeof window.CallayersCard.snapshot==='function' ? JSON.stringify(window.CallayersCard.snapshot()) : '{}'",&error,frame.c_str());
         if(!error.empty()||result.empty())continue;
         auto bytes=result.utf8();auto json=std::wstring(winrt::to_hstring(std::string(bytes.data(),bytes.length())));
@@ -277,5 +316,43 @@ void Overlay::generatedCheckpoint(bool force){
     }}
     if(force || changed){auto json=GeneratedCardsJson(generated_);if(json!=lastGeneratedJson_ || FAILED(state->generatedSaveError.load())){lastGeneratedJson_=json;generatedRevision_=generatedStore_.save(json);}}
 }
+#ifdef CALLAYERS_LIBRARY
+bool Overlay::renameCard(int index,const std::wstring& name){
+    if(generatedBlocked_ || replacement_ || index<0 || index>=int(generated_.size()))return false;
+    auto renamed=generated_[index];renamed.name=name;if(!ValidGeneratedCard(renamed))return false;
+    if(renamed.name==generated_[index].name)return true;
+    ++renamed.contentVersion;renamed.edited=GetSystemTimeAsFileTimeStamp();generated_[index]=std::move(renamed);generatedCheckpoint(true);return true;
+}
+bool Overlay::deleteCard(int index){
+    if(generatedBlocked_ || replacement_ || index<0 || index>=int(generated_.size()))return false;
+    generatedCheckpoint(true);int layer=generated_[index].layer;generated_.erase(generated_.begin()+index);for(auto& c:generated_)if(c.layer>layer)--c.layer;
+    documentsPending_=scenePending_=true;generatedCheckpoint(true);return true;
+}
+bool Overlay::stackCard(int index,bool front){
+    if(generatedBlocked_ || replacement_ || index<0 || index>=int(generated_.size()))return false;
+    auto& target=generated_[index];int old=target.layer,next=front?int(generated_.size())-1:0;
+    for(auto& c:generated_)if(&c!=&target){if(front && c.layer>old)--c.layer;if(!front && c.layer<old)++c.layer;}
+    target.layer=next;scenePending_=true;generatedCheckpoint(true);return true;
+}
+bool Overlay::queueReplacement(int index,GeneratedCard card){
+    if(generatedBlocked_ || replacement_ || index<0 || index>=int(generated_.size()) || !ValidGeneratedCard(card))return false;
+    generatedCheckpoint(true);card.edited=GetSystemTimeAsFileTimeStamp();auto saved=generated_;saved[index]=card;
+    auto revision=generatedStore_.save(GeneratedCardsJson(saved));replacement_=Replacement{generated_[index].id,generated_[index].contentVersion,std::move(card),revision};return true;
+}
+bool Overlay::reviseCard(const std::wstring& id,unsigned long long version,const GeneratedCard& result){
+    for(size_t i=0;i<generated_.size();++i)if(MatchesRevisionTarget(generated_[i],id,version)){GeneratedCard card;if(!RevisedCard(generated_[i],result,card))return false;return queueReplacement(int(i),std::move(card));}return false;
+}
+bool Overlay::restorePrevious(int index){if(index<0 || index>=int(generated_.size()))return false;GeneratedCard card;if(!RestorePrevious(generated_[index],card))return false;return queueReplacement(index,std::move(card));}
+int Overlay::pollReplacement(){
+    if(!replacement_ || replacement_->failed)return 0;auto result=generatedStore_.result();if(result.revision!=replacement_->saveRevision)return 0;
+    state->generatedSaveError=result.error;if(FAILED(result.error)){replacement_->failed=true;return -1;}
+    for(auto& current:generated_)if(MatchesRevisionTarget(current,replacement_->id,replacement_->version)){
+        auto card=std::move(replacement_->card);card.x=current.x;card.y=current.y;card.w=current.w;card.h=card.w*card.height/card.width;double fit=std::min({1.0,(1280-card.x)/card.w,(720-card.y)/card.h});card.w*=fit;card.h*=fit;card.visible=current.visible;card.layer=current.layer;card.renderId=nextRenderId_++;current=std::move(card);
+        replacement_.reset();documentsPending_=scenePending_=true;generatedCheckpoint(true);return 1;
+    }
+    replacement_.reset();generatedCheckpoint(true);return -1;
+}
+void Overlay::retryReplacement(){if(replacement_ && replacement_->failed){auto saved=generated_;for(auto& c:saved)if(c.id==replacement_->id)c=replacement_->card;replacement_->saveRevision=generatedStore_.save(GeneratedCardsJson(saved));replacement_->failed=false;}}
+#endif
 #endif
 }

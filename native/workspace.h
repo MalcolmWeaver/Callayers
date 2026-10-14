@@ -26,6 +26,11 @@ struct WorkspaceActions {
 #ifdef CALLAYERS_IMAGES
     std::function<void()> importImage;
 #endif
+#ifdef CALLAYERS_LIBRARY
+    std::function<void(std::wstring,std::wstring)> renameCard,editCard;
+    std::function<void(std::wstring)> deleteCard,restoreCard;
+    std::function<void(std::wstring,bool)> stackCard;
+#endif
 #endif
 };
 // All XAML and callbacks stay on the UI thread. Video workers never touch WinUI.
@@ -40,6 +45,9 @@ public:
 #ifdef CALLAYERS_GENERATION
     void generatedCards(const std::vector<std::pair<std::wstring,bool>>& cards);
     void generation(const GenerationSnapshot& snapshot);
+#ifdef CALLAYERS_LIBRARY
+    void libraryCards(const std::vector<GeneratedCard>& cards,int selected);
+#endif
 #endif
     void annotationControls(AnnotationTool tool,const std::wstring& color,int size);
     void editText(const RECT& area,const std::wstring& value,double font,const std::wstring& color,double width,double scale,double minimumHeight,bool waitForBackdrop);

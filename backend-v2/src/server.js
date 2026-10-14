@@ -14,7 +14,7 @@ export function createHandler({ config, auth, accounts, generate, now = () => ne
     try {
       const generation=req.url==='/generate' && req.method==='POST' && typeof generate==='function';
       if (req.method !== 'GET' && !generation) return reply(res, 405, { error: 'method_not_allowed' });
-      if (req.url === '/health') return reply(res, 200, { service: 'callayers-v2-api', version: 2, status: 'ok', generationReady:typeof generate==='function' });
+      if (req.url === '/health') return reply(res, 200, { service: 'callayers-v2-api', version: 2, status: 'ok', generationReady:typeof generate==='function',revisionReady:typeof generate==='function' });
       if (req.url === '/client-config') return reply(res, 200, config.publicConfig);
       if (req.url !== '/account' && !generation) return reply(res, 404, { error: 'not_found' });
       const authorization = req.headers.authorization;
@@ -50,7 +50,8 @@ export function createHandler({ config, auth, accounts, generate, now = () => ne
         if(reserved.kind==='denied')return reply(res,403,{error:'account_unavailable'});
         if(reserved.kind==='limit')return reply(res,429,{error:'daily_limit_reached',allowance:allowance(reserved.used)});
         try{
-          const card=validateCard(await generate(input.prompt));
+          const card=validateCard(await generate(input.prompt,input.currentCard));
+          if(input.currentCard?.imageIds.length && !card.html.includes('callayers-image:local'))throw new Error('missing_image_reference');
           await accounts.finish(identity.uid,input.requestId,'completed');
           return reply(res,200,{requestId:input.requestId,card,allowance:allowance(reserved.used)});
         }catch{

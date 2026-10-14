@@ -4,6 +4,7 @@
 #include <shellapi.h>
 #include <mferror.h>
 #include <atomic>
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cwctype>
@@ -77,17 +78,38 @@ struct App {
     std::shared_ptr<const PresentedFrame> preview;
 #ifdef CALLAYERS_INTERACTIVE
 #ifdef CALLAYERS_GENERATION
+#ifdef CALLAYERS_LIBRARY
+    std::vector<Card> cards;
+#else
     std::vector<Card> cards{{48,328,480,340},{870,62,340,148},{902,470,300,180}};
+#endif
     Generation generation;
     void restoreGeneratedCards(){overlay.loadGenerated();for(auto& c:overlay.generated()){Card layout{c.x,c.y,c.w,c.h,c.visible};layout.contentW=c.width;layout.contentH=c.height;cards.push_back(layout);}syncCards();}
-    void syncGeneratedLayout(){for(int i=3;i<cardCount();++i){auto& c=cards[i];overlay.generatedLayout(i-3,c.x,c.y,c.w,c.h,c.visible);}}
+#ifdef CALLAYERS_LIBRARY
+    int libraryIndex(const std::wstring& id)const{for(size_t i=0;i<overlay.generated().size();++i)if(overlay.generated()[i].id==id)return int(i);return -1;}
+    void rebuildLibrary(){cards.clear();for(auto& c:overlay.generated()){Card layout{c.x,c.y,c.w,c.h,c.visible};layout.contentW=c.width;layout.contentH=c.height;cards.push_back(layout);}if(selectedCard>=cardCount())selectedCard=-1;}
+    std::vector<int> hitOrder()const{std::vector<int> order;for(int i=0;i<cardCount();++i)order.push_back(i);std::sort(order.begin(),order.end(),[this](int a,int b){return overlay.generated()[a].layer>overlay.generated()[b].layer;});return order;}
+#endif
+    void syncGeneratedLayout(){for(int i=SavedCardOffset;i<cardCount();++i){auto& c=cards[i];overlay.generatedLayout(i-SavedCardOffset,c.x,c.y,c.w,c.h,c.visible);}}
     void refreshGeneration(){
         auto access=generation.takeAccessError();if(access==2){signOut();return;}if(access==1)auth.retry();
         auto result=generation.takeResult();if(result && authenticated && auth.outputAllowed()){
-            if(overlay.addGenerated(*result)){Card c{result->x,result->y,result->w,result->h,false};c.contentW=result->width;c.contentH=result->height;cards.push_back(c);selectedCard=cardCount()-1;changed();}
+#ifdef CALLAYERS_LIBRARY
+            if(!result->target.empty()){
+                if(!overlay.reviseCard(result->target,result->contentVersion,result->card)){generation.message(L"Edit not applied. Your current card was kept.");MessageBoxW(window,L"This edit couldn't be applied. The card may have changed or been deleted. Your current work was kept.",L"Edit not applied",MB_OK|MB_ICONINFORMATION);}
+            }else
+#endif
+            if(overlay.addGenerated(result->card)){auto& value=result->card;Card c{value.x,value.y,value.w,value.h,false};c.contentW=value.width;c.contentH=value.height;cards.push_back(c);selectedCard=cardCount()-1;changed();}
             else MessageBoxW(window,L"The card couldn't be added to your library. Your existing cards were preserved.",L"Card not saved",MB_OK|MB_ICONINFORMATION);
         }
-        if(workspace)workspace->generation(generation.snapshot());
+#ifdef CALLAYERS_LIBRARY
+        int applied=overlay.pollReplacement();if(applied>0){rebuildLibrary();changed();generation.message(L"Card saved.");}else if(applied<0)MessageBoxW(window,L"Couldn't save this edit. Your existing card was kept. Choose Retry.",L"Edit not saved",MB_OK|MB_ICONINFORMATION);
+#endif
+        if(workspace){auto snapshot=generation.snapshot();
+#ifdef CALLAYERS_LIBRARY
+            if(overlay.applying()){snapshot.busy=true;snapshot.applying=true;snapshot.message=FAILED(overlay.state->generatedSaveError.load())?L"Couldn't save this edit. Choose Retry.":L"Saving your edit…";}
+#endif
+            workspace->generation(snapshot);}
     }
 #else
     Card cards[3]{{48, 328, 480, 340}, {870, 62, 340, 148}, {902, 470, 300, 180}};
@@ -165,15 +187,26 @@ struct App {
         for (int i = 0; i < cardCount(); ++i) {
             if (i) out << ',';
             const auto& c = cards[i];
-            out << L"{\"id\":" << i << L",\"x\":" << c.x << L",\"y\":" << c.y << L",\"w\":" << c.w << L",\"h\":" << c.h << L",\"contentW\":" << c.contentW << L",\"contentH\":" << c.contentH << L",\"visible\":" << (c.visible ? L"true" : L"false") << '}';
+#ifdef CALLAYERS_LIBRARY
+            int renderId=overlay.generated()[i].renderId,layer=overlay.generated()[i].layer;
+#else
+            int renderId=i,layer=i;
+#endif
+            out << L"{\"layer\":"<<layer<<L",\"id\":" << renderId << L",\"x\":" << c.x << L",\"y\":" << c.y << L",\"w\":" << c.w << L",\"h\":" << c.h << L",\"contentW\":" << c.contentW << L",\"contentH\":" << c.contentH << L",\"visible\":" << (c.visible ? L"true" : L"false") << '}';
         }
         out << L"],\"annotations\":" << AnnotationJson(annotations) << '}'; return out.str();
     }
-    void syncCards() { if(workspace) { std::unique_ptr<bool[]> visible(new bool[cardCount()]);for(int i=0;i<cardCount();++i)visible[i]=cards[i].visible;
+    void syncCards() { if(workspace) {
+#ifdef CALLAYERS_LIBRARY
+        workspace->libraryCards(overlay.generated(),selectedCard);
+#else
+        std::unique_ptr<bool[]> visible(new bool[cardCount()]);for(int i=0;i<cardCount();++i)visible[i]=cards[i].visible;
 #ifdef CALLAYERS_GENERATION
-        std::vector<std::pair<std::wstring,bool>> rows;for(int i=3;i<cardCount();++i)rows.emplace_back(overlay.generated()[i-3].name,cards[i].visible);workspace->generatedCards(rows);
+        std::vector<std::pair<std::wstring,bool>> rows;for(int i=SavedCardOffset;i<cardCount();++i)rows.emplace_back(overlay.generated()[i-SavedCardOffset].name,cards[i].visible);workspace->generatedCards(rows);
 #endif
-        workspace->card(selectedCard,visible.get()); } }
+        workspace->card(selectedCard,visible.get());
+#endif
+    } }
     void changed() {
 #ifdef CALLAYERS_GENERATION
         syncGeneratedLayout();
@@ -397,14 +430,25 @@ struct App {
             int hit=handle?selectedAnnotation:annotationAt(p);
             selectedAnnotation=hit;
             if(hit>=0){selectedCard=-1;originalInk=annotations[hit];draggingAnnotation=true;resizing=handle;}
-            else {selectedCard=-1;for(int i=cardCount()-1;i>=0;--i){const auto& c=cards[i];
+            else {selectedCard=-1;
+#ifdef CALLAYERS_LIBRARY
+for(int i:hitOrder()){const auto& c=cards[i];
+#else
+for(int i=cardCount()-1;i>=0;--i){const auto& c=cards[i];
+#endif
 #ifdef CALLAYERS_INTERACTIVE
                 if(!c.visible)continue;
                 auto part=HitCardPart(c.x,c.y,c.w,c.h,p.x,p.y,hitTolerance());
                 if(part==CardPart::None)continue;
                 selectedCard=i;original=c;
                 if(part==CardPart::Inside){
-                    focusedCard=i;htmlDrag=i;overlay.pointerTarget(i);overlay.mouse(1,int(p.x),int(p.y));SetCapture(window);
+                    focusedCard=i;htmlDrag=i;overlay.pointerTarget(
+#ifdef CALLAYERS_LIBRARY
+overlay.generated()[i].renderId
+#else
+i
+#endif
+);overlay.mouse(1,int(p.x),int(p.y));SetCapture(window);
                     hoveredAnnotation=-1;changed();syncAnnotationControls();return;
                 }
                 blurCard();dragging=true;resizing=part!=CardPart::Border;resizePart=part;break;
@@ -679,6 +723,19 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam
 #ifdef CALLAYERS_GENERATION
             actions.generate=[app](std::wstring prompt){if(app->authenticated && app->auth.outputAllowed())app->generation.start(prompt,app->auth.idToken());};
             actions.cancelGeneration=[app]{app->generation.cancel();};
+#ifdef CALLAYERS_LIBRARY
+            actions.renameCard=[app](std::wstring id,std::wstring name){
+                auto first=name.find_first_not_of(L" \t\r\n"),last=name.find_last_not_of(L" \t\r\n");name=first==std::wstring::npos?L"":name.substr(first,last-first+1);
+                if(!app->overlay.renameCard(app->libraryIndex(id),name))MessageBoxW(app->window,L"Use a name between 1 and 80 characters. If an edit is being saved, wait and try again.",L"Name not saved",MB_OK|MB_ICONINFORMATION);app->syncCards();
+            };
+            actions.editCard=[app](std::wstring id,std::wstring prompt){int i=app->libraryIndex(id);if(i<0 || app->overlay.applying())return;app->finishGesture();app->blurCard();app->overlay.saveGenerated();if(app->authenticated && app->auth.outputAllowed())app->generation.start(prompt,app->auth.idToken(),app->overlay.generated()[i]);};
+            actions.deleteCard=[app](std::wstring id){int i=app->libraryIndex(id);if(i<0)return;app->finishGesture();app->blurCard();auto message=L"Delete \""+app->overlay.generated()[i].name+L"\"? It will be removed from your library and camera. This cannot be undone.";
+                if(MessageBoxW(app->window,message.c_str(),L"Delete card",MB_YESNO|MB_DEFBUTTON2|MB_ICONQUESTION)!=IDYES)return;
+                if(app->overlay.deleteCard(i)){app->selectedCard=-1;app->rebuildLibrary();app->changed();}
+            };
+            actions.stackCard=[app](std::wstring id,bool front){app->finishGesture();if(app->overlay.stackCard(app->libraryIndex(id),front))app->changed();};
+            actions.restoreCard=[app](std::wstring id){app->finishGesture();app->blurCard();if(app->overlay.restorePrevious(app->libraryIndex(id)))app->refreshGeneration();};
+#endif
 #ifdef CALLAYERS_IMAGES
             actions.importImage=[app]{
                 if(!app->authenticated || !app->auth.outputAllowed() || !app->workspace->finishText())return;
@@ -705,7 +762,7 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam
             actions.text=[app](std::wstring text,bool commit,double height){return app->commitText(std::move(text),commit,height);};
             actions.retry=[app]{
 #ifdef CALLAYERS_GENERATION
-                if(app->status==L"Card save unavailable"){app->overlay.retryState();app->selectedCard=-1;app->blurCard();app->cards.resize(3);app->restoreGeneratedCards();app->changed();return;}
+                if(app->status==L"Card save unavailable"){app->overlay.retryState();app->selectedCard=-1;app->blurCard();app->cards.resize(SavedCardOffset);app->restoreGeneratedCards();app->changed();return;}
 #endif
 #ifdef CALLAYERS_INTERACTIVE
                 if(app->status==L"Couldn't save card state"){app->overlay.retryState();return;}

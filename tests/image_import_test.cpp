@@ -15,6 +15,8 @@ int main(){std::filesystem::path path;try{winrt::init_apartment();
     DWORD size=0;check(CryptStringToBinaryW(png,0,CRYPT_STRING_BASE64,nullptr,&size,nullptr,nullptr));std::vector<BYTE> bytes(size);check(CryptStringToBinaryW(png,0,CRYPT_STRING_BASE64,bytes.data(),&size,nullptr,nullptr));
     {std::ofstream file(path,std::ios::binary);file.write(reinterpret_cast<char*>(bytes.data()),bytes.size());}
     auto card=ImportImage(path);check(card.width==1 && card.height==1 && !card.visible && card.name==path.filename().wstring() && ValidGeneratedCard(card));
+    check(RevisionInput(card).find(card.image)==std::wstring::npos && RevisionInput(card).find(L"callayers-image:local")!=std::wstring::npos);
+    GeneratedCard result;result.html=L"<h1>Caption</h1><img src=\"callayers-image:local\">";GeneratedCard revised;check(RevisedCard(card,result,revised));check(revised.image==card.image && CardDocument(revised).find(card.image)!=std::wstring::npos);GeneratedCard original;check(RestorePrevious(revised,original));check(original.image==card.image && original.html.empty() && !original.previous);
     std::filesystem::remove(path);std::vector<GeneratedCard> restored;check(ParseGeneratedCards(GeneratedCardsJson({card}),restored));check(restored[0].image==card.image && CardDocument(restored[0]).find(card.image)!=std::wstring::npos);
     // Check the saved PNG decodes after the original file has gone away.
     auto encoded=restored[0].image.substr(22);check(CryptStringToBinaryW(encoded.c_str(),DWORD(encoded.size()),CRYPT_STRING_BASE64,nullptr,&size,nullptr,nullptr));bytes.resize(size);check(CryptStringToBinaryW(encoded.c_str(),DWORD(encoded.size()),CRYPT_STRING_BASE64,bytes.data(),&size,nullptr,nullptr));

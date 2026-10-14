@@ -49,7 +49,9 @@ class Overlay {
     void fail(HRESULT error);
 #ifdef CALLAYERS_GENERATION
     std::unique_ptr<OfflineFiles> offlineFiles_;
-#ifdef CALLAYERS_IMAGES
+#ifdef CALLAYERS_LIBRARY
+    AnnotationStore generatedStore_{L"revision-cards.json",L"cards",L"library-cards.json",32*1024*1024};
+#elif defined(CALLAYERS_IMAGES)
     AnnotationStore generatedStore_{L"library-cards.json",L"cards",L"generated-cards.json",32*1024*1024};
 #else
     AnnotationStore generatedStore_{L"generated-cards.json",L"cards"};
@@ -59,6 +61,12 @@ class Overlay {
     unsigned generatedRevision_=0;
     ULONGLONG lastGeneratedPoll_=0;
     std::wstring lastGeneratedJson_;
+#ifdef CALLAYERS_LIBRARY
+    struct Replacement {std::wstring id;unsigned long long version;GeneratedCard card;unsigned saveRevision;bool failed=false;};
+    std::optional<Replacement> replacement_;
+    int nextRenderId_=0;
+    bool queueReplacement(int index,GeneratedCard card);
+#endif
     void generatedCheckpoint(bool force);
     void restoreGenerated();
     void installGenerated();
@@ -89,6 +97,16 @@ public:
     const std::vector<GeneratedCard>& generated()const{return generated_;}
     void generatedLayout(int index,double x,double y,double w,double h,bool visible);
     void saveGenerated(){generatedCheckpoint(true);}
+#ifdef CALLAYERS_LIBRARY
+    bool renameCard(int index,const std::wstring& name);
+    bool deleteCard(int index);
+    bool stackCard(int index,bool front);
+    bool reviseCard(const std::wstring& id,unsigned long long version,const GeneratedCard& result);
+    bool restorePrevious(int index);
+    int pollReplacement();
+    bool applying()const{return replacement_.has_value();}
+    void retryReplacement();
+#endif
 #endif
 #ifdef CALLAYERS_INTERACTIVE
     void mouse(int type,int x,int y);
@@ -97,7 +115,11 @@ public:
     void blur();
     void pointerTarget(int id);
     void retryState();
-    void saveCard(){checkpoint(true);}
+    void saveCard(){
+#ifndef CALLAYERS_LIBRARY
+        checkpoint(true);
+#endif
+    }
 #endif
 };
 }

@@ -5,7 +5,7 @@
 /*CALLAYERS_TEXT_STYLE*/
 html,body{margin:0;width:1280px;height:720px;overflow:hidden;background:transparent}
 iframe{position:absolute;border:0;background:transparent;pointer-events:none;transform-origin:top left}
-svg{position:absolute;inset:0;width:1280px;height:720px;pointer-events:none;z-index:10}
+svg{position:absolute;inset:0;width:1280px;height:720px;pointer-events:none;z-index:2147483647}
 </style></head><body><div id="cards"></div><svg id="ink" viewBox="0 0 1280 720"></svg>
 <script>
 'use strict';
@@ -34,7 +34,7 @@ window.setScene = scene => {
   if (!scene || !Array.isArray(scene.cards) || !Array.isArray(scene.annotations)) return;
   const visible = new Set();
   for (const c of scene.cards) {
-    if (!Number.isInteger(c.id) || c.id<0 || c.id>=documents.length || !c.visible) continue;
+    if (!Number.isInteger(c.id) || c.id<0 || typeof documents[c.id]!=='string' || !c.visible) continue;
     if (![c.x,c.y,c.w,c.h,c.contentW,c.contentH].every(Number.isFinite) || c.w<=0 || c.h<=0 || c.contentW<=0 || c.contentH<=0) continue;
     visible.add(c.id);
     let iframe=frames.get(c.id);
@@ -51,7 +51,7 @@ window.setScene = scene => {
     // text, graphics, borders and spacing together without reloading its scripts.
     for(const [name,value] of Object.entries({left:c.x,top:c.y,width:c.contentW,height:c.contentH})) iframe.style[name]=value+'px';
     iframe.style.transform=`scale(${Math.min(c.w/c.contentW,c.h/c.contentH)})`;
-    iframe.style.zIndex=String(c.id);
+    iframe.style.zIndex=String(Number.isInteger(c.layer)?c.layer:c.id);
   }
   for (const [id,frame] of frames) if(!visible.has(id)){frame.remove();frames.delete(id)}
   const ink=document.getElementById('ink');ink.replaceChildren();
