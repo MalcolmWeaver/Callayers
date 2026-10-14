@@ -20,7 +20,7 @@ These define the target product. This is a fresh implementation; v1 is a design 
 
 Updated October 13, 2026. The video foundation, resource investigation, WinUI workspace, remembered webcam, annotations (including text-editing fixes), proportional card scaling and Google sign-in are accepted for their tested builds. AI generation, interactive cards and GPU composition are not implemented. Earlier acceptance does not verify the expanded scope.
 
-**Next: step 6, interactive AI cards.** Start with rendering as detailed in [AI implementation](AI-IMPLEMENTATION.md). Full local interaction and explicit backend website-tool use are now MVP requirements. No completion date is set.
+**Next: step 6, interactive AI cards.** Verify the isolated Ultralight direct-pixel CPU workspace and compare full-app memory against the preserved CPU workspace as detailed in [AI implementation](AI-IMPLEMENTATION.md). Memory is the priority; GPU rendering is optional and should be selected only if it lowers RAM. Full local interaction and explicit backend website-tool use remain MVP requirements. No completion date is set.
 
 ### Complete MVP sequence
 
@@ -31,7 +31,7 @@ Updated October 13, 2026. The video foundation, resource investigation, WinUI wo
 | 3. Remembered webcam | Reopen the same working device; offer Retry/selection without silently substituting another. | Accepted |
 | 4. Annotations | Pen/shapes/text, selection, resizing, eraser, clear and autosave; editing stays private. | Accepted |
 | 5. Google sign-in | Browser return, remembered session, account validation and sign-out stopping output while retaining local work. | Accepted |
-| 6. Interactive AI cards | GPU rendering/composition, direct HTML interaction, saved state, AI creation, allowances and website tools. Architecture and small build steps live in [AI implementation](AI-IMPLEMENTATION.md). | Next |
+| 6. Interactive AI cards | Memory-focused HTML rendering/composition, direct HTML interaction, saved state, AI creation, allowances and website tools. Ultralight CPU integration awaits verification. Architecture and small build steps live in [AI implementation](AI-IMPLEMENTATION.md). | In progress |
 | 7. Image import and saved library | Import images; search, rename, visibility, stacking and confirmed delete. Restore cards, placement and visibility. Basic card/state saving arrives in step 6. | Not started |
 | 8. AI revision and previous version | Revise a selected card, preserve referenced images and keep one previous version. Restore content/name with current placement/visibility and default replacement state. Failed/late responses preserve newer work. See [AI implementation](AI-IMPLEMENTATION.md#revision-in-step-8). | Not started |
 | 9. Telemetry and consumer identity | Requirements remain in DATA.md/BACKEND.md/FRAMES.md. Retained in the roadmap, explicitly deferred beyond the runnable MVP. | Deferred |

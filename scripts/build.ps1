@@ -1,4 +1,4 @@
-param([ValidateSet('Debug','Release')][string]$Configuration = 'Release', [switch]$DiagnosticsBuild, [switch]$WorkspaceBuild)
+param([ValidateSet('Debug','Release')][string]$Configuration = 'Release', [switch]$DiagnosticsBuild, [switch]$WorkspaceBuild, [switch]$UltralightBuild)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
@@ -30,11 +30,18 @@ if (-not (Test-Path -LiteralPath (Join-Path $winui 'include\MddBootstrap.h'))) {
         Expand-Archive -LiteralPath $package -DestinationPath $winui -Force
     }
 }
-if ($DiagnosticsBuild -and $WorkspaceBuild) { throw 'Choose one build output.' }
-$build = Join-Path $repo $(if ($WorkspaceBuild) { 'build\workspace-x64' } elseif ($DiagnosticsBuild) { 'build\diagnostics-x64' } else { 'build\x64' })
-& cmake -S $repo -B $build -G $generator -A x64 "-DCMAKE_GENERATOR_INSTANCE=$($installation.installationPath)" "-DWEBVIEW2_ROOT=$sdk" "-DWINDOWSAPPSDK_ROOT=$winui"
+if (([int]$DiagnosticsBuild.IsPresent + [int]$WorkspaceBuild.IsPresent + [int]$UltralightBuild.IsPresent) -gt 1) { throw 'Choose one build output.' }
+if ($UltralightBuild -and -not (Test-Path "$repo/.deps/ultralight/include/Ultralight/Ultralight.h")) { throw 'Run scripts/build-renderer-test.ps1 first to acquire the pinned Ultralight SDK.' }
+if ($UltralightBuild -and (Get-Content "$repo/.deps/ultralight/VERSION.txt" -Raw).Trim() -ne '2.0.0-beta.2') { throw 'Expected the pinned Ultralight 2.0.0-beta.2 SDK.' }
+$build = Join-Path $repo $(if ($UltralightBuild) { 'build\ultralight-workspace-x64' } elseif ($WorkspaceBuild) { 'build\workspace-x64' } elseif ($DiagnosticsBuild) { 'build\diagnostics-x64' } else { 'build\x64' })
+$ultralightOption=if ($UltralightBuild) {'ON'} else {'OFF'}
+& cmake -S $repo -B $build -G $generator -A x64 "-DCMAKE_GENERATOR_INSTANCE=$($installation.installationPath)" "-DWEBVIEW2_ROOT=$sdk" "-DWINDOWSAPPSDK_ROOT=$winui" "-DCALLAYERS_ULTRALIGHT_CPU=$ultralightOption"
 if ($LASTEXITCODE -ne 0) { throw 'Build configuration failed.' }
 & cmake --build $build --config $Configuration --parallel 4
 if ($LASTEXITCODE -ne 0) { throw 'Compilation failed. Close Callayers and any calling app holding its camera DLL before rebuilding.' }
+if ($UltralightBuild) {
+    $backendFile=Join-Path $repo 'build/workspace-x64/Release/service-url.txt'
+    if (Test-Path $backendFile) { Copy-Item -LiteralPath $backendFile -Destination "$build/$Configuration/service-url.txt" }
+}
 Write-Host "Build ready: $build\$Configuration\Callayers.exe"
 Write-Host 'This compilation is not a runtime pass. Follow the active feature checklist and AGENTS.md with the user.'

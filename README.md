@@ -29,6 +29,14 @@ Close any other Callayers instance before launching. The already registered foun
 
 The user performs every runtime check. The foundation and current resource cost have been accepted for the MVP; final evidence is preserved in Git. Follow [the delivery plan](spec-v2/README.md) and [feature verification guidance](AGENTS.md) for the next improvement. Compilation alone does not establish that video, transparency, minimize behavior, DirectShow discovery, or performance work.
 
+## Isolated Ultralight CPU workspace
+
+Build with `.\scripts\build.ps1 -UltralightBuild` and launch `.\build\ultralight-workspace-x64\Release\Callayers.exe` after closing other Callayers instances. The old `workspace-x64` output and its camera registration stay available; no new registration or backend deployment is needed. The build copies the workspace's existing service URL and the pinned Ultralight Free SDK 2.0.0-beta.2 runtime/resources/license.
+
+The overlay uses the same fixed HTML cards and annotation stylesheet. Ultralight renders transparent 720p pixels directly; a bounded three-entry reusable pool hands immutable frames to the existing CPU compositor and DirectShow bridge, with no PNG encoding/decoding. A separate bounded pool supplies private text-editing pictures. Inactive overlay work stops, and finished annotations alone enter outgoing video. The existing private text editor still uses WebView2, with an isolated `UltralightWorkspace/WebView2` profile; measure its cost after editing separately. This fixed-content experiment does not establish isolation or compatibility for arbitrary generated cards.
+
+Use `.\scripts\measure-resources.ps1 -UltralightBuild -Scenario MinimizedMeet` for the new executable and `-WorkspaceBuild` for the old one. Keep the webcam, all three sample cards, one annotation and Meet conditions matched. Reports count the desktop and its attributed browser processes. Compare committed private memory and CPU alongside user-observed smoothness; no full-app savings or runtime pass is claimed before user verification. Run `ctest --test-dir build/ultralight-workspace-x64 -C Release --output-on-failure` for automated checks.
+
 ## Structure
 
 - `native/auth.*`, `native/auth_protocol.*` and `native/auth_store.*`: background Google/Firebase sign-in, PKCE/state and a single-use temporary loopback callback, account validation, renewal, and current-user DPAPI protection of the refresh session in the isolated v2 registry key. Signed-out startup has no camera/editor access. A temporary outage preserves an already running call; confirmed invalid access and sign-out invalidate the shared output immediately. No credentials are logged. The v2 backend is deployed and configured; the user accepted browser sign-in, remembered-session restoration and sign-out output gating on October 13, 2026.

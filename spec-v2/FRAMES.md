@@ -28,8 +28,8 @@ An iframe contains a card's document and styles. Self-contained describes its de
 ## How we build it
 
 ```text
-Local cards -> WebView2 overlay page
-              - sandboxed iframe for each visible card
+Local cards -> HTML renderer (Ultralight CPU candidate)
+              - isolated document for each visible card
               - parent controls placement and stacking
               - parent draws annotations
                          |
@@ -41,9 +41,9 @@ Webcam frames ------> compositor -> latest complete picture -> app preview
                                                                  -> calling app
 ```
 
-**Capture and composition.** The desktop opens the chosen webcam. A Direct3D 11 GPU compositor fits it to the fixed canvas and combines it with the latest complete overlay. Capture the live WebView2 composition visual as GPU frames using Windows Graphics Capture; blend webcam, cards and annotations on the GPU. Read back only the finished output for the existing CPU shared-memory/DirectShow bridge; use the composed GPU texture for preview. Webcam upload may still be needed; this is not a zero-copy promise. Preserve aspect ratio, using bars where necessary. Placement and annotations use canvas coordinates so resizing the app or changing Windows display scale does not move outgoing content. Preview-only editing controls sit above the finished picture.
+**Capture and composition.** The desktop opens the chosen webcam, fits it to the fixed canvas and combines it with the latest complete overlay. Evaluate Ultralight CPU rendering to transparent pixels, bounded CPU copies/blending and the existing shared-memory/DirectShow bridge. Reuse buffers and drop superseded pictures. Memory is the primary optimization goal; retain usable video and interaction. GPU rendering is optional and should be selected only if matched measurements show lower RAM. Preserve aspect ratio, using bars where necessary. Placement and annotations use canvas coordinates so resizing the app or changing Windows display scale does not move outgoing content. Preview-only editing controls sit above the finished picture.
 
-**Card rendering.** Use one WebView2 overlay page with a transparent background. Each visible card has a sandboxed iframe; the parent owns its bounds and stacking order. Enforce [AI.md](AI.md)'s restrictions: no external network, navigation, downloads, device access, persistent storage, or direct native-host access. Any allowed card messages use a small validated interface.
+**Card rendering.** Use transparent HTML/CSS/JS documents; the application owns bounds and stacking order. Evaluate Ultralight against the preserved WebView2 CPU workspace. Verify separation between documents and enforce [AI.md](AI.md)'s restrictions: no external network, navigation, downloads, device access, persistent storage, or direct native-host access. A different engine's frames are not assumed equivalent to sandboxed WebView2 iframes. The current integration runs only the trusted fixed sample documents; it does not establish these protections for generated cards. Any allowed card messages use a small validated interface.
 
 **Live rendering and input.** Keep HTML/CSS/JS live and send its rendered frames to the compositor without repeated PNG/JPEG encoding and decoding in the normal video path. The current PNG-capture implementation is a prototype to replace, not the required architecture. Route input inside card bounds to its HTML, accounting for preview scaling and placement. Private border/corner controls take priority for selection, movement and scaling; active annotation tools take priority over card input. Hit overlapping cards in front-to-back order and retain the input target through a drag. No mode switch is required. Allow only the validated state messages described in [DATA.md](DATA.md).
 
@@ -57,7 +57,7 @@ Minimizing during a call keeps cards and timers running. Without a consumer, sav
 
 **Independent work.** Network requests, file writes, and expensive image processing stay off the video delivery path and do not block the browser's UI thread. Publish a successful card revision only when its replacement is ready. Discard late work from a stopped session.
 
-This is a fresh implementation. Git history provides design references and evidence that transparent iframe cards, minimized animation, and virtual-camera delivery worked previously; do not restore or port the old implementation. The previous output used Media Foundation, so it does not establish DirectShow compatibility or a performance advantage. Verify the new output in one chosen calling app. The GPU handoff/compositor is required by the revised MVP; further optimization should follow measured problems.
+This is a fresh implementation. Git history provides design references and evidence that transparent iframe cards, minimized animation, and virtual-camera delivery worked previously; do not restore or port v1. The previous output used Media Foundation, so it does not establish DirectShow compatibility or a performance advantage. Verify the new output in one chosen calling app. Keep the accepted v2 CPU workspace available and compare full-app memory under matched conditions before selecting the renderer.
 
 ## Consumer identity (implement with telemetry)
 
@@ -82,7 +82,7 @@ The app must be open to supply live video, but its window need not be visible. T
 
 ## Build order
 
-Delivery order, status and the next step live only in the [consolidated plan](README.md#consolidated-plan--session-handoff). This document defines the target video architecture; the current prototype does not yet meet the GPU/input requirements.
+Delivery order, status and the next step live only in the [consolidated plan](README.md#consolidated-plan--session-handoff). This document defines target video behavior; the CPU renderer integration awaits runtime verification and direct card input/state remain later work.
 
 ## Minimum verification
 

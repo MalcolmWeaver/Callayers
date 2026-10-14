@@ -13,7 +13,11 @@
 #include <sstream>
 #include <thread>
 #include "capture.h"
+#ifdef CALLAYERS_ULTRALIGHT_CPU
+#include "overlay_ultralight.h"
+#else
 #include "overlay.h"
+#endif
 #include "frame_bridge.h"
 #include "resource_diagnostics.h"
 #include "workspace.h"
@@ -476,6 +480,16 @@ struct App {
                         bridge.stop();camera.stop();started=false;
                     }
                     else {
+#ifdef CALLAYERS_ULTRALIGHT_CPU
+                        {
+                            std::lock_guard lock(overlay.state->mutex);
+                            if(overlay.state->epoch==overlay.state->currentEpoch){
+                                overlayFrame=overlay.state->image;
+                                privateOverlayFrame=overlay.state->privateImage;
+                                privateTextId=overlay.state->privateTextId;
+                            }else{overlayFrame.reset();privateOverlayFrame.reset();privateTextId=0;}
+                        }
+#else
                         std::vector<uint8_t> png,privatePng; ULONGLONG tick=0; unsigned epoch=0;uint64_t textId=0;
                         {std::lock_guard lock(overlay.state->mutex);png.swap(overlay.state->png);privatePng.swap(overlay.state->privatePng);tick=overlay.state->tick;epoch=overlay.state->epoch;textId=overlay.state->privateTextId;}
                         if(!png.empty() && epoch==overlay.state->currentEpoch) {
@@ -487,6 +501,7 @@ struct App {
                                 else if(!privateTextId || privateTextId!=overlay.state->requestedPrivateTextId){privateOverlayFrame.reset();privateTextId=0;}
                             }
                         }
+#endif
                         std::shared_ptr<const CameraImage> image;
                         {std::lock_guard lock(camera.state->mutex);image=camera.state->latest;}
                         ULONGLONG now=GetTickCount64();
