@@ -99,7 +99,7 @@ void Overlay::retry(HINSTANCE instance){
     {std::lock_guard lock(state->mutex);state->image.reset();state->privateImage.reset();state->privateTextId=0;}
     ++state->currentEpoch;initialize(instance);
 }
-void Overlay::update(const std::wstring& json){scene_=json;scenePending_=true;}
+void Overlay::update(const std::wstring& json){scene_=json;scenePending_=true;++sceneRevision_;}
 void Overlay::enable(bool enabled){
     if(enabled_==enabled)return;
     enabled_=enabled;++state->currentEpoch;scenePending_=true;
@@ -124,7 +124,7 @@ std::shared_ptr<OverlayImage> Overlay::copy(std::array<std::shared_ptr<OverlayIm
     auto surface=view_->surface();if(!surface)return {};
     auto pixels=static_cast<const uint8_t*>(surface->LockPixels());if(!pixels)return {};
     for(int y=0;y<Height;++y)memcpy((*slot)->pixels.data()+size_t(y)*Width*4,pixels+size_t(y)*surface->row_bytes(),Width*4);
-    surface->UnlockPixels();(*slot)->tick=tick;return *slot;
+    surface->UnlockPixels();(*slot)->tick=tick;(*slot)->sceneRevision=sceneRevision_;return *slot;
 }
 void Overlay::capture(){
     if(!view_ || !enabled_ || state->failed)return;
@@ -150,6 +150,7 @@ void Overlay::capture(){
             if(hiding)restoreNeeded_=true;
 #endif
             if(!scene_.empty())script("window.setScene("+winrt::to_string(scene_)+")");scenePending_=false;
+            view_->set_needs_paint(true);
         }
 #if defined(CALLAYERS_INTERACTIVE) && !defined(CALLAYERS_LIBRARY)
         restoreCard();checkpoint(false);
@@ -160,6 +161,7 @@ void Overlay::capture(){
         if(generatedRevision_){auto result=generatedStore_.result();if(result.revision==generatedRevision_){state->generatedSaveError=result.error;generatedRevision_=0;}}
 #endif
         const auto epoch=state->currentEpoch.load();const auto tick=GetTickCount64();
+        renderer_->RefreshDisplay(0);
         renderer_->Render();
 #if defined(CALLAYERS_INTERACTIVE) && !defined(CALLAYERS_LIBRARY)
         if(cardVisible_ && restoreNeeded_)return; // Never publish defaults before saved values restore.

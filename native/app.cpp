@@ -16,10 +16,12 @@
 #include "capture.h"
 #ifdef CALLAYERS_ULTRALIGHT_CPU
 #include "overlay_ultralight.h"
+#include "pen_preview.h"
 #else
 #include "overlay.h"
 #endif
 #include "frame_bridge.h"
+#include "preview_frame.h"
 #include "resource_diagnostics.h"
 #include "workspace.h"
 #include "camera_preferences.h"
@@ -48,7 +50,7 @@ struct Card {
     // changes presentation scale, so scripts/animation and text layout survive.
     double contentW = w, contentH = h;
 };
-struct PresentedFrame { std::vector<uint8_t> pixels; bool live = false; ULONGLONG tick = 0; unsigned version = 0; uint64_t hiddenTextId=0; };
+
 struct App {
     HWND window = nullptr;
     std::unique_ptr<Workspace> workspace;
@@ -58,6 +60,9 @@ struct App {
     int backWidth = 0, backHeight = 0;
     FrameBridge bridge;
     Overlay overlay;
+#ifdef CALLAYERS_ULTRALIGHT_CPU
+    PenPreview penPreview;
+#endif
     std::vector<CameraDevice> devices;
     int selectedCamera = -1;
     std::mutex commandMutex, previewMutex;
@@ -76,6 +81,36 @@ struct App {
     std::atomic<bool> opening{false};
     std::thread worker;
     std::shared_ptr<const PresentedFrame> preview;
+#ifdef CALLAYERS_ULTRALIGHT_CPU
+    std::shared_ptr<const CameraImage> previewCamera;
+    unsigned previewCameraVersion=0;
+#endif
+    void presentPreview(std::shared_ptr<PresentedFrame> frame) {
+        std::lock_guard lock(previewMutex);
+        if(ShouldReplacePreview(preview.get(),*frame))preview=std::move(frame);
+    }
+#ifdef CALLAYERS_ULTRALIGHT_CPU
+    void refreshCardPreview() {
+        if(!authenticated || !auth.outputAllowed() || !demand || quitting || FAILED(captureError.load()) || IsIconic(window))return;
+        std::shared_ptr<const CameraImage> camera;unsigned version;
+        {std::lock_guard lock(previewMutex);camera=previewCamera;version=previewCameraVersion;}
+        if(!camera || version!=commandVersion || GetTickCount64()-camera->tick>=FreshMs)return;
+        // Render the current geometry during this input event, then compose it
+        // with the latest camera image instead of waiting for the video loop.
+        overlay.capture();
+        std::shared_ptr<OverlayImage> layer;uint64_t hiddenText=0;unsigned epoch;
+        {std::lock_guard lock(overlay.state->mutex);
+            epoch=overlay.state->epoch;if(epoch!=overlay.state->currentEpoch)return;
+            layer=overlay.state->image;
+            if(overlay.state->privateImage && overlay.state->privateTextId && overlay.state->privateTextId==overlay.state->requestedPrivateTextId){layer=overlay.state->privateImage;hiddenText=overlay.state->privateTextId;}
+        }
+        if(!layer || overlay.state->failed || GetTickCount64()-layer->tick>=FreshMs)return;
+        auto frame=std::make_shared<PresentedFrame>();ComposeFrame(*camera,*layer,frame->pixels);
+        frame->live=true;frame->version=version;frame->tick=std::min(camera->tick,layer->tick);frame->cameraTick=camera->tick;
+        frame->sceneRevision=layer->sceneRevision;frame->hiddenTextId=hiddenText;
+        if(version==commandVersion && epoch==overlay.state->currentEpoch && demand && auth.outputAllowed() && !quitting && SUCCEEDED(captureError.load()))presentPreview(std::move(frame));
+    }
+#endif
 #ifdef CALLAYERS_INTERACTIVE
 #ifdef CALLAYERS_GENERATION
 #ifdef CALLAYERS_LIBRARY
@@ -138,6 +173,10 @@ struct App {
     HRESULT annotationRestoreError=S_OK;
     bool annotationSaveFailed=false, draggingAnnotation=false;
     bool dragging=false, resizing=false, drawing=false;
+    bool erasing=false,eraseChanged=false,eraseInside=false,eraserOnPreview=false;
+    InkPoint erasePoint{},eraserCursor{};
+    std::vector<Annotation> eraseOriginal;
+    uint64_t eraseOriginalNextId=0;
     int selectedCard = -1;
     InkPoint dragStart{}; Card original{};
     RECT previewRect{};
@@ -170,7 +209,11 @@ struct App {
             blurCard();
 #endif
             lockVideo();overlay.enable(false);
-            {std::lock_guard lock(previewMutex);preview.reset();}
+            {std::lock_guard lock(previewMutex);preview.reset();
+#ifdef CALLAYERS_ULTRALIGHT_CPU
+            previewCamera.reset();previewCameraVersion=0;
+#endif
+            }
             if(workspace && workspace->editingText())workspace->finishText(false);
             finishGesture(true);
         }else if(!rendererInitialized){rendererInitialized=true;overlay.initialize(GetModuleHandleW(nullptr));}
@@ -207,11 +250,24 @@ struct App {
         workspace->card(selectedCard,visible.get());
 #endif
     } }
-    void changed() {
+    void changed(bool syncSidebar=true) {
 #ifdef CALLAYERS_GENERATION
-        syncGeneratedLayout();
+        if(syncSidebar)syncGeneratedLayout();
 #endif
-        overlay.update(scene()); syncCards(); InvalidateRect(window, nullptr, FALSE); }
+        overlay.update(scene());
+#ifdef CALLAYERS_ULTRALIGHT_CPU
+        const bool livePen=drawing && selectedAnnotation>=0 && annotations[selectedAnnotation].kind==AnnotationTool::Pen;
+        if(livePen)penPreview.follow(annotations[selectedAnnotation].id,overlay.sceneRevision());
+#endif
+        if(syncSidebar)syncCards();
+        InvalidateRect(window,syncSidebar?nullptr:&previewRect,FALSE);
+#ifdef CALLAYERS_ULTRALIGHT_CPU
+        const bool movingCard=dragging && selectedCard>=0;
+        if(movingCard)refreshCardPreview();
+        // Paint the input result now instead of waiting behind more mouse moves.
+        if(livePen || movingCard)UpdateWindow(window);
+#endif
+    }
     void enumerate(bool initial = false) {
         if(initial) {
             rememberedCamera=preferences.load(preferenceLoadError);
@@ -319,7 +375,14 @@ struct App {
     }
     void eraseAnnotation(int index) {
         if(index<0 || index>=int(annotations.size()))return;
-        annotations.erase(annotations.begin()+index);selectedAnnotation=hoveredAnnotation=-1;changed();syncAnnotationControls();saveAnnotations();
+        annotations.erase(annotations.begin()+index);selectedAnnotation=hoveredAnnotation=-1;
+        if(erasing)eraseChanged=true;
+        changed(!erasing);syncAnnotationControls();if(!erasing)saveAnnotations();
+    }
+    void erasePen(InkPoint start,InkPoint end) {
+        auto result=ErasePenPath(annotations,start,end,hitTolerance(),nextAnnotationId);
+        if(result==PenEraseResult::Changed){eraseChanged=true;selectedAnnotation=hoveredAnnotation=-1;changed(false);}
+        else if(result==PenEraseResult::LimitReached){finishGesture();MessageBoxW(window,L"There are too many stroke fragments. Remove an annotation before erasing more sections.",L"Annotations",MB_OK|MB_ICONINFORMATION);}
     }
     bool measureText(Annotation& a) {
         HDC dc=GetDC(window);HFONT textFont=CreateFontW(-int(std::round(a.font)),0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Segoe UI");
@@ -362,7 +425,7 @@ struct App {
         blurCard();
 #endif
         finishGesture();if(workspace && !workspace->finishText()){syncAnnotationControls();return;}
-        tool=chosen;hoveredAnnotation=-1;if(tool!=AnnotationTool::Select)selectedCard=-1;
+        tool=chosen;hoveredAnnotation=-1;eraserOnPreview=false;if(tool!=AnnotationTool::Select)selectedCard=-1;
         if(isShape(tool))selectedAnnotation=-1;
         syncCards();syncAnnotationControls();InvalidateRect(window,nullptr,FALSE);
     }
@@ -387,14 +450,29 @@ struct App {
         if(htmlDrag>=0){overlay.mouse(2,-1000,-1000);overlay.pointerTarget(-1);htmlDrag=-1;}
 #endif
         bool edited=drawing || draggingAnnotation;
+        const bool movedCard=dragging && selectedCard>=0;
+        const bool erased=erasing && eraseChanged;
+        if(erasing && cancel && erased){annotations=std::move(eraseOriginal);nextAnnotationId=eraseOriginalNextId;selectedAnnotation=hoveredAnnotation=-1;}
+        erasing=eraseChanged=eraseInside=false;std::vector<Annotation>().swap(eraseOriginal);
+#ifdef CALLAYERS_ULTRALIGHT_CPU
+        const bool penGesture=drawing && selectedAnnotation>=0 && annotations[selectedAnnotation].kind==AnnotationTool::Pen;
+        if(cancel && penGesture)penPreview.cancel(annotations[selectedAnnotation].id);
+        else if(cancel && !authenticated)penPreview.clear();
+#endif
         if(cancel && edited && selectedAnnotation>=0){if(drawing)annotations.erase(annotations.begin()+selectedAnnotation);else annotations[selectedAnnotation]=originalInk;selectedAnnotation=-1;}
         else if(drawing && selectedAnnotation>=0){const auto& a=annotations[selectedAnnotation];auto b=Bounds(a);if((a.kind==AnnotationTool::Rectangle || a.kind==AnnotationTool::Ellipse) && (b.w<3 || b.h<3)){annotations.erase(annotations.begin()+selectedAnnotation);selectedAnnotation=-1;}}
         drawing=dragging=draggingAnnotation=resizing=false;
 #ifdef CALLAYERS_GENERATION
         syncGeneratedLayout();overlay.saveGenerated();
 #endif
-        if(edited){changed();syncAnnotationControls();if(!cancel)saveAnnotations();}
+        if(edited || erased || movedCard){changed();syncAnnotationControls();if((edited || erased) && !cancel)saveAnnotations();}
+#ifdef CALLAYERS_ULTRALIGHT_CPU
+        if(movedCard){refreshCardPreview();UpdateWindow(window);}
+#endif
         if(GetCapture()==window)ReleaseCapture();
+#ifdef CALLAYERS_ULTRALIGHT_CPU
+        if(penGesture)UpdateWindow(window);
+#endif
     }
     void pointerDown(int x,int y) {
         if(workspace && !workspace->finishText())return;
@@ -406,7 +484,16 @@ struct App {
         }
         SetFocus(window);InkPoint p=canvasPoint(x,y);dragStart=p;
         if(tool==AnnotationTool::Text){int hit=annotationAt(p);beginText(p,hit>=0 && annotations[hit].kind==AnnotationTool::Text?hit:-1);return;}
-        if(tool==AnnotationTool::Eraser){eraseAnnotation(annotationAt(p));return;}
+        if(tool==AnnotationTool::Eraser){
+#ifdef CALLAYERS_INTERACTIVE
+            blurCard();
+#endif
+            eraseOriginal=annotations;eraseOriginalNextId=nextAnnotationId;
+            erasing=true;eraseChanged=false;eraseInside=eraserOnPreview=true;erasePoint=eraserCursor=p;
+            selectedCard=-1;SetCapture(window);int hit=annotationAt(p);
+            if(hit>=0 && annotations[hit].kind!=AnnotationTool::Pen)eraseAnnotation(hit);else erasePen(p,p);
+            selectedAnnotation=hoveredAnnotation=-1;syncCards();syncAnnotationControls();InvalidateRect(window,&previewRect,FALSE);return;
+        }
         if(tool!=AnnotationTool::Select) {
             size_t count=0;for(const auto& a:annotations)count+=a.points.size();
             if(annotations.size()>=MaxAnnotations || count>=MaxInkPoints-2){MessageBoxW(window,L"There are too many annotations. Remove a few to continue.",L"Annotations",MB_OK);return;}
@@ -468,7 +555,13 @@ i
         if(htmlDrag>=0){auto point=inputPoint(x,y);overlay.mouse(0,int(point.x),int(point.y));return;}
         if(tool==AnnotationTool::Select && !dragging && !draggingAnnotation){POINT at{x,y};if(PtInRect(&previewRect,at))overlay.mouse(0,int(p.x),int(p.y));}
 #endif
-        if(tool==AnnotationTool::Eraser){POINT at{x,y};int hover=PtInRect(&previewRect,at)?annotationAt(p):-1;if(hover!=hoveredAnnotation){hoveredAnnotation=hover;InvalidateRect(window,nullptr,FALSE);}TRACKMOUSEEVENT track{sizeof(track),TME_LEAVE,window,0};TrackMouseEvent(&track);return;}
+        if(tool==AnnotationTool::Eraser){
+            POINT at{x,y};bool inside=PtInRect(&previewRect,at);
+            if(erasing && GetCapture()==window){if(inside)erasePen(eraseInside?erasePoint:p,p);erasePoint=p;eraseInside=inside;}
+            eraserOnPreview=inside;eraserCursor=p;hoveredAnnotation=inside?annotationAt(p):-1;
+            InvalidateRect(window,&previewRect,FALSE);
+            TRACKMOUSEEVENT track{sizeof(track),TME_LEAVE,window,0};TrackMouseEvent(&track);return;
+        }
         if(drawing && selectedAnnotation>=0) {
             auto& a=annotations[selectedAnnotation];
             if(a.kind==AnnotationTool::Pen){if(a.points.size()>=4096)return;size_t count=0;for(const auto& item:annotations)count+=item.points.size();if(count>=MaxInkPoints)return;auto last=a.points.back();if(std::hypot(p.x-last.x,p.y-last.y)<2)return;a.points.push_back(p);}
@@ -495,15 +588,21 @@ i
             }
             else {c.x=std::clamp(original.x+p.x-dragStart.x,0.0,Width-c.w);c.y=std::clamp(original.y+p.y-dragStart.y,0.0,Height-c.h);}
         }else return;
-        changed();
+        changed(!((drawing && selectedAnnotation>=0 && annotations[selectedAnnotation].kind==AnnotationTool::Pen) || (dragging && selectedCard>=0)));
     }
     void doubleClick(int x,int y){POINT at{x,y};if(!PtInRect(&previewRect,at) || !demand || FAILED(captureError.load()))return;InkPoint p=canvasPoint(x,y);int hit=annotationAt(p);if((tool==AnnotationTool::Select || tool==AnnotationTool::Text)&&hit>=0&&annotations[hit].kind==AnnotationTool::Text){finishGesture();beginText(p,hit);}else pointerDown(x,y);}
     void text(HDC dc, const std::wstring& value, RECT rect, UINT flags = DT_LEFT | DT_WORDBREAK) { DrawTextW(dc, value.c_str(), -1, &rect, flags); }
     void paintAnnotationControls(HDC dc) {
         if(workspace && workspace->editingText())return;
+        if(tool==AnnotationTool::Eraser && eraserOnPreview){
+            double radius=hitTolerance();auto circle=inkRect({eraserCursor.x-radius,eraserCursor.y-radius,radius*2,radius*2});
+            int saved=SaveDC(dc);IntersectClipRect(dc,previewRect.left,previewRect.top,previewRect.right,previewRect.bottom);
+            HPEN pen=CreatePen(PS_SOLID,px(1),RGB(255,130,130));auto oldPen=SelectObject(dc,pen),oldBrush=SelectObject(dc,GetStockObject(NULL_BRUSH));
+            Ellipse(dc,circle.left,circle.top,circle.right,circle.bottom);SelectObject(dc,oldBrush);SelectObject(dc,oldPen);DeleteObject(pen);RestoreDC(dc,saved);
+        }
         int index=tool==AnnotationTool::Eraser?hoveredAnnotation:tool==AnnotationTool::Select?selectedAnnotation:-1;
         if(index<0 || index>=int(annotations.size()))return;
-        const auto& a=annotations[index];auto b=Bounds(a);RECT r=inkRect(b);
+        const auto& a=annotations[index];if(tool==AnnotationTool::Eraser && a.kind==AnnotationTool::Pen)return;auto b=Bounds(a);RECT r=inkRect(b);
         bool erase=tool==AnnotationTool::Eraser;COLORREF color=erase?RGB(255,130,130):RGB(109,211,255);
         HPEN outline=CreatePen(erase?PS_DASH:PS_SOLID,erase?1:px(2),color);
         auto oldPen=SelectObject(dc,outline),oldBrush=SelectObject(dc,GetStockObject(NULL_BRUSH));
@@ -549,6 +648,9 @@ i
 #endif
                 DeleteObject(b);
             }
+#ifdef CALLAYERS_ULTRALIGHT_CPU
+            penPreview.paint(dc,annotations,previewRect,frame->sceneRevision);
+#endif
             paintAnnotationControls(dc);
         }
         BitBlt(target,0,0,client.right,client.bottom,dc,0,0,SRCCOPY); EndPaint(window,&ps);
@@ -601,25 +703,6 @@ i
 #endif
 #endif
         if(workspace)workspace->state(state,message,fresh,error==E_ACCESSDENIED,fresh && (preferenceSaveFailed || annotationSaveFailed || FAILED(annotationRestoreError) || cardSaveFailed || !login.message.empty()),cameraChoices);
-    }
-    static void compose(const CameraImage& camera, const OverlayImage& overlay, std::vector<uint8_t>& output) {
-        StageTimer timing(VideoStage::Compose);
-        output.assign(PixelBytes,0);
-        double scale=std::min(double(Width)/camera.width,double(Height)/camera.height);
-        int w=std::max(1,int(camera.width*scale)), h=std::max(1,int(camera.height*scale));
-        int left=(Width-w)/2, top=(Height-h)/2;
-        for(int y=0;y<h;++y) {
-            UINT sourceY=std::min(camera.height-1,UINT(y/scale));
-            auto dst=output.data()+(size_t(y+top)*Width+left)*4;
-            auto row=camera.pixels.data()+size_t(sourceY)*camera.width*4;
-            if (w == int(camera.width)) memcpy(dst, row, size_t(w)*4);
-            else for(int x=0;x<w;++x) { UINT sourceX=std::min(camera.width-1,UINT(x/scale)); memcpy(dst+x*4,row+sourceX*4,4); }
-        }
-        for(size_t i=0;i<PixelBytes;i+=4) {
-            unsigned inverse=255-overlay.pixels[i+3];
-            for(int c=0;c<3;++c) output[i+c]=uint8_t(std::min(255u,unsigned(overlay.pixels[i+c])+(unsigned(output[i+c])*inverse+127)/255));
-            output[i+3]=255;
-        }
     }
     void videoLoop() {
         CoInitializeEx(nullptr, COINIT_MULTITHREADED);
@@ -676,18 +759,24 @@ i
 #endif
                         std::shared_ptr<const CameraImage> image;
                         {std::lock_guard lock(camera.state->mutex);image=camera.state->latest;}
+#ifdef CALLAYERS_ULTRALIGHT_CPU
+                        if(version==commandVersion && demand){std::lock_guard lock(previewMutex);previewCamera=image;previewCameraVersion=version;}
+#endif
                         ULONGLONG now=GetTickCount64();
                         bool fresh=image && overlayFrame && now-image->tick<FreshMs && now-overlayFrame->tick<FreshMs && !overlay.state->failed;
                         if(fresh && version==commandVersion && demand && auth.outputAllowed() && !quitting) {
                             auto result=std::make_shared<PresentedFrame>();
-                            compose(*image,*overlayFrame,result->pixels); result->live=true; result->version=version;
-                            result->tick=std::min(image->tick,overlayFrame->tick);
+                            ComposeFrame(*image,*overlayFrame,result->pixels); result->live=true; result->version=version;
+                            result->tick=std::min(image->tick,overlayFrame->tick);result->cameraTick=image->tick;
+#ifdef CALLAYERS_ULTRALIGHT_CPU
+                            result->sceneRevision=overlayFrame->sceneRevision;
+#endif
                             if(version==commandVersion && demand && auth.outputAllowed() && !quitting) {
                                 { StageTimer timing(VideoStage::Publish); bridge.publish(result->pixels,session,result->tick); }
                                 // The completed overlay alone crosses the camera bridge. Only
                                 // this window's preview hides the text being privately edited.
-                                if(privateOverlayFrame && privateTextId && privateTextId==overlay.state->requestedPrivateTextId){compose(*image,*privateOverlayFrame,result->pixels);result->hiddenTextId=privateTextId;}
-                                std::lock_guard lock(previewMutex);preview=std::move(result);
+                                if(privateOverlayFrame && privateTextId && privateTextId==overlay.state->requestedPrivateTextId){ComposeFrame(*image,*privateOverlayFrame,result->pixels);result->hiddenTextId=privateTextId;}
+                                presentPreview(std::move(result));
                             }
                         } else {
                             // Let the last publication expire. A producer stall must
@@ -822,6 +911,7 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam
 #ifdef CALLAYERS_INTERACTIVE
         if(app->htmlDrag>=0){app->htmlUp(GET_X_LPARAM(lParam),GET_Y_LPARAM(lParam));return 0;}
 #endif
+        if((app->drawing && app->tool==AnnotationTool::Pen) || app->erasing || app->dragging)app->pointerMove(GET_X_LPARAM(lParam),GET_Y_LPARAM(lParam));
         app->finishGesture();return 0;
 #ifdef CALLAYERS_INTERACTIVE
     case WM_CHAR:case WM_KEYUP:if(app->focusedCard>=0){app->overlay.key(message,wParam,lParam);return 0;}break;
@@ -831,7 +921,7 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam
 #endif
     case WM_CAPTURECHANGED:app->finishGesture();return 0;
     case WM_LBUTTONDBLCLK:app->doubleClick(GET_X_LPARAM(lParam),GET_Y_LPARAM(lParam));return 0;
-    case WM_MOUSELEAVE:app->hoveredAnnotation=-1;InvalidateRect(window,nullptr,FALSE);return 0;
+    case WM_MOUSELEAVE:app->hoveredAnnotation=-1;app->eraserOnPreview=app->eraseInside=false;InvalidateRect(window,nullptr,FALSE);return 0;
     case WM_SETCURSOR:if(reinterpret_cast<HWND>(wParam)==window && LOWORD(lParam)==HTCLIENT){POINT at{};GetCursorPos(&at);ScreenToClient(window,&at);if(PtInRect(&app->previewRect,at)){SetCursor(LoadCursorW(nullptr,app->tool==AnnotationTool::Text?IDC_IBEAM:app->tool==AnnotationTool::Select?IDC_ARROW:IDC_CROSS));return TRUE;}}break;
     case WM_ERASEBKGND:return 1;
     case WM_PRINTCLIENT:if(app->backDC){RECT client{};GetClientRect(window,&client);BitBlt(reinterpret_cast<HDC>(wParam),0,0,client.right,client.bottom,app->backDC,0,0,SRCCOPY);}return 0;

@@ -37,6 +37,28 @@ int main() {
         Check(HitAnnotation(arrow,{225,130},3) && !HitAnnotation(arrow,{225,20},3),"Path selection must follow the visible line");
         ParseAnnotations(AnnotationJson({moved,resized}));
 
+        Annotation stroke;stroke.id=10;stroke.kind=AnnotationTool::Pen;stroke.color=L"#ff0000";stroke.size=1;stroke.points={{100,100},{300,100}};
+        std::vector<Annotation> erased{stroke};uint64_t next=11;
+        Check(ErasePenPath(erased,{200,70},{200,130},7,next)==PenEraseResult::Changed,"Dragging across a stroke must erase the crossed section, even when mouse samples miss the line");
+        Check(erased.size()==2 && erased[0].id==10 && erased[1].id==11 && next==12,"Partial erasing must split the stroke into independently saved fragments");
+        Check(Near(erased[0].points.front().x,100) && Near(erased[0].points.back().x,190) && Near(erased[1].points.front().x,210) && Near(erased[1].points.back().x,300),"Only the eraser footprint, including stroke width, must be removed");
+        Check(erased[0].color==stroke.color && erased[1].size==stroke.size,"Erasing must preserve the remaining stroke style");
+        Check(ParseAnnotations(AnnotationJson(erased)).size()==2,"Erased fragments must survive saving and restoration");
+        Check(ErasePenPath(erased,{140,100},{160,100},7,next)==PenEraseResult::Changed && erased.size()==3,"A continuous eraser drag must keep trimming existing fragments");
+        auto beforeErase=AnnotationJson(erased);auto beforeId=next;
+        Check(ErasePenPath(erased,{20,20},{40,40},7,next)==PenEraseResult::Unchanged && AnnotationJson(erased)==beforeErase && next==beforeId,"Moving over empty space must not alter strokes or consume identities");
+        erased={stroke};next=11;
+        Check(ErasePenPath(erased,{80,100},{320,100},7,next)==PenEraseResult::Changed && erased.empty(),"Dragging along a whole stroke must remove it without leaving dots");
+        erased={stroke};erased.push_back(items[5]);next=11;
+        Check(ErasePenPath(erased,{200,100},{200,100},7,next)==PenEraseResult::Changed && erased.size()==3 && erased.back().kind==AnnotationTool::Text,"A stationary eraser click must trim the pen while preserving other annotation types");
+        ParseAnnotations(AnnotationJson(erased));
+        stroke.points={{100,100},{180,100},{220,100},{300,100}};erased={stroke};next=11;
+        Check(ErasePenPath(erased,{200,70},{200,130},7,next)==PenEraseResult::Changed && erased.size()==2 && Near(erased[0].points.back().x,190) && Near(erased[1].points.front().x,210),"Erasing must not join fragments back across a removed segment");
+        erased.assign(MaxAnnotations,stroke);for(size_t i=0;i<erased.size();++i)erased[i].id=i+1;next=MaxAnnotations+1;
+        beforeErase=AnnotationJson(erased);beforeId=next;
+        Check(ErasePenPath(erased,{200,70},{200,130},7,next)==PenEraseResult::LimitReached && AnnotationJson(erased)==beforeErase && next==beforeId,"An erase that exceeds the saved fragment limit must leave the existing annotations intact");
+
+
         auto invalid=items;invalid[1].id=invalid[0].id;Reject(invalid);
         invalid=items;invalid[0].points[0].x=-1;Reject(invalid);
         invalid=items;invalid[1].box.w=0;Reject(invalid);

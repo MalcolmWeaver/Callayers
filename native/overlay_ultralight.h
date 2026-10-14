@@ -18,7 +18,7 @@
 
 namespace callayers {
 class RendererLog;
-struct OverlayImage {std::vector<uint8_t> pixels;ULONGLONG tick=0;};
+struct OverlayImage {std::vector<uint8_t> pixels;ULONGLONG tick=0;uint64_t sceneRevision=0;};
 struct OverlayState {
     std::mutex mutex;
     std::shared_ptr<OverlayImage> image,privateImage;
@@ -44,6 +44,7 @@ class Overlay {
     std::wstring scene_;
     bool enabled_=true,scenePending_=true;
     ULONGLONG opened_=0;
+    uint64_t sceneRevision_=0;
     void script(const std::string& code);
     std::shared_ptr<OverlayImage> copy(std::array<std::shared_ptr<OverlayImage>,3>& pool,ULONGLONG tick);
     void fail(HRESULT error);
@@ -88,6 +89,7 @@ public:
     void initialize(HINSTANCE instance);
     void retry(HINSTANCE instance);
     void update(const std::wstring& json);
+    uint64_t sceneRevision()const{return sceneRevision_;}
     void enable(bool enabled);
     void capture();
     void privatePreview(uint64_t textId){state->requestedPrivateTextId=textId;}

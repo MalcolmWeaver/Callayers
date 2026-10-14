@@ -57,6 +57,67 @@ void ResizeAnnotation(Annotation& a,const Annotation& original,InkPoint corner) 
     a.box={b.x,b.y,w,h};
     for(auto& p:a.points){p.x=b.x+(p.x-b.x)*w/b.w;p.y=b.y+(p.y-b.y)*h/b.h;}
 }
+// Intersect a stroke segment with the capsule swept by the eraser. The two
+// endpoint circles and the strip between them form one convex erased interval.
+static bool EraserCut(InkPoint a,InkPoint b,InkPoint start,InkPoint end,double radius,double& lo,double& hi) {
+    const double dx=b.x-a.x,dy=b.y-a.y,length=dx*dx+dy*dy;
+    lo=1;hi=0;bool hit=false;
+    auto interval=[&](double left,double right){left=std::max(0.0,left);right=std::min(1.0,right);if(left<=right){lo=std::min(lo,left);hi=std::max(hi,right);hit=true;}};
+    auto circle=[&](InkPoint center){
+        double x=a.x-center.x,y=a.y-center.y,c=x*x+y*y-radius*radius;
+        if(length<1e-12){if(c<=0)interval(0,1);return;}
+        double linear=2*(x*dx+y*dy),discriminant=linear*linear-4*length*c;
+        if(discriminant<0)return;double root=std::sqrt(discriminant);
+        interval((-linear-root)/(2*length),(-linear+root)/(2*length));
+    };
+    circle(start);circle(end);
+    double sweep=std::hypot(end.x-start.x,end.y-start.y);
+    if(sweep>1e-9){
+        double ux=(end.x-start.x)/sweep,uy=(end.y-start.y)/sweep,x=a.x-start.x,y=a.y-start.y,left=0,right=1;
+        auto clip=[&](double value,double slope,double minimum,double maximum){
+            if(std::abs(slope)<1e-12)return value>=minimum && value<=maximum;
+            double first=(minimum-value)/slope,last=(maximum-value)/slope;if(first>last)std::swap(first,last);
+            left=std::max(left,first);right=std::min(right,last);return left<=right;
+        };
+        if(clip(x*ux+y*uy,dx*ux+dy*uy,0,sweep) && clip(-x*uy+y*ux,-dx*uy+dy*ux,-radius,radius))interval(left,right);
+    }
+    return hit && hi-lo>1e-9;
+}
+PenEraseResult ErasePenPath(std::vector<Annotation>& items,InkPoint start,InkPoint end,double radius,uint64_t& nextId) {
+    if(!std::isfinite(radius) || radius<0 || !std::isfinite(start.x) || !std::isfinite(start.y) || !std::isfinite(end.x) || !std::isfinite(end.y))return PenEraseResult::Unchanged;
+    std::vector<Annotation> result;result.reserve(items.size());uint64_t candidateId=nextId;size_t pointCount=0;bool changed=false;
+    for(const auto& stroke:items){
+        std::vector<std::vector<InkPoint>> fragments;std::vector<InkPoint> current;bool cut=false;
+        if(stroke.kind==AnnotationTool::Pen && stroke.size>=0 && stroke.size<=2){
+            auto append=[&](InkPoint p){if(current.empty() || std::hypot(current.back().x-p.x,current.back().y-p.y)>1e-8)current.push_back(p);};
+            auto finish=[&]{if(current.size()>=2)fragments.push_back(std::move(current));current.clear();};
+            for(size_t i=1;i<stroke.points.size();++i){
+                auto a=stroke.points[i-1],b=stroke.points[i];double lo,hi;
+                if(!EraserCut(a,b,start,end,radius+InkWidths[stroke.size]/2,lo,hi)){append(a);append(b);continue;}
+                cut=true;auto at=[&](double t){return InkPoint{a.x+(b.x-a.x)*t,a.y+(b.y-a.y)*t};};
+                if(lo>1e-9){append(a);append(at(lo));}finish();
+                if(hi<1-1e-9){append(at(hi));append(b);}
+            }
+            finish();
+        }
+        if(!cut){result.push_back(stroke);pointCount+=stroke.points.size();}
+        else {
+            changed=true;bool first=true;
+            for(auto& points:fragments){
+                if(points.size()>4096)return PenEraseResult::LimitReached;
+                Annotation fragment=stroke;fragment.points=std::move(points);fragment.box=Bounds(fragment);
+                if(!first){if(candidateId>1000000000)return PenEraseResult::LimitReached;fragment.id=candidateId++;}first=false;
+                pointCount+=fragment.points.size();result.push_back(std::move(fragment));
+                if(result.size()>MaxAnnotations || pointCount>MaxInkPoints)return PenEraseResult::LimitReached;
+            }
+        }
+        if(result.size()>MaxAnnotations || pointCount>MaxInkPoints)return PenEraseResult::LimitReached;
+    }
+    if(!changed)return PenEraseResult::Unchanged;
+    items=std::move(result);nextId=candidateId;return PenEraseResult::Changed;
+}
+
+
 static void Number(JsonObject const& object,const wchar_t* name,double value){object.SetNamedValue(name,JsonValue::CreateNumberValue(value));}
 std::wstring AnnotationJson(const std::vector<Annotation>& items) {
     JsonArray array;
