@@ -29,9 +29,9 @@ Close any other Callayers instance before launching. The already registered foun
 
 The user performs every runtime check. The foundation and current resource cost have been accepted for the MVP; final evidence is preserved in Git. Follow [the delivery plan](spec-v2/README.md) and [feature verification guidance](AGENTS.md) for the next improvement. Compilation alone does not establish that video, transparency, minimize behavior, DirectShow discovery, or performance work.
 
-## Ultralight private text editor (prepared)
+## Ultralight private text editor (accepted)
 
-Build with `.\scripts\build.ps1 -TextEditorBuild` and launch `.\build\text-editor-x64\Release\Callayers.exe` after closing other Callayers instances. This isolated output includes the accepted library/revision/telemetry features, shares their saved files and service address, and uses the already registered camera. Runtime verification of the new editor is pending; earlier accepted executable outputs are preserved.
+Build with `.\scripts\build.ps1 -TextEditorBuild` and launch `.\build\text-editor-x64\Release\Callayers.exe` after closing other Callayers instances. This isolated output includes the accepted library/revision/telemetry features, shares their saved files and service address, and uses the already registered camera. On October 14, 2026, the user explicitly stated "done, verified" after the guided multiline-text/Ctrl+Enter check and accepted the improvement. Ten automated checks passed, including actual Ultralight input, clipboard, undo/redo, Unicode, private-surface separation, cancellation and click-away. Tested executable SHA256: `2E301DB30147091C48CEDEFD0CB28CC7ADE6E38D69F275F8B533CCADEB15B57C`. Earlier accepted executable outputs are preserved.
 
 The text editor uses a separate transparent CPU view and nonpersistent session on the existing Ultralight renderer. Windows keyboard/mouse input, text selection, Unicode/emoji, native composition, guarded plain-text clipboard and Ctrl+Y redo are supported. A native child window paints its private surface over the clean preview; it never enters the camera bridge. Escape discards, Ctrl+Enter and click-away finish. Closing destroys the view, timer and paint buffer. No second browser process or browser profile is created. Resource savings during/after editing have not been measured.
 
