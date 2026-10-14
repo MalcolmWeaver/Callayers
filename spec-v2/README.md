@@ -45,6 +45,20 @@ Deliver step 10 through small improvements with short verification in chat. Step
 
 Website reading is retained as future work: one public page's text, favicon and styling cues, without page-image or arbitrary-logo downloads. It is not part of the MVP plan; see [AI.md](AI.md#website-reading-deferred-beyond-mvp). Billing/trials, cloud sync, remote participant interaction and other explicitly excluded features also remain outside this MVP.
 
+### Step 10 release decisions
+
+Planning only; no installer, updater, CI or deployment workflow is implemented by these decisions.
+
+- First distribution is a small tester release, installed for the current Windows user.
+- Backend changes merged into `main` trigger deployment to the existing live service after backend tests pass. Include changes to backend build/deployment inputs when selecting affected changes. Preserve runtime settings, secrets, permissions and capacity; keep released desktop versions compatible. Post-deploy health/readiness and unsigned-access checks report failures. Start with visible failure notification and manual rollback.
+- Desktop CI builds and runs existing checks; desktop release publication is explicitly triggered, not automatic on each merge.
+- The user owns `callayers.com` and wants installers distributed there. Hosting/storage, publishing credentials and HTTPS configuration remain to be established. Use versioned installer URLs and a separately published tester update feed; publish the feed only after its referenced artifact is available.
+- No Windows signing identity/service is currently available. An unsigned tester installer is the initial planning assumption; confirm its downloaded installation behavior on clean tester PCs. Windows reputation warnings or policy blocks are possible. Windows certificate provisioning remains separate from updater signature keys.
+- Automatic desktop updates are preferred; the exact updater and install timing are still under discussion. Proposed behavior: discover/download updates automatically, verify update authenticity, and offer installation at a safe time with postponement. Avoid interrupting camera output; account for calling apps retaining the camera DLL. Preserve saved work and keep a recovery download available.
+- A maintained native updater such as WinSparkle is a candidate, not a selected dependency. Its update signatures can use an application-owned key pair independently of a Windows code-signing certificate. Validate installer/camera compatibility before selecting the mechanism. Microsoft App Installer/MSIX requires trusted package signing and is not the assumed unsigned distribution path.
+
+Planning references: [Microsoft SmartScreen reputation](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation), [MSIX distribution requirements](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/choose-distribution-path), and [WinSparkle update signature documentation](https://winsparkle.org/guides/getting-started/).
+
 ### How we build and verify
 
 Follow [AGENTS.md](../AGENTS.md#feature-verification). Prepare builds and put short verification steps in chat; the user reports runtime results. Record accepted outcomes and tested builds in Git. Do not create verification documents. The assistant may stop this workspace's development app to rebuild after giving notice.
