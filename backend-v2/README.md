@@ -1,35 +1,91 @@
 # Callayers v2 API
 
-Generation code is now implemented locally, with deployment pending approval. `POST /generate` verifies the same identity/account access as `/account`, validates bounded prompt/request IDs, atomically reserves the independently configured per-day allowance and returns repeated IDs as status only. Provider calls have no automatic retries and set `store:false`; Firestore retains only owner/status/timestamps/expiry for 24 hours, never prompts or output. Provider failures consume the reservation without automatic refund. `/account` reports enabled allowance when provider configuration is present; `/health` reports `generationReady`. Website-dependent prompts are rejected before reservation until build 4. Fifteen synthetic backend tests pass without paid calls or cloud record writes.
+Cloud Run service `callayers-v2-api` uses the named Firestore database `callayers-v2` in Google project `callayers`. Firebase Authentication identities and the installed-app Google OAuth client are shared with the original app; the original service and default database are not migration inputs.
 
-The prepared deployment script grants `callayers-v2-api` access to the existing `callayers-openai` secret, binds it as `OPENAI_API_KEY`, sets configurable `AI_MODEL` (default `gpt-4.1-mini`) and enables Firestore TTL on `requests.expiresAt`. Set `USER_DAILY_GENERATIONS` independently on Cloud Run before deploying, for example with `gcloud run services update callayers-v2-api --project=callayers --region=us-central1 --update-env-vars=USER_DAILY_GENERATIONS=10`. The script neither reads nor writes this setting. The backend validates it at startup when generation is enabled and has no implicit generation limit. It preserves unrelated environment/secret settings. Automatic approval review blocked those cloud mutations pending explicit user approval; the deployed service has not been changed. After approval, use `.\scripts\deploy-backend-v2.ps1 -EnableGeneration`. Verify generation readiness and unsigned-request rejection before the user runs live creation. Provider integration follows [OpenAI structured outputs](https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=responses).
+The user deployed generation and accepted the creation/show/+1/Reset check on October 13, 2026. Tested desktop SHA256: `3B052EDFE3D4749A466362C72827CAA5D0B8348D7063F010C8EE80F283B4C0EA`. Saving/reopening and cancellation remain for the guided walkthrough. Delivery order and acceptance live in the [consolidated plan](../spec-v2/README.md#consolidated-plan--session-handoff) and [AI implementation](../spec-v2/AI-IMPLEMENTATION.md).
 
-Fresh code for the sign-in milestone in `spec-v2`. Cloud Run service `callayers-v2-api` uses only the named Firestore database `callayers-v2` in the existing Google project `callayers`. The original service and default database are not migration inputs. Firebase Authentication identities and the verified installed-app Google OAuth client are shared.
+The current local update separates runtime settings from deployment and adds the opacity prompt and optional reasoning effort. It has not been deployed. Seventeen synthetic backend tests pass without paid calls or cloud record writes.
 
-Delivery order and status live only in the [consolidated plan](../spec-v2/README.md#consolidated-plan--session-handoff). This document describes the deployed sign-in backend; generation and website tools are not implemented or deployed yet.
+## Runtime configuration
 
-On October 13, 2026, the user accepted the three integrated desktop sign-in checks: browser sign-in and return to the webcam, remembered session and annotations after restart, and sign-out stopping Meet video with neutral unavailable output while preserving annotations on signing back in. Tested desktop SHA256: `6E30628CEFE469663EF265D95668982EFCD149EF0B05A5E9612928E41124759C`; deployed backend revision: `callayers-v2-api-00001-z56`. Public health/configuration and rejection of missing/invalid credentials also passed. This establishes the observed integrated workflow; the user confirmed Google Auth Platform Audience is External and publishing is In production. Branding/verification status and a new external-user/clean-profile check remain public-release items.
+Manage these settings directly in Cloud Run. Routine deployment neither reads nor writes them. Backend startup validates configuration; generation requires an explicit model and daily allowance.
 
-Implemented: `/health`, public `/client-config`, and `/account`. Every account request verifies a Firebase ID token, including revocation/disabled-user checks, then validates Google provider, project and account access. Accounts are created transactionally once. Only access, signup date and daily usage are stored. No credentials, prompts, card HTML, annotations or webcam images enter Firestore or operational logs. Generation, request records, telemetry, trial gates and payments remain later milestones. The allowance response explicitly reports generation unavailable until that milestone sets a daily limit.
+| Setting | Behavior |
+| --- | --- |
+| `AI_MODEL` | Required when the provider secret is bound. No implicit model fallback. |
+| `AI_REASONING_EFFORT` | Optional. Unset or empty omits the API parameter and uses the model default. Values must be supported by the chosen model. |
+| `USER_DAILY_GENERATIONS` | Required when generation is enabled; integer 1..1000. |
+| `GOOGLE_CLOUD_PROJECT`, `FIRESTORE_DATABASE_ID`, `FIREBASE_WEB_API_KEY` | Existing sign-in/database configuration. |
+| `GOOGLE_DESKTOP_CLIENT_JSON`, `OPENAI_API_KEY` | Secret Manager bindings configured separately from routine deployment. |
 
-The native desktop uses PKCE and a temporary loopback callback. `/client-config` includes the installed-app client ID/secret and Firebase API key: Google treats installed-app client secrets as public configuration, since an installed client cannot keep a shared secret confidential. This is not a server credential. Cloud Run uses its service identity for Firebase/Firestore; server provider secrets are never returned by this endpoint. The one-time setup script reads only the supplied downloaded desktop-client JSON and stores it in a dedicated Secret Manager entry. No service-account keys are downloaded or shipped.
+Current service choices are `AI_MODEL=gpt-4.1-mini` and `USER_DAILY_GENERATIONS=10`; reasoning effort is unset. Leave effort unset for a model that does not support it. The accepted values are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, but individual models support only a subset. Unsupported combinations cause a provider error; the backend does not substitute a different model or retry.
 
-The runtime service account has Firebase Auth read access, Firestore user access conditional on the v2 database, and access to its own OAuth configuration secret. A separate v2 build identity can read only the v2 uploaded-source prefix, write the `cloud-run-source-deploy` artifact repository, and write operational logs. The old service's `callayers` artifact repository is separate. No project-wide Cloud Run Builder role is granted. Firestore client rules deny all direct access; server requests use IAM. Source deployment runs with Node 22, zero minimum instances and two maximum instances. Standard Google Cloud usage charges apply.
-
-From the repository root, build the workspace, then perform the one-time setup:
+For example, set the allowance independently:
 
 ```powershell
-.\scripts\build.ps1 -WorkspaceBuild
-.\scripts\setup-backend-v2.ps1 -OAuthJsonPath 'C:\path\to\downloaded-desktop-client.json'
+gcloud run services update callayers-v2-api --project=callayers --region=us-central1 --update-env-vars=USER_DAILY_GENERATIONS=10
+```
+
+To select a model, replace `MODEL_ID` with the intended provider model:
+
+```powershell
+gcloud run services update callayers-v2-api --project=callayers --region=us-central1 --update-env-vars="AI_MODEL=MODEL_ID"
+```
+
+For a compatible reasoning model, set effort separately, or remove it to use the model default:
+
+```powershell
+gcloud run services update callayers-v2-api --project=callayers --region=us-central1 --update-env-vars=AI_REASONING_EFFORT=low
+gcloud run services update callayers-v2-api --project=callayers --region=us-central1 --remove-env-vars=AI_REASONING_EFFORT
+```
+
+Configuration changes create a revision of the current code. A later routine code deployment preserves the choices. See [Cloud Run environment variables](https://docs.cloud.google.com/run/docs/configuring/services/environment-variables) and [OpenAI reasoning effort](https://developers.openai.com/api/docs/guides/reasoning).
+
+## Routine deployment
+
+From the repository root:
+
+```powershell
 .\scripts\deploy-backend-v2.ps1
 ```
 
-Setup and deployment are separate commands. `setup-backend-v2.ps1` configures the database, access rules, service identities, permissions and OAuth entry; it does not install dependencies, run tests or deploy. To finish only the missing build permissions after the database/runtime/OAuth setup is complete, run `.\scripts\setup-backend-v2.ps1 -BuildOnly`; it does not reread or reupload the OAuth file.
+The script installs pinned dependencies, runs backend tests, publishes source to the configured service, checks health/public configuration and rejection of unsigned requests, and writes the public address beside the workspace executable. It does not set environment variables, bind secrets, change IAM/TTL, configure the runtime identity, public invocation, memory, CPU, scaling or concurrency. `AiModel` and `EnableGeneration` deployment switches are removed. Generation readiness follows backend configuration. The build identity is still supplied because it performs the source build; Node 22 is specified in package metadata.
 
-Routine deployment is `.\scripts\deploy-backend-v2.ps1`. It installs pinned dependencies, runs backend tests, deploys this service only, checks public endpoints and unauthorized access, and writes `service-url.txt` beside the workspace executable. It does not create the database or service identities, change setup permissions, or read/upload the OAuth file. Cloud Run applies the service's public invocation setting during deployment. `SERVICE_URL` overrides the address file for explicit development testing. No fallback to the old service exists.
+The existing service is already configured; do not rerun setup for this update. Compatible backend changes require no desktop rebuild. `SERVICE_URL` overrides the desktop address file for explicit development testing; there is no fallback to the old service.
 
-Backend tests: `npm test` inside `backend-v2`. They use local synthetic identities/account storage, exercise actual HTTP responses, and do not authenticate or create cloud records. Native authentication tests check the RFC 7636 PKCE vector, malformed/duplicate callbacks, random state generation and a synthetic current-user DPAPI roundtrip. User runtime observations and acceptance are recorded in the conversation and the delivery plan.
+## Explicit setup
 
-The user confirmed Google Auth Platform Audience is External and publishing is In production on October 13, 2026. For public release, confirm the remaining Callayers branding is published/verified with accurate support, website/privacy and authorized-domain information. The desktop requests only `openid email profile`. Google's audience documentation explicitly exempts basic sign-in-only requests from Testing-mode test-user and seven-day authorization restrictions; sensitive/restricted data-access review is distinct from brand verification. The existing desktop OAuth/Firebase exchange needs no new web-login host. Branding/verification status and an external-account/clean-profile check remain release readiness work. See [Google audience settings](https://support.google.com/cloud/answer/15549945) and [brand verification](https://developers.google.com/identity/protocols/oauth2/production-readiness/brand-verification).
+`setup-backend-v2.ps1` provisions the database, client-deny rules, identities, IAM and OAuth secret separately from routine deployment. Its full setup requires the downloaded installed-app OAuth JSON; `-BuildOnly` configures only the build permissions. No service-account keys are downloaded or shipped.
 
-References: [Google installed-app OAuth](https://developers.google.com/identity/protocols/oauth2/native-app), [installed-app secret confidentiality](https://developers.google.com/identity/protocols/oauth2), [Firebase token verification](https://firebase.google.com/docs/auth/admin/verify-id-tokens), [named databases and IAM conditions](https://firebase.google.com/docs/firestore/manage-databases), [Cloud Run source deployment](https://docs.cloud.google.com/run/docs/deploying-source-code).
+For an existing service that needs generation provisioning, explicitly run:
+
+```powershell
+.\scripts\setup-backend-v2.ps1 -GenerationOnly
+```
+
+This grants the runtime identity access to `callayers-openai`, enables Firestore TTL on `requests.expiresAt`, and binds the secret as `OPENAI_API_KEY`. It does not choose a model, effort or daily allowance. Configure model/allowance directly before binding the provider secret. This mode is unnecessary for the already configured service.
+
+For a new service, run identity/database/OAuth setup first, then perform an explicit initial deployment with the initial service settings below. This is bootstrap configuration, not the routine deployment command:
+
+```powershell
+.\scripts\setup-backend-v2.ps1 -OAuthJsonPath 'C:\path\to\downloaded-desktop-client.json'
+gcloud run deploy callayers-v2-api --source=backend-v2 --project=callayers --region=us-central1 --build-service-account=projects/callayers/serviceAccounts/callayers-v2-build@callayers.iam.gserviceaccount.com --service-account=callayers-v2-api@callayers.iam.gserviceaccount.com --no-invoker-iam-check --min-instances=0 --max-instances=2 --cpu=1 --memory=512Mi --timeout=90 --concurrency=20 --update-env-vars=GOOGLE_CLOUD_PROJECT=callayers,FIRESTORE_DATABASE_ID=callayers-v2,FIREBASE_WEB_API_KEY=AIzaSyBs0kiC_dtrHJEhCtJ7dvfs9KdGhMV_9nE --update-secrets=GOOGLE_DESKTOP_CLIENT_JSON=callayers-v2-desktop-oauth:latest
+```
+
+Then choose model/allowance directly and perform explicit generation setup if needed. Future deployments use the routine script with no configuration flags. Runtime identity has Firebase Auth read access, Firestore access conditional on the v2 database, and access only to required secrets. A separate build identity reads the v2 source prefix, writes the source-deploy artifact repository and operational logs. Client rules deny direct database access. Standard provider and Google Cloud charges apply.
+
+## Generation and card styling
+
+`POST /generate` verifies Firebase identity, revocation, Google provider and account access, then atomically reserves the daily allowance. Repeated request IDs return owner-scoped status without another provider call. There are no automatic provider retries or refunds. Firestore stores only owner/status/timestamps with expiry set 24 hours ahead, never prompts or outputs; TTL cleanup is asynchronous. The account daily count is separate from request cleanup. Provider requests use structured Responses API output and `store:false`. Website-dependent prompts are rejected before reservation until build 4.
+
+The generation instructions are in [`src/card-prompt.txt`](src/card-prompt.txt), loaded once from a module-relative path. The default styling uses a transparent outer canvas, dark panel background around 80% opacity, fully opaque text/controls and no backdrop blur. Explicit styling requests can override the visual defaults. Offline/state restrictions remain in the same prompt. Editing this file requires backend deployment and affects newly generated cards only.
+
+## Sign-in acceptance and release items
+
+On October 13, 2026, the user accepted browser sign-in/return to webcam, remembered session/annotations after restart, and sign-out stopping Meet output while preserving local annotations. Tested desktop SHA256: `6E30628CEFE469663EF265D95668982EFCD149EF0B05A5E9612928E41124759C`; original accepted sign-in revision: `callayers-v2-api-00001-z56`.
+
+The desktop uses PKCE and a temporary loopback callback. `/client-config` supplies the installed client ID/secret and Firebase API key; Google treats installed-app secrets as public client configuration. Provider credentials stay on the server. Session credentials are secured with Windows DPAPI. No tokens, prompts, card HTML, annotations or webcam images enter operational logs.
+
+Google Auth Platform Audience is External and publishing is In production, as confirmed by the user. Branding/verification and an external-account/clean-profile check remain release items. Telemetry, trial gates and payments are deferred.
+
+References: [Cloud Run source deployment](https://docs.cloud.google.com/run/docs/deploying-source-code), [Google installed-app OAuth](https://developers.google.com/identity/protocols/oauth2/native-app), [Firebase token verification](https://firebase.google.com/docs/auth/admin/verify-id-tokens), [Firestore TTL](https://docs.cloud.google.com/firestore/native/docs/ttl), [OpenAI structured output](https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=responses).

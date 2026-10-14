@@ -40,6 +40,8 @@ Use one Google project: Cloud Run hosts the API, Firebase handles sign-in, Fires
 
 **Routine deployment:** run tests, deploy one service, verify health/version and sign-in. Use one script and standard source deployment. No extra frontend host, worker, queue, scheduler, or admin app. Compatible backend changes do not require rebuilding the desktop.
 
+Manage runtime environment variables and secret bindings directly in Cloud Run, independently of routine deployment. Model, optional reasoning effort and daily allowance belong to backend startup configuration. Routine deployments must preserve these choices, service permissions, public invocation and capacity settings. Provider secret access and request expiry are explicit setup operations. Keep generation instructions in a reviewed repository prompt file; changing that file deploys code and affects newly generated cards.
+
 ### Sign in implementation
 
 Use authorization-code flow with PKCE, random state, and a temporary loopback listener. Accept the matching callback once; exchange the Google credential for a Firebase session and validate account access. Then show success and attempt to foreground Callayers. If Windows leaves the browser in front, the completion message tells the user to return manually. Cancellation/timeout keeps the app locked. Store the session securely; never log codes or tokens. Test the desktop-client/Firebase exchange before building the full flow.

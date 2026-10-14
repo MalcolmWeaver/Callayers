@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$OAuthJsonPath, [switch]$BuildOnly)
+param([string]$OAuthJsonPath, [switch]$BuildOnly, [switch]$GenerationOnly)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
 $source = Join-Path $repo 'backend-v2'
@@ -19,6 +19,17 @@ function Cloud([string[]]$Arguments) {
 function RulesRequest($Method, $Uri, $Body, $Headers) {
     try { return Invoke-RestMethod -Method $Method -Uri $Uri -Headers $Headers -ContentType 'application/json' -Body ($Body | ConvertTo-Json -Depth 10 -Compress) }
     catch { throw 'Could not publish the v2 database access rules; deployment stopped.' }
+}
+
+if ($GenerationOnly) {
+    if ($BuildOnly -or $OAuthJsonPath) { throw 'Choose GenerationOnly separately from OAuth/database/build setup.' }
+    # Explicit generation provisioning for an existing service. Model, effort
+    # and allowance are set independently by the operator, never by this script.
+    Cloud -Arguments @('secrets','add-iam-policy-binding','callayers-openai',"--member=serviceAccount:$identity",'--role=roles/secretmanager.secretAccessor') | Out-Null
+    Cloud -Arguments @('firestore','fields','ttls','update','expiresAt','--collection-group=requests',"--database=$database",'--enable-ttl') | Out-Null
+    Cloud -Arguments @('run','services','update',$service,"--region=$region",'--update-secrets=OPENAI_API_KEY=callayers-openai:latest') | Out-Null
+    Write-Host 'Generation permissions, request expiry and provider secret binding configured.'
+    return
 }
 
 if (-not $BuildOnly) {
@@ -95,4 +106,4 @@ Cloud -Arguments @('artifacts','repositories','add-iam-policy-binding','cloud-ru
     "--member=serviceAccount:$buildIdentity",'--role=roles/artifactregistry.writer') | Out-Null
 Cloud -Arguments @('projects','add-iam-policy-binding',$project,"--member=serviceAccount:$buildIdentity",'--role=roles/logging.logWriter','--condition=None') | Out-Null
 
-Write-Host 'V2 setup ready. Run .\scripts\deploy-backend-v2.ps1 to deploy.'
+Write-Host 'V2 identities and database ready. Configure initial Cloud Run settings separately before routine deployment; see backend-v2/README.md.'

@@ -74,7 +74,7 @@ Include account ID, card ID where applicable, timestamp, and app version. These 
 | Desktop | Backend address: `SERVICE_URL` |
 | Backend public configuration | `GOOGLE_CLOUD_PROJECT`, `GOOGLE_DESKTOP_CLIENT_ID`, `FIREBASE_WEB_API_KEY`, `POSTHOG_HOST` |
 | Installed-app configuration | Downloaded desktop OAuth JSON, stored as `callayers-v2-desktop-oauth` in Secret Manager; `/client-config` returns its installed client ID/secret |
-| Backend behavior | `AI_MODEL`, `MAX_INPUT_BYTES`, `MAX_OUTPUT_TOKENS`, `USER_DAILY_GENERATIONS` |
+| Backend behavior | `AI_MODEL`, optional `AI_REASONING_EFFORT`, `MAX_INPUT_BYTES`, `MAX_OUTPUT_TOKENS`, `USER_DAILY_GENERATIONS` |
 | Secret Manager | `OPENAI_API_KEY`, `POSTHOG_PROJECT_TOKEN` |
 
 One shared setting sets AI generations per user per day. AI creation and revision each use one; repeating the same request ID never counts twice. At the limit, AI pauses until the next UTC day. Image import, annotations, saved cards, preview, and virtual-camera use have no daily allowance. Choose the number before release. Trial expiration and payments are deferred; see [BACKEND.md](BACKEND.md#trial-and-paid-access-later). PostHog settings are only needed when telemetry is implemented.

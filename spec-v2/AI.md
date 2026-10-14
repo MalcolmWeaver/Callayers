@@ -32,7 +32,7 @@ Pasted text and ordinary card generation need no external tool. Web search, docu
 
 ## Card quality
 
-- Transparent by default.
+- Transparent outer canvas by default, with content grouped on a dark translucent panel around 80% background opacity. Text and controls remain fully opaque; use background alpha rather than whole-card opacity. Avoid backdrop blur and honor explicit visual requests.
 - Large, readable text; simple layout; restrained color.
 - Fits its bounds and works offline.
 - Fully interactive local HTML: buttons, inputs, timers, slides, forms and games can respond to the presenter's mouse and keyboard.

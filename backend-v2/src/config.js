@@ -16,7 +16,13 @@ export function loadConfig(env) {
   const dailyLimit=env.USER_DAILY_GENERATIONS === undefined ? null : Number(env.USER_DAILY_GENERATIONS);
   if ((dailyLimit !== null && (!Number.isSafeInteger(dailyLimit)||dailyLimit<1||dailyLimit>1000)) ||
       (openaiKey && dailyLimit === null)) throw new Error('Set USER_DAILY_GENERATIONS to an integer from 1 to 1000');
-  return Object.freeze({ projectId, databaseId, dailyLimit, openaiKey, aiModel:env.AI_MODEL||'gpt-4.1-mini', publicConfig: Object.freeze({
+  const aiModel=(env.AI_MODEL||'').trim();
+  if ((openaiKey && !aiModel) || (aiModel && !/^[A-Za-z0-9_.:-]{1,128}$/.test(aiModel)))
+    throw new Error('Set AI_MODEL to the intended provider model');
+  const aiReasoningEffort=(env.AI_REASONING_EFFORT||'').trim()||null;
+  if (aiReasoningEffort && !['none','minimal','low','medium','high','xhigh','max'].includes(aiReasoningEffort))
+    throw new Error('Invalid AI_REASONING_EFFORT');
+  return Object.freeze({ projectId, databaseId, dailyLimit, openaiKey, aiModel, aiReasoningEffort, publicConfig: Object.freeze({
     version: 2, firebaseProjectId: projectId,
     googleDesktopClientId: installed.client_id,
     googleDesktopClientSecret: installed.client_secret,
