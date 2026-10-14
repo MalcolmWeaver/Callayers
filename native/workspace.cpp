@@ -141,19 +141,21 @@ struct Workspace::Impl {
     std::wstring selectedId,editingId,submittedTarget,submittedPrompt,requestName;
     controls::TextBlock composerTitle{nullptr},composerDescription{nullptr};
     controls::ProgressRing composerProgress{nullptr};
+    controls::ScrollViewer composerStatus{nullptr};
+    void showComposerMessage(const std::wstring& value){generationMessage.Text(value);composerStatus.Visibility(value.empty()?ux::Visibility::Collapsed:ux::Visibility::Visible);}
     std::wstring libraryName(const std::wstring& id)const{for(auto& card:library)if(card.id==id)return card.name;return L"";}
     void refreshComposer(){
         auto name=libraryName(editingId);composerTitle.Text(editingId.empty()?L"New card":L"Edit “"+name+L"”");controls::ToolTipService::SetToolTip(composerTitle,winrt::box_value(std::wstring(composerTitle.Text())));
-        composerDescription.Text(lastGenerating?(requestName.empty()?L"Creating a new card…":L"Updating “"+requestName+L"”… Your current card stays visible."):editingId.empty()?L"Describe a card to create. Check its box when you're ready to show it.":L"Describe a change to this card. Your current card stays visible while it is updated.");
+        composerDescription.Text(lastGenerating?(requestName.empty()?L"Creating a new card…":L"Updating this card…"):editingId.empty()?L"New cards start hidden.":L"Your current card stays visible.");
         prompt.PlaceholderText(editingId.empty()?L"Describe your card…":L"Describe the changes…");prompt.IsEnabled(!lastGenerating);
         generateButton.IsEnabled(!lastGenerating && std::wstring(prompt.Text()).find_first_not_of(L" \t\r\n")!=std::wstring::npos);
         cancelButton.Visibility(lastGenerating?ux::Visibility::Visible:ux::Visibility::Collapsed);
         composerProgress.IsActive(lastGenerating);composerProgress.Visibility(lastGenerating?ux::Visibility::Visible:ux::Visibility::Collapsed);
     }
-    void openCreate(){if(lastGenerating)return;actions.selectCard(-1);editingId.clear();prompt.Text(L"");generationMessage.Text(L"");refreshComposer();prompt.Focus(ux::FocusState::Programmatic);}
-    void openEdit(const std::wstring& id){if(lastGenerating)return;for(size_t i=0;i<library.size();++i)if(library[i].id==id){actions.selectCard(int(i));if(editingId!=id)prompt.Text(L"");editingId=id;generationMessage.Text(L"");refreshComposer();prompt.Focus(ux::FocusState::Programmatic);return;}}
+    void openCreate(){if(lastGenerating)return;actions.selectCard(-1);editingId.clear();prompt.Text(L"");showComposerMessage(L"");refreshComposer();prompt.Focus(ux::FocusState::Programmatic);}
+    void openEdit(const std::wstring& id){if(lastGenerating)return;for(size_t i=0;i<library.size();++i)if(library[i].id==id){actions.selectCard(int(i));if(editingId!=id)prompt.Text(L"");editingId=id;showComposerMessage(L"");refreshComposer();prompt.Focus(ux::FocusState::Programmatic);return;}}
     void sendMessage(){if(lastGenerating)return;auto value=std::wstring(prompt.Text());if(value.find_first_not_of(L" \t\r\n")==std::wstring::npos)return;
-        submittedTarget=editingId;submittedPrompt=value;requestName=libraryName(editingId);lastGenerating=true;generationMessage.Text(L"");refreshComposer();
+        submittedTarget=editingId;submittedPrompt=value;requestName=libraryName(editingId);lastGenerating=true;showComposerMessage(L"");refreshComposer();
         if(editingId.empty())actions.generate(value);else actions.editCard(editingId,value);
     }
     void filterLibrary(){std::wstring query(find<controls::TextBox>(sidebar,L"Search").Text());std::transform(query.begin(),query.end(),query.begin(),[](wchar_t c){return wchar_t(std::towlower(c));});bool any=false;
@@ -226,12 +228,12 @@ struct Workspace::Impl {
  <TextBox x:Name="Search" PlaceholderText="Search cards" AutomationProperties.Name="Search cards"/></StackPanel>
  <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" Padding="0,0,4,0"><StackPanel Spacing="8"><StackPanel x:Name="Rows" Spacing="4"/><TextBlock x:Name="NoResults" Text="Create your first card" Foreground="#BBB9C8" TextWrapping="Wrap" Margin="4,12"/></StackPanel></ScrollViewer>
  <StackPanel Grid.Row="2" Spacing="6"><Button x:Name="UseInCall" Content="Use in a call" HorizontalAlignment="Stretch"><Button.Flyout><Flyout><TextBlock Text="In your calling app, choose Callayers as your camera." TextWrapping="Wrap" Width="240"/></Flyout></Button.Flyout></Button></StackPanel>
- <Border Grid.Row="3" Background="#2D2D33" CornerRadius="8" Padding="12"><StackPanel Spacing="8">
- <Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="ComposerTarget" Text="New card" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/><ProgressRing x:Name="ComposerProgress" Grid.Column="1" Width="16" Height="16" IsActive="False" Visibility="Collapsed"/></Grid>
- <TextBlock x:Name="ComposerDescription" FontSize="12" Foreground="#BBB9C8" TextWrapping="Wrap" MaxHeight="48"/>
- <TextBox x:Name="ComposerPrompt" PlaceholderText="Describe your card…" AutomationProperties.Name="Card message" AcceptsReturn="True" TextWrapping="Wrap" Height="84" MaxLength="4000" ToolTipService.ToolTip="Enter adds a line. Ctrl+Enter sends your message."/>
- <StackPanel Orientation="Horizontal" Spacing="8"><Button x:Name="ComposerSend" Content="Send" Padding="16,6" Background="#A39BFA" Foreground="#201D33"/><Button x:Name="ComposerCancel" Content="Cancel" Padding="12,6" Visibility="Collapsed"/></StackPanel>
- <ScrollViewer MaxHeight="72" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><TextBlock x:Name="ComposerMessage" TextWrapping="Wrap" FontSize="12" Foreground="#BBB9C8" IsTextSelectionEnabled="True"/></ScrollViewer>
+ <Border Grid.Row="3" Padding="0,2,0,0"><StackPanel Spacing="6">
+ <Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="ComposerTarget" Text="New card" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/><ProgressRing x:Name="ComposerProgress" Grid.Column="1" Width="16" Height="16" IsActive="False" Visibility="Collapsed"/></Grid>
+ <TextBlock x:Name="ComposerDescription" FontSize="11" Foreground="#BBB9C8" TextWrapping="Wrap" MaxHeight="48"/>
+ <TextBox x:Name="ComposerPrompt" PlaceholderText="Describe your card…" AutomationProperties.Name="Card message" AcceptsReturn="True" TextWrapping="Wrap" Height="56" MinHeight="56" FontSize="13" Padding="8,6" MaxLength="4000" ToolTipService.ToolTip="Enter adds a line. Ctrl+Enter sends your message."/>
+ <StackPanel Orientation="Horizontal" Spacing="6"><Button x:Name="ComposerSend" Content="Send" MinHeight="28" FontSize="12" Padding="12,2" Background="#A39BFA" Foreground="#201D33"/><Button x:Name="ComposerCancel" Content="Cancel" MinHeight="28" FontSize="12" Padding="12,2" Visibility="Collapsed"/></StackPanel>
+ <ScrollViewer x:Name="ComposerStatus" MaxHeight="48" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><TextBlock x:Name="ComposerMessage" TextWrapping="Wrap" FontSize="11" Foreground="#BBB9C8" IsTextSelectionEnabled="True"/></ScrollViewer>
  </StackPanel></Border>
 </Grid>)");
 #endif
@@ -287,7 +289,7 @@ struct Workspace::Impl {
         generateButton.Click([this](auto&&,auto&&){actions.generate(std::wstring(prompt.Text()));});cancelButton.Click([this](auto&&,auto&&){actions.cancelGeneration();});
 #else
         prompt=find<controls::TextBox>(sidebar,L"ComposerPrompt");generateButton=find<controls::Button>(sidebar,L"ComposerSend");cancelButton=find<controls::Button>(sidebar,L"ComposerCancel");generationMessage=find<controls::TextBlock>(sidebar,L"ComposerMessage");
-        composerTitle=find<controls::TextBlock>(sidebar,L"ComposerTarget");composerDescription=find<controls::TextBlock>(sidebar,L"ComposerDescription");composerProgress=find<controls::ProgressRing>(sidebar,L"ComposerProgress");
+        composerTitle=find<controls::TextBlock>(sidebar,L"ComposerTarget");composerDescription=find<controls::TextBlock>(sidebar,L"ComposerDescription");composerProgress=find<controls::ProgressRing>(sidebar,L"ComposerProgress");composerStatus=find<controls::ScrollViewer>(sidebar,L"ComposerStatus");
         ai.Click([this](auto&&,auto&&){openCreate();});generateButton.Click([this](auto&&,auto&&){sendMessage();});cancelButton.Click([this](auto&&,auto&&){actions.cancelGeneration();});
         prompt.TextChanged([this](auto&&,auto&&){if(!syncing)refreshComposer();});
         prompt.KeyDown([this](auto&&,ux::Input::KeyRoutedEventArgs const& args){if(args.Key()==winrt::Windows::System::VirtualKey::Enter && (GetKeyState(VK_CONTROL)&0x8000)){sendMessage();args.Handled(true);}});
@@ -408,8 +410,21 @@ void Workspace::annotationControls(AnnotationTool tool,const std::wstring& color
 }
 #ifdef CALLAYERS_GENERATION
 void Workspace::generation(const GenerationSnapshot& state){auto& ui=*impl_;auto message=state.message;
-    if(state.remaining>=0)message+=L"\n"+std::to_wstring(state.remaining)+L" generations remaining today. Resets at midnight UTC.";
-    if(message!=ui.lastGenerationMessage){ui.generationMessage.Text(message);ui.lastGenerationMessage=message;}
+    if(state.remaining>=0){
+#ifdef CALLAYERS_LIBRARY
+        message+=(message.empty()?L"":L"\n")+std::to_wstring(state.remaining)+L" left today · resets 00:00 UTC";
+#else
+        message+=L"\n"+std::to_wstring(state.remaining)+L" generations remaining today. Resets at midnight UTC.";
+#endif
+    }
+    if(message!=ui.lastGenerationMessage){
+#ifdef CALLAYERS_LIBRARY
+        ui.showComposerMessage(message);
+#else
+        ui.generationMessage.Text(message);
+#endif
+        ui.lastGenerationMessage=message;
+    }
 #ifdef CALLAYERS_LIBRARY
     bool finished=ui.lastGenerating && !state.busy;ui.lastGenerating=state.busy;
     if(finished){
@@ -475,7 +490,7 @@ void Workspace::libraryCards(const std::vector<GeneratedCard>& cards,int selecte
     }
     for(size_t i=0;i<cards.size();++i){if(ui.generatedChecks[i].IsChecked().GetBoolean()!=cards[i].visible)ui.generatedChecks[i].IsChecked(cards[i].visible);ui.generatedRows[i].Background(ux::Media::SolidColorBrush(selected==int(i)?winrt::Windows::UI::Color{255,59,57,83}:winrt::Windows::UI::Color{0,0,0,0}));}
     std::wstring id=selected>=0 && selected<int(cards.size())?cards[selected].id:L"";
-    if(id!=ui.selectedId){ui.selectedId=id;if(!ui.lastGenerating){ui.editingId=id;ui.prompt.Text(L"");ui.generationMessage.Text(L"");}}
+    if(id!=ui.selectedId){ui.selectedId=id;if(!ui.lastGenerating){ui.editingId=id;ui.prompt.Text(L"");ui.showComposerMessage(L"");}}
     ui.refreshComposer();
     ui.filterLibrary();ui.syncing=false;
 }
