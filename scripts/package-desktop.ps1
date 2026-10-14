@@ -3,7 +3,9 @@ $ErrorActionPreference='Stop'
 $repo=Split-Path $PSScriptRoot -Parent
 . (Join-Path $repo 'release/update-common.ps1')
 Assert-ReleaseVersion $Version
-$rsa=Get-UpdateRsa ([IO.File]::ReadAllText((Resolve-Path -LiteralPath $PublicKeyFile))|ConvertFrom-Json);$rsa.Dispose()
+$publicKey=[IO.File]::ReadAllText((Resolve-Path -LiteralPath $PublicKeyFile))|ConvertFrom-Json
+if(@($publicKey.PSObject.Properties.Name).Count -ne 2 -or $publicKey.PSObject.Properties.Name -cnotcontains 'Modulus' -or $publicKey.PSObject.Properties.Name -cnotcontains 'Exponent'){throw 'Packaging requires the public key only; private signing material must not be embedded.'}
+$rsa=Get-UpdateRsa $publicKey;$rsa.Dispose()
 $payload=Join-Path $repo "build/release-$Version-x64/Release"
 foreach($required in @('Callayers.exe','CallayersCamera.dll','CallayersLauncher.exe','service-url.txt','Ultralight.dll')){
     if(-not(Test-Path -LiteralPath (Join-Path $payload $required))){throw "Release payload missing $required. Build with -ReleaseBuild first."}

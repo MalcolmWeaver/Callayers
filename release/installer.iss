@@ -102,6 +102,7 @@ begin
       if FileExists(OldCamera) then Exec(ExpandConstant('{sys}\regsvr32.exe'), '/s "' + OldCamera + '"', '', SW_HIDE, ewWaitUntilTerminated, Code);
       RaiseException('Camera registration failed. Your previous version remains selected.');
     end;
+    try
     Pointer := ExpandConstant('{app}\current-version.txt');
     if not SaveStringToFile(Pointer + '.tmp', '{#ReleaseVersion}', False) then begin
       if FileExists(OldCamera) then Exec(ExpandConstant('{sys}\regsvr32.exe'), '/s "' + OldCamera + '"', '', SW_HIDE, ewWaitUntilTerminated, Code);
@@ -115,6 +116,10 @@ begin
     if not MoveFileExW(Pointer + '.tmp', Pointer, 9) then begin
       if OldVersion <> '' then Exec(ExpandConstant('{sys}\regsvr32.exe'), '/s "' + ExpandConstant('{app}\versions\') + Trim(String(OldVersion)) + '\CallayersCamera.dll"', '', SW_HIDE, ewWaitUntilTerminated, Code);
       RaiseException('Could not select the installed version.');
+    end;
+    except
+      if FileExists(OldCamera) then Exec(ExpandConstant('{sys}\regsvr32.exe'), '/s "' + OldCamera + '"', '', SW_HIDE, ewWaitUntilTerminated, Code);
+      RaiseException(GetExceptionMessage);
     end;
   end;
 end;

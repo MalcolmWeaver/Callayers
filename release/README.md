@@ -18,12 +18,13 @@ The installer includes the Microsoft-signed Windows App Runtime 1.6.9 redistribu
 
 ## GitHub configuration
 
-Four independent workflows live in `.github/workflows`:
+The deployment and maintenance workflows live in `.github/workflows`:
 
 - Backend tests run for relevant pull requests. Relevant merges to `main` deploy the existing Cloud Run service and validate public health/config/access. Runtime settings/secrets/capacity remain independent. Failure leaves a failed Actions run; rollback uses existing Cloud Run traffic controls.
 - Desktop CI builds all accepted MVP features and runs native and update-authentication tests. It does not publish an installer.
 - Website checks/builds run for website changes; passing changes on `main` deploy `website/dist` to the direct-upload Cloudflare Pages project `callayers`.
 - **Publish desktop tester release** is `workflow_dispatch` only, on `main`. Supply a new numeric version. The workflow tests, packages, signs the update manifest, retains the installer as an Actions artifact, then publishes to R2. Versioned installer bytes are immutable. The update feed is published only after the public installer passes its checksum check. Publishing older versions over a newer feed is rejected.
+- **Clean up desktop releases** runs daily and can be triggered manually. It keeps the latest published installer and the immediately previous published installer. Older versions have a 24-hour grace period starting when they leave that pair; they are removed on the next cleanup after the deadline. `tester/retention.json` records the protected pair and retirement deadlines. Cleanup and publication share a concurrency group. Failed/mismatched metadata stops cleanup; other bucket files and unpublished newer installers are not deleted. Manual runs default to a read-only preview. The Actions installer artifact follows GitHub's separate artifact retention policy.
 
 Configure repository variables `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_DEPLOY_SERVICE_ACCOUNT`, and `CLOUDFLARE_ACCOUNT_ID`; configure repository secrets `CLOUDFLARE_API_TOKEN` and `UPDATE_SIGNING_KEY` (the exact contents of the local private JSON, supplied through GitHub's secret interface or CLI stdin). Do not put secrets into source files or command arguments. Restrict access to release workflow execution and protect `main`.
 
@@ -38,6 +39,8 @@ Set `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` in the current process, t
 The release workflow uses checksum-verified release content and pinned Wrangler 4.77.0 to store installer content types and cache metadata. Installers use immutable version URLs; `tester/latest.json` uses `no-store`. Avoid adding a Cloudflare cache rule that overrides that feed policy. The website reads that feed for its download button and shows an unpublished state until the feed is available.
 
 For local publication after credentials are configured, use `node scripts/publish-desktop.mjs 0.3.0`. This is a real tester release publication, not a dry run. Website deployment is independent of release publication.
+
+Preview retention with `node scripts/cleanup-desktop-releases.mjs --dry-run`; omit `--dry-run` to remove expired retired installers. Publication also cleans up already-expired installers after publishing the feed. The daily workflow handles grace-period expiry even when no further version is released. Run `node --test tests/release-retention-test.mjs` for the isolated retention checks.
 
 ## Website preview
 
