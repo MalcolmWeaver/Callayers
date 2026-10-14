@@ -28,6 +28,9 @@
 #ifdef CALLAYERS_INTERACTIVE
 #include "card_input.h"
 #endif
+#ifdef CALLAYERS_GENERATION
+#include "generation.h"
+#endif
 #include <Microsoft.UI.Dispatching.Interop.h>
 #include <winrt/base.h>
 
@@ -69,7 +72,22 @@ struct App {
     std::thread worker;
     std::shared_ptr<const PresentedFrame> preview;
 #ifdef CALLAYERS_INTERACTIVE
+#ifdef CALLAYERS_GENERATION
+    std::vector<Card> cards{{48,328,480,340},{870,62,340,148},{902,470,300,180}};
+    Generation generation;
+    void restoreGeneratedCards(){overlay.loadGenerated();for(auto& c:overlay.generated()){Card layout{c.x,c.y,c.w,c.h,c.visible};layout.contentW=c.width;layout.contentH=c.height;cards.push_back(layout);}syncCards();}
+    void syncGeneratedLayout(){for(int i=3;i<cardCount();++i){auto& c=cards[i];overlay.generatedLayout(i-3,c.x,c.y,c.w,c.h,c.visible);}}
+    void refreshGeneration(){
+        auto access=generation.takeAccessError();if(access==2){signOut();return;}if(access==1)auth.retry();
+        auto result=generation.takeResult();if(result && authenticated && auth.outputAllowed()){
+            if(overlay.addGenerated(*result)){Card c{result->x,result->y,result->w,result->h,false};c.contentW=result->width;c.contentH=result->height;cards.push_back(c);selectedCard=cardCount()-1;changed();}
+            else MessageBoxW(window,L"The card couldn't be added to your library. Your existing cards were preserved.",L"Card not saved",MB_OK|MB_ICONINFORMATION);
+        }
+        if(workspace)workspace->generation(generation.snapshot());
+    }
+#else
     Card cards[3]{{48, 328, 480, 340}, {870, 62, 340, 148}, {902, 470, 300, 180}};
+#endif
     int focusedCard=-1,htmlDrag=-1;
     CardPart resizePart=CardPart::BottomRight;
     void blurCard(){overlay.blur();focusedCard=-1;}
@@ -103,6 +121,7 @@ struct App {
     unsigned authRevision=unsigned(-1);
     Auth auth;
     int px(double value) const { return int(std::lround(value * dpi)); }
+    int cardCount()const{return int(std::size(cards));}
     ~App() {
         if (oldBitmap) SelectObject(backDC, oldBitmap);
         if (backBitmap) DeleteObject(backBitmap);
@@ -118,6 +137,9 @@ struct App {
         if(authRevision==login.revision && authenticated==login.allowed)return;
         bool was=authenticated;authenticated=login.allowed;authRevision=login.revision;
         if(!authenticated){
+#ifdef CALLAYERS_GENERATION
+            if(generation.snapshot().busy)generation.cancel();
+#endif
 #ifdef CALLAYERS_INTERACTIVE
             blurCard();
 #endif
@@ -136,15 +158,23 @@ struct App {
     }
     std::wstring scene() const {
         std::wostringstream out; out.imbue(std::locale::classic()); out << std::fixed << std::setprecision(2) << L"{\"cards\":[";
-        for (int i = 0; i < 3; ++i) {
+        for (int i = 0; i < cardCount(); ++i) {
             if (i) out << ',';
             const auto& c = cards[i];
             out << L"{\"id\":" << i << L",\"x\":" << c.x << L",\"y\":" << c.y << L",\"w\":" << c.w << L",\"h\":" << c.h << L",\"contentW\":" << c.contentW << L",\"contentH\":" << c.contentH << L",\"visible\":" << (c.visible ? L"true" : L"false") << '}';
         }
         out << L"],\"annotations\":" << AnnotationJson(annotations) << '}'; return out.str();
     }
-    void syncCards() { if(workspace) { bool visible[3]{cards[0].visible,cards[1].visible,cards[2].visible}; workspace->card(selectedCard,visible); } }
-    void changed() { overlay.update(scene()); syncCards(); InvalidateRect(window, nullptr, FALSE); }
+    void syncCards() { if(workspace) { std::unique_ptr<bool[]> visible(new bool[cardCount()]);for(int i=0;i<cardCount();++i)visible[i]=cards[i].visible;
+#ifdef CALLAYERS_GENERATION
+        std::vector<std::pair<std::wstring,bool>> rows;for(int i=3;i<cardCount();++i)rows.emplace_back(overlay.generated()[i-3].name,cards[i].visible);workspace->generatedCards(rows);
+#endif
+        workspace->card(selectedCard,visible.get()); } }
+    void changed() {
+#ifdef CALLAYERS_GENERATION
+        syncGeneratedLayout();
+#endif
+        overlay.update(scene()); syncCards(); InvalidateRect(window, nullptr, FALSE); }
     void enumerate(bool initial = false) {
         if(initial) {
             rememberedCamera=preferences.load(preferenceLoadError);
@@ -323,6 +353,9 @@ struct App {
         if(cancel && edited && selectedAnnotation>=0){if(drawing)annotations.erase(annotations.begin()+selectedAnnotation);else annotations[selectedAnnotation]=originalInk;selectedAnnotation=-1;}
         else if(drawing && selectedAnnotation>=0){const auto& a=annotations[selectedAnnotation];auto b=Bounds(a);if((a.kind==AnnotationTool::Rectangle || a.kind==AnnotationTool::Ellipse) && (b.w<3 || b.h<3)){annotations.erase(annotations.begin()+selectedAnnotation);selectedAnnotation=-1;}}
         drawing=dragging=draggingAnnotation=resizing=false;
+#ifdef CALLAYERS_GENERATION
+        syncGeneratedLayout();overlay.saveGenerated();
+#endif
         if(edited){changed();syncAnnotationControls();if(!cancel)saveAnnotations();}
         if(GetCapture()==window)ReleaseCapture();
     }
@@ -360,7 +393,7 @@ struct App {
             int hit=handle?selectedAnnotation:annotationAt(p);
             selectedAnnotation=hit;
             if(hit>=0){selectedCard=-1;originalInk=annotations[hit];draggingAnnotation=true;resizing=handle;}
-            else {selectedCard=-1;for(int i=2;i>=0;--i){const auto& c=cards[i];
+            else {selectedCard=-1;for(int i=cardCount()-1;i>=0;--i){const auto& c=cards[i];
 #ifdef CALLAYERS_INTERACTIVE
                 if(!c.visible)continue;
                 auto part=HitCardPart(c.x,c.y,c.w,c.h,p.x,p.y,hitTolerance());
@@ -507,11 +540,17 @@ struct App {
 #endif
         if(fresh && FAILED(annotationRestoreError))state=L"Couldn't restore annotations";
         auto login=auth.snapshot();if(fresh && !login.message.empty())state=login.message;
+#ifdef CALLAYERS_GENERATION
+        if(fresh && FAILED(overlay.state->generatedSaveError.load())){state=L"Card save unavailable";message=L"Saved cards or their values could not be saved or restored. Choose Retry. Unreadable saved data will be preserved.";}
+#endif
         status=state;
         bool cameraChoices=!fresh && (selectedCamera<0 || overlay.state->failed || FAILED(error) || pictureTimedOut);
         bool cardSaveFailed=false;
 #ifdef CALLAYERS_INTERACTIVE
         cardSaveFailed=FAILED(overlay.state->saveError.load());
+#ifdef CALLAYERS_GENERATION
+        cardSaveFailed|=FAILED(overlay.state->generatedSaveError.load());
+#endif
 #endif
         if(workspace)workspace->state(state,message,fresh,error==E_ACCESSDENIED,fresh && (preferenceSaveFailed || annotationSaveFailed || FAILED(annotationRestoreError) || cardSaveFailed || !login.message.empty()),cameraChoices);
     }
@@ -628,12 +667,23 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam
             WorkspaceActions actions;
             actions.camera=[app](int index){if(index<0 || index>=int(app->devices.size()))return;app->selectedCamera=index;app->choose();};
             actions.selectCard=[app](int index){if(!app->workspace->finishText())return;app->finishGesture();app->selectedAnnotation=-1;app->selectedCard=index;app->setTool(AnnotationTool::Select);app->syncCards();};
-            actions.visibility=[app](int index,bool show){app->cards[index].visible=show;app->changed();};
+            actions.visibility=[app](int index,bool show){if(index<0||index>=app->cardCount())return;app->cards[index].visible=show;app->changed();
+#ifdef CALLAYERS_GENERATION
+                app->overlay.saveGenerated();
+#endif
+            };
+#ifdef CALLAYERS_GENERATION
+            actions.generate=[app](std::wstring prompt){if(app->authenticated && app->auth.outputAllowed())app->generation.start(prompt,app->auth.idToken());};
+            actions.cancelGeneration=[app]{app->generation.cancel();};
+#endif
             actions.tool=[app](AnnotationTool tool){app->setTool(tool);};
             actions.color=[app](std::wstring color){app->setInkColor(std::move(color));};
             actions.size=[app](int size){app->setInkSize(size);};
             actions.text=[app](std::wstring text,bool commit,double height){return app->commitText(std::move(text),commit,height);};
             actions.retry=[app]{
+#ifdef CALLAYERS_GENERATION
+                if(app->status==L"Card save unavailable"){app->overlay.retryState();app->selectedCard=-1;app->blurCard();app->cards.resize(3);app->restoreGeneratedCards();app->changed();return;}
+#endif
 #ifdef CALLAYERS_INTERACTIVE
                 if(app->status==L"Couldn't save card state"){app->overlay.retryState();return;}
 #endif
@@ -646,7 +696,11 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam
                 if(app->overlay.state->failed)app->overlay.retry(GetModuleHandleW(nullptr));app->enumerate();
             };
             actions.privacy=[] {ShellExecuteW(nullptr,L"open",L"ms-settings:privacy-webcam",nullptr,nullptr,SW_SHOWNORMAL);};
-            actions.hideAll=[app]{for(auto& card:app->cards)card.visible=false;app->changed();};
+            actions.hideAll=[app]{for(auto& card:app->cards)card.visible=false;app->changed();
+#ifdef CALLAYERS_GENERATION
+                app->overlay.saveGenerated();
+#endif
+            };
             actions.clear=[app]{if(!app->workspace->finishText())return;app->finishGesture();if(MessageBoxW(app->window,L"Clear all annotations? This cannot be undone.",L"Clear annotations",MB_YESNO|MB_ICONQUESTION)==IDYES){app->annotations.clear();app->selectedAnnotation=app->hoveredAnnotation=-1;app->changed();app->syncAnnotationControls();app->saveAnnotations();}};
             actions.quit=[app]{PostMessageW(app->window,WM_CLOSE,0,0);};
             actions.authPrimary=[app]{auto login=app->auth.snapshot();if(login.retryAvailable)app->auth.retry();else app->auth.signIn();app->refreshAuth();};
@@ -654,6 +708,9 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam
             actions.signOut=[app]{app->signOut();};
             actions.layout=[app]{app->layout();};
             app->restoreAnnotations();
+#ifdef CALLAYERS_GENERATION
+            app->restoreGeneratedCards();
+#endif
             app->workspace=std::make_unique<Workspace>(window,std::move(actions));
             app->auth.onRevoke([app]{app->lockVideo();});app->bridge.stop();app->workspace->authentication(app->auth.snapshot());
             app->dpi=GetDpiForWindow(window)/96.0f;app->buildFonts();app->enumerate(true);app->refreshWorkspace();app->layout();app->syncCards();app->syncAnnotationControls();
@@ -662,7 +719,11 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam
         } catch(winrt::hresult_error const& error) {Resources().event("workspace_controls_failed hresult="+std::to_string(error.code().value));MessageBoxW(window,L"Couldn't open the workspace. Close and reopen Callayers.",L"Callayers",MB_OK|MB_ICONERROR);return -1;}
         catch(...) {Resources().event("workspace_controls_failed");MessageBoxW(window,L"Couldn't open the workspace. Close and reopen Callayers.",L"Callayers",MB_OK|MB_ICONERROR);return -1;}
     }
-    case WM_TIMER:app->refreshAuth();app->updateDemand();app->overlay.capture();app->refreshWorkspace();if(!IsIconic(window))InvalidateRect(window,nullptr,FALSE);return 0;
+    case WM_TIMER:app->refreshAuth();app->updateDemand();app->overlay.capture();
+#ifdef CALLAYERS_GENERATION
+        app->refreshGeneration();
+#endif
+        app->refreshWorkspace();if(!IsIconic(window))InvalidateRect(window,nullptr,FALSE);return 0;
     case WM_SIZE:if(app->workspace){app->layout();app->updateDemand();}return 0;
     case WM_DPICHANGED: {
         app->dpi=HIWORD(wParam)/96.0f;app->buildFonts();auto r=reinterpret_cast<RECT*>(lParam);SetWindowPos(window,nullptr,r->left,r->top,r->right-r->left,r->bottom-r->top,SWP_NOZORDER|SWP_NOACTIVATE);app->layout();return 0;
@@ -704,6 +765,9 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam
         if(app->bridge.consumerActive() && MessageBoxW(window,L"Quit Callayers and stop video in your calling app?",L"Stop video and quit",MB_YESNO|MB_ICONQUESTION)!=IDYES)return 0;
 #ifdef CALLAYERS_INTERACTIVE
         app->overlay.saveCard();
+#endif
+#ifdef CALLAYERS_GENERATION
+        app->generation.cancel();app->overlay.saveGenerated();
 #endif
         app->quitting=true;app->demand=false;app->bridge.stop();KillTimer(window,1);app->overlay.enable(false);app->workspace.reset();
         DestroyWindow(window);return 0;

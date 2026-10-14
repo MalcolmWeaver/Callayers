@@ -130,6 +130,12 @@ struct Workspace::Impl {
     bool listedVisible[3]{true,true,true};
     std::wstring lastStatus, lastHelp;
     int selected = -1;
+#ifdef CALLAYERS_GENERATION
+    controls::TextBox prompt{nullptr};controls::Button generateButton{nullptr},cancelButton{nullptr};controls::TextBlock generationMessage{nullptr};
+    controls::StackPanel generatedPanel{nullptr};std::vector<std::wstring> generatedNames;
+    std::vector<controls::CheckBox> generatedChecks;std::vector<controls::Border> generatedRows;
+    std::wstring lastGenerationMessage;bool lastGenerating=false;
+#endif
     static constexpr const wchar_t* names[] = {
 #ifdef CALLAYERS_INTERACTIVE
         L"Interactive card",
@@ -169,7 +175,7 @@ struct Workspace::Impl {
         sidebar = load(LR"(<Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Background="#242428" Padding="20" RowSpacing="16">
  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
  <StackPanel Spacing="12"><TextBlock Text="Cards" FontSize="22" FontWeight="SemiBold"/>
- <Button Content="+  Create with AI" HorizontalAlignment="Stretch" IsEnabled="False" ToolTipService.ToolTip="AI card creation is coming soon."/>
+ <Button x:Name="CreateAI" Content="+  Create with AI" HorizontalAlignment="Stretch" IsEnabled="False" ToolTipService.ToolTip="Create a card from a prompt."/>
  <StackPanel Orientation="Horizontal" Spacing="8"><Button Content="Import image" IsEnabled="False" ToolTipService.ToolTip="Image import is coming soon."/><Button x:Name="HideAll" Content="Hide all"/></StackPanel>
  <TextBox x:Name="Search" PlaceholderText="Search cards" AutomationProperties.Name="Search cards"/>
  </StackPanel>
@@ -221,6 +227,18 @@ struct Workspace::Impl {
         for(auto gate:{sidebarGate,toolbarGate}) {gate.HorizontalContentAlignment(ux::HorizontalAlignment::Stretch);gate.VerticalContentAlignment(ux::VerticalAlignment::Stretch);}
         attach(headerIsland, header); attach(sidebarIsland, sidebarGate); attach(toolbarIsland, toolbarGate,false); attach(helpIsland, help,false);
         attach(authIsland,authView);
+#ifdef CALLAYERS_GENERATION
+        auto ai=find<controls::Button>(sidebar,L"CreateAI");ai.IsEnabled(true);
+        controls::StackPanel form;form.Width(340);form.Spacing(10);
+        controls::TextBlock label;label.Text(L"Create a card");label.FontSize(20);form.Children().Append(label);
+        prompt=controls::TextBox();prompt.PlaceholderText(L"Describe your card…");prompt.AcceptsReturn(true);prompt.TextWrapping(ux::TextWrapping::Wrap);prompt.MinHeight(130);prompt.MaxLength(4000);form.Children().Append(prompt);
+        generateButton=controls::Button();generateButton.Content(winrt::box_value(L"Create"));form.Children().Append(generateButton);
+        cancelButton=controls::Button();cancelButton.Content(winrt::box_value(L"Cancel"));cancelButton.IsEnabled(false);form.Children().Append(cancelButton);
+        generationMessage=controls::TextBlock();generationMessage.TextWrapping(ux::TextWrapping::Wrap);generationMessage.Text(L"Your allowance resets at midnight UTC.");form.Children().Append(generationMessage);
+        controls::Flyout flyout;flyout.Content(form);ai.Flyout(flyout);
+        generateButton.Click([this](auto&&,auto&&){actions.generate(std::wstring(prompt.Text()));});cancelButton.Click([this](auto&&,auto&&){actions.cancelGeneration();});
+        generatedPanel=controls::StackPanel();generatedPanel.Spacing(6);find<controls::StackPanel>(sidebar,L"Rows").Children().InsertAt(0,generatedPanel);
+#endif
 #ifdef CALLAYERS_INTERACTIVE
         find<controls::Button>(sidebar,L"Name0").Content(winrt::box_value(L"Interactive card"));
         ux::Automation::AutomationProperties::SetName(find<controls::CheckBox>(sidebar,L"Show0"),L"Show Interactive card");
@@ -271,6 +289,10 @@ struct Workspace::Impl {
                 find<controls::Border>(sidebar,(L"Row"+std::to_wstring(i)).c_str()).Visibility(show?ux::Visibility::Visible:ux::Visibility::Collapsed);
             }
             find<controls::TextBlock>(sidebar,L"NoResults").Visibility(any?ux::Visibility::Collapsed:ux::Visibility::Visible);
+#ifdef CALLAYERS_GENERATION
+            for(size_t i=0;i<generatedNames.size();++i){auto name=generatedNames[i];std::transform(name.begin(),name.end(),name.begin(),[](wchar_t c){return wchar_t(std::towlower(c));});bool show=name.find(query)!=std::wstring::npos;any|=show;generatedRows[i].Visibility(show?ux::Visibility::Visible:ux::Visibility::Collapsed);}
+            find<controls::TextBlock>(sidebar,L"NoResults").Visibility(any?ux::Visibility::Collapsed:ux::Visibility::Visible);
+#endif
         });
         for(auto entry : {std::pair{L"Select",AnnotationTool::Select}, {L"Pen",AnnotationTool::Pen}, {L"Text",AnnotationTool::Text}, {L"Eraser",AnnotationTool::Eraser}})
             find<controls::Primitives::ToggleButton>(toolbar,entry.first).Click([this,type=entry.second](auto&&,auto&&){actions.tool(type);});
@@ -305,7 +327,11 @@ void Workspace::card(int selected,const bool* visible) {
         ui.find<controls::CheckBox>(ui.sidebar,(L"Show"+number).c_str()).IsChecked(visible[i]);
         ui.find<controls::Border>(ui.sidebar,(L"Row"+number).c_str()).Background(ux::Media::SolidColorBrush(selected==i?winrt::Windows::UI::Color{255,59,57,83}:winrt::Windows::UI::Color{0,0,0,0}));
     }
-    ui.find<controls::TextBlock>(ui.sidebar,L"Selection").Text(selected>=0?Impl::names[selected]:L"Select a card");
+    std::wstring name=selected>=0 && selected<3?Impl::names[selected]:L"Select a card";
+#ifdef CALLAYERS_GENERATION
+    if(selected>=3 && selected-3<int(ui.generatedNames.size()))name=ui.generatedNames[selected-3];
+#endif
+    ui.find<controls::TextBlock>(ui.sidebar,L"Selection").Text(name);
     ui.find<controls::TextBlock>(ui.sidebar,L"SelectionHelp").Text(selected>=0?(visible[selected]?L"Move this card in the preview or drag its corner to resize.":L"This card is hidden. Check its box to show it on camera."):L"Check a box to show a card. Select its name to work with it.");
     ui.syncing=false;
 }
@@ -319,6 +345,28 @@ void Workspace::annotationControls(AnnotationTool tool,const std::wstring& color
     ui.find<controls::Border>(ui.toolbar,L"ColorSwatch").Background(ux::Media::SolidColorBrush(winrt::Windows::UI::Color{255,uint8_t(value>>16),uint8_t(value>>8),uint8_t(value)}));
     ui.find<controls::ComboBox>(ui.toolbar,L"Size").SelectedIndex(size);ui.syncing=false;
 }
+#ifdef CALLAYERS_GENERATION
+void Workspace::generation(const GenerationSnapshot& state){auto& ui=*impl_;auto message=state.message;
+    if(state.remaining>=0)message+=L"\n"+std::to_wstring(state.remaining)+L" generations remaining today. Resets at midnight UTC.";
+    if(message!=ui.lastGenerationMessage){ui.generationMessage.Text(message);ui.lastGenerationMessage=message;}
+    ui.generateButton.IsEnabled(!state.busy);ui.cancelButton.IsEnabled(state.busy);
+}
+void Workspace::generatedCards(const std::vector<std::pair<std::wstring,bool>>& cards){auto& ui=*impl_;
+    bool rebuild=cards.size()!=ui.generatedNames.size();if(!rebuild)for(size_t i=0;i<cards.size();++i)rebuild|=cards[i].first!=ui.generatedNames[i];
+    ui.syncing=true;
+    if(rebuild){ui.generatedPanel.Children().Clear();ui.generatedNames.clear();ui.generatedChecks.clear();ui.generatedRows.clear();
+        for(size_t i=0;i<cards.size();++i){ui.generatedNames.push_back(cards[i].first);controls::Border row;row.CornerRadius(ux::CornerRadius{6});row.Padding(ux::Thickness{4});
+            controls::StackPanel content;content.Orientation(controls::Orientation::Horizontal);controls::CheckBox check;check.IsChecked(cards[i].second);
+            ux::Automation::AutomationProperties::SetName(check,L"Show "+cards[i].first);content.Children().Append(check);
+            controls::Button name;name.Content(winrt::box_value(cards[i].first));content.Children().Append(name);row.Child(content);
+            check.Click([&ui,index=int(i+3)](auto&& sender,auto&&){if(!ui.syncing)ui.actions.visibility(index,sender.template as<controls::CheckBox>().IsChecked().GetBoolean());});
+            name.Click([&ui,index=int(i+3)](auto&&,auto&&){ui.actions.selectCard(index);});ui.generatedChecks.push_back(check);ui.generatedRows.push_back(row);
+        }
+        for(auto it=ui.generatedRows.rbegin();it!=ui.generatedRows.rend();++it)ui.generatedPanel.Children().Append(*it);
+    }else for(size_t i=0;i<cards.size();++i)if(ui.generatedChecks[i].IsChecked().GetBoolean()!=cards[i].second)ui.generatedChecks[i].IsChecked(cards[i].second);
+    ui.syncing=false;
+}
+#endif
 bool Workspace::editingText() const {return impl_->editor.active();}
 bool Workspace::finishText(bool commit) {
     auto& ui=*impl_;if(!ui.editor.active())return true;if(ui.finishingText)return false;

@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param()
+param([string]$AiModel='gpt-4.1-mini',[switch]$EnableGeneration=$true)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
 $source = Join-Path $repo 'backend-v2'
@@ -25,16 +25,28 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Backend tests failed; deployment stopped.' }
 } finally { Pop-Location }
 
+$extraEnv='';$secretBindings="GOOGLE_DESKTOP_CLIENT_JSON=${oauthSecret}:latest"
+if($EnableGeneration){
+    Cloud -Arguments @('secrets','add-iam-policy-binding','callayers-openai',"--member=serviceAccount:$identity",'--role=roles/secretmanager.secretAccessor') | Out-Null
+    Cloud -Arguments @('firestore','fields','ttls','update','expiresAt','--collection-group=requests',"--database=$database",'--enable-ttl') | Out-Null
+    $extraEnv=",AI_MODEL=$AiModel"
+    $secretBindings+=',OPENAI_API_KEY=callayers-openai:latest'
+}
 Cloud -Arguments @('run','deploy',$service,"--source=$source","--region=$region","--service-account=$identity",'--no-invoker-iam-check',
     "--build-service-account=projects/$project/serviceAccounts/$buildIdentity",
-    '--min-instances=0','--max-instances=2','--cpu=1','--memory=512Mi','--timeout=30','--concurrency=40',
+    '--min-instances=0','--max-instances=2','--cpu=1','--memory=512Mi','--timeout=90','--concurrency=20',
     '--set-build-env-vars=GOOGLE_NODEJS_VERSION=22',
-    "--set-env-vars=GOOGLE_CLOUD_PROJECT=$project,FIRESTORE_DATABASE_ID=$database,FIREBASE_WEB_API_KEY=$publicApiKey",
-    "--set-secrets=GOOGLE_DESKTOP_CLIENT_JSON=${oauthSecret}:latest") | Out-Null
+    "--update-env-vars=GOOGLE_CLOUD_PROJECT=$project,FIRESTORE_DATABASE_ID=$database,FIREBASE_WEB_API_KEY=$publicApiKey$extraEnv",
+    "--update-secrets=$secretBindings") | Out-Null
 $url = (Cloud -Arguments @('run','services','describe',$service,"--region=$region",'--format=value(status.url)')).Trim()
 $health = Invoke-RestMethod -Uri "$url/health"
 $config = Invoke-RestMethod -Uri "$url/client-config"
 if ($health.service -ne $service -or $health.version -ne 2 -or $config.firebaseProjectId -ne $project -or $config.version -ne 2) { throw 'V2 endpoint validation failed.' }
+if($EnableGeneration -and -not $health.generationReady){throw 'Generation was not enabled in the deployed revision.'}
+if($EnableGeneration){
+    try { Invoke-RestMethod -Uri "$url/generate" -Method Post -ContentType 'application/json' -Body '{}' | Out-Null; throw 'Generation unexpectedly accepted an unsigned request.' }
+    catch { if (-not $_.Exception.Response -or [int]$_.Exception.Response.StatusCode -ne 401) { throw 'Generation access validation failed.' } }
+}
 try { Invoke-RestMethod -Uri "$url/account" | Out-Null; throw 'Account endpoint unexpectedly accepted a request without sign-in.' }
 catch { if (-not $_.Exception.Response -or [int]$_.Exception.Response.StatusCode -ne 401) { throw 'Account endpoint access validation failed.' } }
 $output = Join-Path $repo 'build/workspace-x64/Release'

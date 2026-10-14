@@ -11,16 +11,18 @@ param(
     [switch]$DiagnosticsBuild,
     [switch]$WorkspaceBuild,
     [switch]$UltralightBuild,
-    [switch]$InteractiveBuild
+    [switch]$InteractiveBuild,
+    [switch]$GenerationBuild
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
-if (([int]$DiagnosticsBuild.IsPresent + [int]$WorkspaceBuild.IsPresent + [int]$UltralightBuild.IsPresent + [int]$InteractiveBuild.IsPresent) -gt 1) { throw 'Choose one build output.' }
+if (([int]$DiagnosticsBuild.IsPresent + [int]$WorkspaceBuild.IsPresent + [int]$UltralightBuild.IsPresent + [int]$InteractiveBuild.IsPresent + [int]$GenerationBuild.IsPresent) -gt 1) { throw 'Choose one build output.' }
 $appRelativePath = if ($UltralightBuild) { 'build\ultralight-workspace-x64\Release\Callayers.exe' } elseif ($WorkspaceBuild) { 'build\workspace-x64\Release\Callayers.exe' } elseif ($DiagnosticsBuild) { 'build\diagnostics-x64\Release\Callayers.exe' } else { 'build\x64\Release\Callayers.exe' }
 if ($InteractiveBuild) { $appRelativePath='build\interactive-workspace-x64\Release\Callayers.exe' }
+if ($GenerationBuild) { $appRelativePath='build\generation-workspace-x64\Release\Callayers.exe' }
 $appPath = [IO.Path]::GetFullPath((Join-Path $repo $appRelativePath))
 $profilePath = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'Callayers\Foundation\WebView2'))
-if ($UltralightBuild -or $InteractiveBuild) { $profilePath=[IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'Callayers\UltralightWorkspace\WebView2')) }
+if ($UltralightBuild -or $InteractiveBuild -or $GenerationBuild) { $profilePath=[IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'Callayers\UltralightWorkspace\WebView2')) }
 $profilePattern = '(?i)(?:^|\s)"?--user-data-dir=(?:"' + [regex]::Escape($profilePath) + '"|' + [regex]::Escape($profilePath) + ')"?(?:\s|$)'
 $shellProcess = [Diagnostics.Process]::GetCurrentProcess()
 $sessionNumber = $shellProcess.SessionId
@@ -34,6 +36,7 @@ $tracked = @{}
 $warnings = [Collections.Generic.HashSet[string]]::new()
 $identityCache = Join-Path $outputDirectory 'renderer-identities.json'
 if ($UltralightBuild) { $identityCache=Join-Path $outputDirectory 'ultralight-workspace-identities.json' }
+if ($GenerationBuild) { $identityCache=Join-Path $outputDirectory 'generation-workspace-identities.json' }
 if ($InteractiveBuild) { $identityCache=Join-Path $outputDirectory 'interactive-workspace-identities.json' }
 if (Test-Path -LiteralPath $identityCache) {
     try {

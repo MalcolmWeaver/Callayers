@@ -13,6 +13,9 @@
 
 namespace callayers {
 Overlay::~Overlay(){
+#ifdef CALLAYERS_GENERATION
+    generatedCheckpoint(true);
+#endif
 #ifdef CALLAYERS_INTERACTIVE
     checkpoint(true);
 #endif
@@ -44,11 +47,24 @@ void Overlay::initialize(HINSTANCE instance){
             ultralight::Config config;config.memory_profile=ultralight::MemoryProfile::LowMemory;
             config.resource_path_prefix="resources/";platform.set_config(config);
             platform.set_font_loader(ultralight::GetPlatformFontLoader());
+#ifdef CALLAYERS_GENERATION
+            offlineFiles_=std::make_unique<OfflineFiles>(directory);platform.set_file_system(offlineFiles_.get());
+#else
             platform.set_file_system(ultralight::GetPlatformFileSystem(directory.string().c_str()));
+#endif
+#ifdef CALLAYERS_GENERATION
+            platform.set_logger(nullptr); // Generated scripts must not write contents to renderer logs.
+#else
             platform.set_logger(ultralight::GetDefaultLogger((directory/"diagnostics/ultralight.log").string().c_str()));
+#endif
             renderer_=ultralight::Renderer::Create();
         }
         ultralight::ViewConfig config;config.is_accelerated=false;config.is_transparent=true;
+#ifdef CALLAYERS_GENERATION
+        config.allow_universal_access_from_file_urls=false;
+        config.clipboard_read_policy=ultralight::ClipboardReadPolicy::Deny;
+        loadGenerated();documentsPending_=true;for(auto& card:generated_)card.restored=false;
+#endif
         view_=renderer_->CreateView(Width,Height,config,nullptr);
         auto html=winrt::to_string(ReadTextDocument(L"overlay.html"));
 #ifdef CALLAYERS_INTERACTIVE
@@ -67,6 +83,9 @@ void Overlay::initialize(HINSTANCE instance){
     }catch(const winrt::hresult_error& error){fail(error.code());}catch(...){fail(E_FAIL);}
 }
 void Overlay::retry(HINSTANCE instance){
+#ifdef CALLAYERS_GENERATION
+    generatedCheckpoint(true);
+#endif
 #ifdef CALLAYERS_INTERACTIVE
     checkpoint(true);
     if(restoreBlocked_)storeLoaded_=false;
@@ -80,6 +99,9 @@ void Overlay::enable(bool enabled){
     if(enabled_==enabled)return;
     enabled_=enabled;++state->currentEpoch;scenePending_=true;
     if(!enabled){
+#ifdef CALLAYERS_GENERATION
+        generatedCheckpoint(true);for(auto& card:generated_)card.restored=false;
+#endif
 #ifdef CALLAYERS_INTERACTIVE
         checkpoint(true);blur();restoreNeeded_=true;
 #endif
@@ -111,6 +133,9 @@ void Overlay::capture(){
             state->ready=true;
         }
         if(scenePending_){
+#ifdef CALLAYERS_GENERATION
+            generatedCheckpoint(false);installGenerated();
+#endif
 #ifdef CALLAYERS_INTERACTIVE
             auto scene=winrt::Windows::Data::Json::JsonObject::Parse(scene_);
             auto cards=scene.GetNamedArray(L"cards");
@@ -125,10 +150,17 @@ void Overlay::capture(){
         restoreCard();checkpoint(false);
         if(saveRevision_){auto result=cardStore_.result();if(result.revision==saveRevision_){state->saveError=result.error;saveRevision_=0;}}
 #endif
+#ifdef CALLAYERS_GENERATION
+        restoreGenerated();generatedCheckpoint(false);
+        if(generatedRevision_){auto result=generatedStore_.result();if(result.revision==generatedRevision_){state->generatedSaveError=result.error;generatedRevision_=0;}}
+#endif
         const auto epoch=state->currentEpoch.load();const auto tick=GetTickCount64();
         renderer_->Render();
 #ifdef CALLAYERS_INTERACTIVE
         if(cardVisible_ && restoreNeeded_)return; // Never publish defaults before saved values restore.
+#endif
+#ifdef CALLAYERS_GENERATION
+        for(auto& card:generated_)if(card.visible && !card.restored)return;
 #endif
         auto output=copy(frames_,tick);if(!output)return;
         auto id=state->requestedPrivateTextId.load();std::shared_ptr<OverlayImage> privateOutput;
@@ -192,5 +224,58 @@ void Overlay::key(UINT message,WPARAM wParam,LPARAM lParam){
 void Overlay::scroll(int x,int y,int delta){if(view_ && enabled_ && state->ready)view_->FireScrollEvent({ultralight::ScrollEvent::kType_ScrollByPixel,0,delta/3,x,y});}
 void Overlay::blur(){if(view_){ultralight::String error;view_->EvaluateScript("window.CallayersCard && window.CallayersCard.blur()",&error,"card-0");view_->Unfocus();}}
 void Overlay::pointerTarget(int id){if(view_ && state->ready)script("for(const [id,f] of frames)f.style.pointerEvents=("+std::to_string(id)+"<0 || id==="+std::to_string(id)+")?'auto':'none'");}
+void Overlay::retryState(){
+    if(restoreBlocked_){storeLoaded_=false;retry(GetModuleHandleW(nullptr));}else checkpoint(true);
+#ifdef CALLAYERS_GENERATION
+    if(generatedBlocked_){generatedLoaded_=false;generatedBlocked_=false;loadGenerated();documentsPending_=true;scenePending_=true;}else generatedCheckpoint(true);
+#endif
+}
+#endif
+#ifdef CALLAYERS_GENERATION
+bool Overlay::loadGenerated(){
+    if(generatedLoaded_)return !generatedBlocked_;
+    HRESULT error=S_OK;auto json=generatedStore_.load(error);
+    if(FAILED(error)||!ParseGeneratedCards(json,generated_)){generatedBlocked_=true;state->generatedSaveError=HRESULT_FROM_WIN32(ERROR_INVALID_DATA);}
+    if(!generatedBlocked_)state->generatedSaveError=S_OK;
+    generatedLoaded_=true;return !generatedBlocked_;
+}
+void Overlay::installGenerated(){
+    if(!documentsPending_)return;
+    winrt::Windows::Data::Json::JsonArray items;for(auto& c:generated_)items.Append(winrt::Windows::Data::Json::JsonValue::CreateStringValue(c.html));
+    script("documents.splice(3,documents.length-3,..."+winrt::to_string(items.Stringify())+")");documentsPending_=false;
+}
+bool Overlay::addGenerated(GeneratedCard card){
+    if(generatedBlocked_ || generated_.size()>=16 || !ValidGeneratedCard(card))return false;
+    generated_.push_back(std::move(card));documentsPending_=true;scenePending_=true;
+    lastGeneratedJson_=GeneratedCardsJson(generated_);generatedRevision_=generatedStore_.save(lastGeneratedJson_);return true;
+}
+void Overlay::generatedLayout(int index,double x,double y,double w,double h,bool visible){
+    if(index<0||index>=int(generated_.size()))return;auto& c=generated_[index];
+    if(c.visible&&!visible){generatedCheckpoint(true);c.restored=false;}
+    c.x=x;c.y=y;c.w=w;c.h=h;c.visible=visible;
+}
+void Overlay::restoreGenerated(){
+    for(size_t i=0;i<generated_.size();++i){auto& c=generated_[i];if(!c.visible||c.restored)continue;
+        auto frame="card-"+std::to_string(i+3);ultralight::String error;
+        auto ready=view_->EvaluateScript("document.readyState === 'complete'",&error,frame.c_str());
+        if(!error.empty() || ready!=ultralight::String("true"))continue;
+        auto code="if(window.CallayersCard && typeof window.CallayersCard.restore==='function')window.CallayersCard.restore("+winrt::to_string(c.state)+")";
+        view_->EvaluateScript(code.c_str(),&error,frame.c_str());if(!error.empty()){state->generatedSaveError=E_FAIL;continue;}c.restored=true;c.lastRunning=false;
+    }
+}
+void Overlay::generatedCheckpoint(bool force){
+    if(generatedBlocked_)return;auto now=GetTickCount64();if(!force && now-lastGeneratedPoll_<250)return;lastGeneratedPoll_=now;
+    bool changed=false;
+    if(view_ && state->ready){for(size_t i=0;i<generated_.size();++i){auto& c=generated_[i];if(!c.visible||!c.restored)continue;
+        ultralight::String error;auto frame="card-"+std::to_string(i+3);
+        auto result=view_->EvaluateScript("window.CallayersCard && typeof window.CallayersCard.snapshot==='function' ? JSON.stringify(window.CallayersCard.snapshot()) : '{}'",&error,frame.c_str());
+        if(!error.empty()||result.empty())continue;
+        auto bytes=result.utf8();auto json=std::wstring(winrt::to_hstring(std::string(bytes.data(),bytes.length())));
+        if(!ValidCardState(json)){state->generatedSaveError=HRESULT_FROM_WIN32(ERROR_INVALID_DATA);continue;}
+        auto running=view_->EvaluateScript("!!(window.CallayersCard && window.CallayersCard.isRunning && window.CallayersCard.isRunning())",&error,frame.c_str())==ultralight::String("true");
+        if(json!=c.state && (force||!running||running!=c.lastRunning||now-c.lastSave>=5000)){c.state=json;c.lastSave=now;changed=true;}c.lastRunning=running;
+    }}
+    if(force || changed){auto json=GeneratedCardsJson(generated_);if(json!=lastGeneratedJson_ || FAILED(state->generatedSaveError.load())){lastGeneratedJson_=json;generatedRevision_=generatedStore_.save(json);}}
+}
 #endif
 }

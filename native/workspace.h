@@ -6,6 +6,9 @@
 #include <vector>
 #include "annotations.h"
 #include "auth.h"
+#ifdef CALLAYERS_GENERATION
+#include "generation.h"
+#endif
 
 namespace callayers {
 struct WorkspaceActions {
@@ -17,6 +20,10 @@ struct WorkspaceActions {
     std::function<bool(std::wstring,bool,double)> text;
     std::function<void()> retry, privacy, hideAll, clear, quit, layout;
     std::function<void()> authPrimary,authCancel,signOut;
+#ifdef CALLAYERS_GENERATION
+    std::function<void(std::wstring)> generate;
+    std::function<void()> cancelGeneration;
+#endif
 };
 // All XAML and callbacks stay on the UI thread. Video workers never touch WinUI.
 class Workspace {
@@ -27,6 +34,10 @@ public:
     ~Workspace();
     void cameras(const std::vector<std::wstring>& names, int selected, const std::wstring& missingName=L"");
     void card(int selected, const bool* visible);
+#ifdef CALLAYERS_GENERATION
+    void generatedCards(const std::vector<std::pair<std::wstring,bool>>& cards);
+    void generation(const GenerationSnapshot& snapshot);
+#endif
     void annotationControls(AnnotationTool tool,const std::wstring& color,int size);
     void editText(const RECT& area,const std::wstring& value,double font,const std::wstring& color,double width,double scale,double minimumHeight,bool waitForBackdrop);
     void textBackdrop(bool clean);

@@ -41,6 +41,16 @@ Use `.\scripts\measure-resources.ps1 -UltralightBuild -Scenario MinimizedMeet` f
 
 ## Structure
 
+### AI creation (build 3, deployment pending)
+
+Build with `.\scripts\build.ps1 -GenerationBuild`; the executable is `build/generation-workspace-x64/Release/Callayers.exe`. Accepted builds 1b and 2 remain unchanged. The new desktop has Create with AI, a prompt/Create/Cancel flyout, background authenticated generation, hidden saved-card rows, searching, visibility, positioning/input and bounded persisted card state. Generated cards save atomically in `%LOCALAPPDATA%/Callayers/WorkspaceV2/generated-cards.json`; no prompts or webcam frames enter those records. Cancel closes the local request and discards late results; it does not guarantee a refund of provider work already started. Lost responses never regenerate automatically.
+
+The backend reserves the independently configured per-day allowance transactionally, tracks request ownership/status/24-hour expiry without prompts or outputs, and performs one structured Responses API call with storage disabled. `AI_MODEL` defaults to `gpt-4.1-mini` and is configurable. Website-dependent prompts are rejected before reservation until build 4. Saved HTML uses opaque sandboxed frames and strict CSP; WebCore's file system exposes only its two packaged resource files. The Free SDK has no network interception hook; the actual renderer probe confirms denial of external fetch, synchronous XHR, image/nested-frame loads, browser storage and parent DOM access for the tested fixture. This does not promise protection against every engine defect or a slow script.
+
+Local checks passed: 15 synthetic backend tests and 7 native/script checks. The cloud deployment is pending explicit user approval after automatic approval review rejected changing the shared service's secret permissions, enabling paid generation and configuring request expiry. The existing service remains on the accepted sign-in revision; live AI creation cannot be verified until deployment. Prepared command: `.\scripts\deploy-backend-v2.ps1 -EnableGeneration`. Deployment tests must confirm generation readiness and rejection of unsigned requests. No paid generation test has been run.
+
+Optional resource sampling uses `-GenerationBuild` with the existing measurement helper. Card library capacity in this isolated milestone is bounded to 16 generated cards; rename/delete and wider library management remain step 7.
+
 ### Fixed interactive card (build 2)
 
 Build with `.\scripts\build.ps1 -InteractiveBuild` and launch `.\build\interactive-workspace-x64\Release\Callayers.exe` after closing other Callayers instances. The accepted 1b and older workspace executables remain available. It uses the existing camera registration and service URL. Automated checks: `ctest --test-dir build/interactive-workspace-x64 -C Release --output-on-failure`. The user accepted all four build 2 runtime checks on October 13, 2026. Tested executable SHA256: `21DA5307AFC1FD683AB4E75EF54C9C35CC615C11FA1E445CFFB1C0BAC501F526`.
