@@ -49,3 +49,5 @@ MVP generation uses prompts and pasted text; website-dependent prompts ask for p
 ## Revision in step 8
 
 Reuse generation/tools for the selected card only. Preserve unaffected content and images; validate and safely save before replacing. Retain one previous content/name/assets version. Restore locally without AI/allowance, consuming the backup and retaining placement/visibility. Replacement content starts with default state. Failed, cancelled or outdated requests change neither version.
+
+**Edit check accepted, October 13, 2026:** the user reported deploying the revision backend and confirmed Edit working. At the acceptance report, the running desktop was `build/sidebar-workspace-x64/Release/Callayers.exe`, SHA256 `A9F698AEE7E09A1BF0F399CC15F758BD1D8C339A311DBC2BF41415917593B0B7`. Eight existing desktop checks and 21 synthetic backend checks pass. This accepts the Edit check only; it does not infer acceptance of inline rename/shared-chat UX, previous-version restoration, image preservation or unreported revision failure scenarios. Step 8 remains in progress for those remaining checks.
