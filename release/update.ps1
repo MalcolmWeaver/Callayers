@@ -37,7 +37,7 @@ try {
         if ($Mode -eq 'Stage') {
             [IO.Directory]::CreateDirectory($updates) | Out-Null
             $feed = Join-Path $updates 'feed.part'
-            Receive-UpdateFile 'https://downloads.callayers.com/tester/latest.json' $feed 65536
+            Receive-UpdateFile ($script:ReleaseDownloadBase + '/tester/latest.json') $feed 65536
             $envelope = [IO.File]::ReadAllText($feed)
             $release = Get-VerifiedRelease $envelope $key
             if ([version]$release.version -gt [version]$current) {

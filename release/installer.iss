@@ -40,6 +40,7 @@ Source: "{#PayloadDir}\*"; DestDir: "{app}\versions\{#ReleaseVersion}"; Excludes
 Source: "{#PayloadDir}\CallayersLauncher.exe"; DestDir: "{app}"; DestName: "Callayers.exe"; Flags: ignoreversion
 Source: "update.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "update-common.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "download-config.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PublicKey}"; DestDir: "{app}"; DestName: "update-public-key.json"; Flags: ignoreversion
 Source: "{#RuntimeInstaller}"; DestName: "WindowsAppRuntimeInstall.exe"; Flags: dontcopy
 

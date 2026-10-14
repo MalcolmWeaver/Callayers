@@ -1,4 +1,7 @@
 Set-StrictMode -Version Latest
+$script:ReleaseDownloadConfig = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'download-config.json')) | ConvertFrom-Json
+if ([string]$script:ReleaseDownloadConfig.bucket -cnotmatch '^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$') { throw 'Invalid release bucket configuration.' }
+$script:ReleaseDownloadBase = 'https://storage.googleapis.com/' + $script:ReleaseDownloadConfig.bucket
 
 function Get-UpdateRsa($Key) {
     $parameters = New-Object System.Security.Cryptography.RSAParameters
@@ -38,7 +41,7 @@ function Get-VerifiedRelease([string]$Envelope, $PublicKey) {
     foreach ($name in $names) { if ($item.PSObject.Properties.Name -cnotcontains $name) { throw 'Invalid update fields.' } }
     if ($item.schema -ne 1 -or $item.channel -cne 'tester') { throw 'Unsupported update channel.' }
     Assert-ReleaseVersion ([string]$item.version)
-    $expected = 'https://downloads.callayers.com/releases/' + $item.version + '/CallayersSetup-' + $item.version + '.exe'
+    $expected = $script:ReleaseDownloadBase + '/releases/' + $item.version + '/CallayersSetup-' + $item.version + '.exe'
     if ($item.url -cne $expected) { throw 'Unexpected update download address.' }
     if ([string]$item.sha256 -cnotmatch '^[a-f0-9]{64}$' -or $item.size -lt 1 -or $item.size -gt 536870912 -or
         [double]$item.size -ne [math]::Truncate([double]$item.size)) { throw 'Invalid update file metadata.' }
@@ -70,7 +73,11 @@ function Get-CurrentRelease([string]$Root) {
 
 function Receive-UpdateFile([string]$Url, [string]$Path, [long]$Limit) {
     $uri = [Uri]$Url
-    if ($uri.Scheme -cne 'https' -or $uri.Host -cne 'downloads.callayers.com' -or $uri.Port -ne 443 -or $uri.UserInfo) { throw 'Untrusted download host.' }
+    if ($uri.Scheme -cne 'https' -or $uri.Host -cne 'storage.googleapis.com' -or $uri.Port -ne 443 -or $uri.UserInfo -or $uri.Query -or $uri.Fragment) { throw 'Untrusted download host.' }
+    # Google hosts other customers' buckets: trust only our exact feed/installer paths.
+    if (-not $Url.StartsWith(($script:ReleaseDownloadBase + '/'), [StringComparison]::Ordinal)) { throw 'Untrusted download bucket.' }
+    $relative = $Url.Substring($script:ReleaseDownloadBase.Length)
+    if ($relative -cne '/tester/latest.json' -and $relative -cnotmatch '^/releases/(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})/CallayersSetup-\1\.\2\.\3\.exe$') { throw 'Untrusted download path.' }
     Add-Type -AssemblyName System.Net.Http
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     $handler = New-Object Net.Http.HttpClientHandler

@@ -2,6 +2,7 @@ import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 const source=new URL('./public/',import.meta.url),output=new URL('./dist/',import.meta.url);
 await mkdir(output,{recursive:true});
+await writeFile(new URL('download-config.json',output),await readFile(new URL('../release/download-config.json',import.meta.url)));
 // Reuse the app's existing brand asset; keep one source for both app and website.
 await writeFile(new URL('callayers-mark.svg',output),await readFile(new URL('../spec-v2/assets/callayers-mark.svg',import.meta.url)));
 for(const name of ['index.html','styles.css','download.js','privacy.html','terms.html','_headers']){

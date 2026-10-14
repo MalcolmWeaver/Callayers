@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {GRACE_MS, RETENTION_KEY, installerKey, prepareRetention, cleanupReleases,
-  createReleaseStore, validateRetention, compareVersions} from '../scripts/release-retention.mjs';
+  createReleaseStore, validateRetention, compareVersions, RELEASE_BASE_URL} from '../scripts/release-retention.mjs';
 
 const start = Date.parse('2026-10-14T12:00:00Z');
 const objects = (...versions) => versions.map(version => ({key: installerKey(version)}));
 const feed = version => ({payload: Buffer.from(JSON.stringify({schema: 1, channel: 'tester', version,
-  url: `https://downloads.callayers.com/${installerKey(version)}`})).toString('base64')});
+  url: `${RELEASE_BASE_URL}/${installerKey(version)}`})).toString('base64')});
 
 function fixture(state, listed = objects(...[state.latestVersion, state.previousVersion].filter(Boolean))) {
   let record = structuredClone(state);
@@ -131,30 +131,31 @@ test('a single published release remains protected without requiring a previous 
   assert.deepEqual(bucket.writes, []);
 });
 
-test('Cloudflare listing follows pagination and DELETE targets an exact installer', async () => {
+test('Google listing follows pagination and DELETE protects the exact object generation', async () => {
   const calls = [];
-  const store = createReleaseStore({token: 'test-token', account: 'a'.repeat(32),
+  const store = createReleaseStore({token: 'test-token',
     fetchImpl: async (url, options) => {
       const parsed = new URL(url);
       calls.push({url: parsed, options});
-      if (options.method === 'DELETE') return Response.json({success: true});
-      const secondPage = parsed.searchParams.has('cursor');
-      return Response.json({success: true, result: objects(secondPage ? '0.4.0' : '0.3.0'),
-        result_info: {is_truncated: !secondPage, cursor: secondPage ? undefined : 'next/page'}});
+      if (options.method === 'DELETE') return new Response(null, {status: 204});
+      const secondPage = parsed.searchParams.has('pageToken');
+      return Response.json({kind: 'storage#objects', items: [{name: installerKey(secondPage ? '0.4.0' : '0.3.0'), generation: '123'}],
+        nextPageToken: secondPage ? undefined : 'next/page'});
     }});
-  assert.deepEqual(await store.listInstallers(), objects('0.3.0', '0.4.0'));
-  assert.equal(calls[1].url.searchParams.get('cursor'), 'next/page');
+  assert.deepEqual((await store.listInstallers()).map(item => item.key), objects('0.3.0', '0.4.0').map(item => item.key));
+  assert.equal(calls[1].url.searchParams.get('pageToken'), 'next/page');
   await store.deleteInstaller('0.3.0');
-  assert(calls[2].url.pathname.endsWith('/objects/releases/0.3.0/CallayersSetup-0.3.0.exe'));
+  assert(calls[2].url.pathname.endsWith('/o/releases%2F0.3.0%2FCallayersSetup-0.3.0.exe'));
+  assert.equal(calls[2].url.searchParams.get('ifGenerationMatch'), '123');
   assert.equal(calls[2].options.method, 'DELETE');
   await assert.rejects(store.deleteInstaller('../unrelated'));
   assert.equal(calls.length, 3);
 });
 
-test('Cloudflare errors and incomplete listings fail closed', async () => {
-  for (const response of [Response.json({success: false}), Response.json({success: true, result: [],
-    result_info: {is_truncated: true}}), new Response('', {status: 403})]) {
-    const store = createReleaseStore({token: 'test-token', account: 'a'.repeat(32), fetchImpl: async () => response});
+test('Google errors and incomplete listings fail closed', async () => {
+  for (const response of [Response.json({error: 'bad response'}), Response.json({kind: 'storage#objects', items: [],
+    nextPageToken: ''}), new Response('', {status: 403})]) {
+    const store = createReleaseStore({token: 'test-token', fetchImpl: async () => response});
     await assert.rejects(store.listInstallers());
   }
 });

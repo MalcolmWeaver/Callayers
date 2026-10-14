@@ -1,10 +1,10 @@
 name: Website
 on:
   pull_request:
-    paths: ['website/**', 'spec-v2/assets/callayers-mark.svg', '.github/workflows/website.yml']
+    paths: ['website/**', 'release/download-config.json', 'spec-v2/assets/callayers-mark.svg', '.github/workflows/website.yml']
   push:
     branches: [main]
-    paths: ['website/**', 'spec-v2/assets/callayers-mark.svg', '.github/workflows/website.yml']
+    paths: ['website/**', 'release/download-config.json', 'spec-v2/assets/callayers-mark.svg', '.github/workflows/website.yml']
   workflow_dispatch:
 permissions:
   contents: read
