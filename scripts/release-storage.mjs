@@ -89,9 +89,12 @@ export function createReleaseStore({token, account = process.env.CLOUDFLARE_ACCO
         const body = await checkedJson(await request(url), 'release listing');
         if (!Array.isArray(body.result)) throw Error('Invalid Cloudflare release listing.');
         objects.push(...body.result);
-        if (!body.result_info || typeof body.result_info.is_truncated !== 'boolean') throw Error('Invalid Cloudflare pagination.');
-        cursor = body.result_info.is_truncated ? body.result_info.cursor : null;
-        if (body.result_info.is_truncated && (!cursor || seen.has(cursor))) throw Error('Incomplete Cloudflare release listing.');
+        // R2 can omit pagination details for a short final page, including an empty bucket.
+        const info = body.result_info ?? {};
+        if (info.is_truncated !== undefined && typeof info.is_truncated !== 'boolean') throw Error('Invalid Cloudflare pagination.');
+        cursor = info.is_truncated === false ? null : (info.cursor ?? null);
+        if ((info.is_truncated === true && !cursor) || (cursor && (typeof cursor !== 'string' || seen.has(cursor)))
+            || (info.is_truncated === undefined && !cursor && body.result.length >= 1000)) throw Error('Incomplete Cloudflare release listing.');
         seen.add(cursor);
       } while (cursor);
       return objects;

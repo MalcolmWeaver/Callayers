@@ -159,6 +159,17 @@ test('R2 errors and incomplete listings fail closed', async () => {
   }
 });
 
+test('R2 accepts empty and short final pages without optional pagination metadata', async () => {
+  for (const entries of [[], objects('0.3.0')]) {
+    const store = createReleaseStore({token: 'test-token', account: 'a'.repeat(32),
+      fetchImpl: async () => Response.json({success: true, result: entries})});
+    assert.deepEqual(await store.listInstallers(), entries);
+  }
+  const store = createReleaseStore({token: 'test-token', account: 'a'.repeat(32),
+    fetchImpl: async () => Response.json({success: true, result: Array(1000).fill({key: 'fixture'})})});
+  await assert.rejects(store.listInstallers(), /Incomplete/);
+});
+
 test('R2 uploads preserve feed cache policy and refuse to replace an installer', async () => {
   const uploaded = [];
   const files = new Map();
