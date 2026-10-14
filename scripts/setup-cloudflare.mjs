@@ -21,10 +21,4 @@ if(addressRecords.some(r=>r.type!=='CNAME'||r.content!=='callayers.pages.dev'))t
 const domains=await api(`${projectRoute}/domains`);
 if(!domains.some(d=>d.name==='callayers.com'))await api(`${projectRoute}/domains`,'POST',{name:'callayers.com'});
 if(!addressRecords.length)await api(`/zones/${zone}/dns_records`,'POST',{type:'CNAME',name:'callayers.com',content:'callayers.pages.dev',proxied:true,ttl:1});
-const bucketRoute=`/accounts/${account}/r2/buckets/callayers-downloads`;
-if(!await api(bucketRoute,'GET',undefined,true))await api(`/accounts/${account}/r2/buckets`,'POST',{name:'callayers-downloads'});
-const bucketDomains=await api(`${bucketRoute}/domains/custom`);
-const domainsList=Array.isArray(bucketDomains)?bucketDomains:bucketDomains.domains;
-if(!domainsList.some(d=>d.domain==='downloads.callayers.com'))await api(`${bucketRoute}/domains/custom`,'POST',{domain:'downloads.callayers.com',enabled:true,zoneId:zone});
-await api(`${bucketRoute}/cors`,'PUT',{rules:[{allowed:{origins:['https://callayers.com'],methods:['GET','HEAD'],headers:['*']},maxAgeSeconds:3600}]});
-console.log('Cloudflare resources prepared. Configure GitHub credentials, deploy the website, then explicitly publish the tester installer. Domain certificates may need time to become active.');
+console.log('Cloudflare website resources prepared. Configure R2 downloads separately with scripts/setup-release-storage.mjs.');

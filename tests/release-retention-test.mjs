@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {GRACE_MS, RETENTION_KEY, installerKey, prepareRetention, cleanupReleases,
-  createReleaseStore, validateRetention, compareVersions} from '../scripts/release-retention.mjs';
+  createReleaseStore, validateRetention, compareVersions, RELEASE_BASE_URL} from '../scripts/release-retention.mjs';
 
 const start = Date.parse('2026-10-14T12:00:00Z');
 const objects = (...versions) => versions.map(version => ({key: installerKey(version)}));
 const feed = version => ({payload: Buffer.from(JSON.stringify({schema: 1, channel: 'tester', version,
-  url: `https://downloads.callayers.com/${installerKey(version)}`})).toString('base64')});
+  url: `${RELEASE_BASE_URL}/${installerKey(version)}`})).toString('base64')});
 
 function fixture(state, listed = objects(...[state.latestVersion, state.previousVersion].filter(Boolean))) {
   let record = structuredClone(state);
@@ -131,7 +131,7 @@ test('a single published release remains protected without requiring a previous 
   assert.deepEqual(bucket.writes, []);
 });
 
-test('Cloudflare listing follows pagination and DELETE targets an exact installer', async () => {
+test('R2 listing follows pagination and DELETE targets an exact installer', async () => {
   const calls = [];
   const store = createReleaseStore({token: 'test-token', account: 'a'.repeat(32),
     fetchImpl: async (url, options) => {
@@ -151,10 +151,40 @@ test('Cloudflare listing follows pagination and DELETE targets an exact installe
   assert.equal(calls.length, 3);
 });
 
-test('Cloudflare errors and incomplete listings fail closed', async () => {
+test('R2 errors and incomplete listings fail closed', async () => {
   for (const response of [Response.json({success: false}), Response.json({success: true, result: [],
     result_info: {is_truncated: true}}), new Response('', {status: 403})]) {
     const store = createReleaseStore({token: 'test-token', account: 'a'.repeat(32), fetchImpl: async () => response});
     await assert.rejects(store.listInstallers());
   }
+});
+
+test('R2 uploads preserve feed cache policy and refuse to replace an installer', async () => {
+  const uploaded = [];
+  const files = new Map();
+  const store = createReleaseStore({token: 'test-token', account: 'a'.repeat(32),
+    fetchImpl: async url => {
+      const key = new URL(url).pathname.split('/objects/')[1];
+      return files.has(key) ? new Response(files.get(key)) : new Response(null, {status: 404});
+    },
+    uploadImpl: async (key, bytes, type, cache) => {
+      uploaded.push({key, type, cache}); files.set(key, Buffer.from(bytes));
+    }});
+  await store.readJson(RETENTION_KEY);
+  const state = {schema: 1, latestVersion: '0.3.0', previousVersion: null, retired: []};
+  await store.writeRetention(state);
+  assert.deepEqual(uploaded[0], {key: RETENTION_KEY, type: 'application/json', cache: 'no-store'});
+  await store.writeObject(installerKey('0.3.0'), Buffer.from('fixture'), 'application/octet-stream', 'immutable', {createOnly: true});
+  assert.equal(uploaded.length, 2);
+  await assert.rejects(store.writeObject(installerKey('0.3.0'), Buffer.from('different'), 'application/octet-stream', 'immutable', {createOnly: true}), /changed/);
+  assert.equal(uploaded.length, 2);
+});
+
+test('R2 rejects metadata overwritten by another publisher before upload', async () => {
+  let calls = 0;
+  const store = createReleaseStore({token: 'test-token', account: 'a'.repeat(32),
+    fetchImpl: async () => Response.json({fixture: ++calls}),
+    uploadImpl: async () => {throw Error('Should not upload');}});
+  assert.deepEqual(await store.readJson('tester/latest.json'), {fixture: 1});
+  await assert.rejects(store.writeObject('tester/latest.json', '{}', 'application/json', 'no-store'), /changed/);
 });

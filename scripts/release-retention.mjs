@@ -1,3 +1,5 @@
+import {RELEASE_BASE_URL, createReleaseStore as createStorageStore} from './release-storage.mjs';
+export {RELEASE_BASE_URL} from './release-storage.mjs';
 export const RETENTION_KEY = 'tester/retention.json';
 export const GRACE_MS = 24 * 60 * 60 * 1000;
 
@@ -28,7 +30,7 @@ function installerVersion(key) {
 export function feedVersion(envelope) {
   const payload = JSON.parse(Buffer.from(envelope.payload, 'base64').toString('utf8'));
   if (payload.schema !== 1 || payload.channel !== 'tester' || !validVersion(payload.version)
-      || payload.url !== `https://downloads.callayers.com/${installerKey(payload.version)}`) {
+      || payload.url !== `${RELEASE_BASE_URL}/${installerKey(payload.version)}`) {
     throw Error('Invalid published tester feed; cleanup stopped.');
   }
   return payload.version;
@@ -82,55 +84,11 @@ export function prepareRetention(state, version, priorVersion, objects, now = Da
     retired: [...retired].map(([retiredVersion, deleteAfter]) => ({version: retiredVersion, deleteAfter}))});
 }
 
-export function createReleaseStore({token, account, fetchImpl = fetch}) {
-  if (!token || !/^[a-f0-9]{32}$/.test(account ?? '')) throw Error('Configure Cloudflare account and API token.');
-  const endpoint = `https://api.cloudflare.com/client/v4/accounts/${account}/r2/buckets/callayers-downloads/objects`;
-  const objectUrl = key => `${endpoint}/${key.split('/').map(encodeURIComponent).join('/')}`;
-  async function request(url, options = {}) {
-    return fetchImpl(url, {...options, redirect: 'error', signal: AbortSignal.timeout(120000),
-      headers: {Authorization: `Bearer ${token}`, ...options.headers}});
-  }
-  async function checkedJson(response, operation) {
-    if (!response.ok) throw Error(`Cloudflare ${operation} failed (${response.status}); cleanup stopped.`);
-    const body = await response.json();
-    if (body.success !== true) throw Error(`Cloudflare ${operation} failed; cleanup stopped.`);
-    return body;
-  }
-  return {
-    async readJson(key) {
-      const response = await request(objectUrl(key));
-      if (response.status === 404) return null;
-      if (!response.ok) throw Error(`Cloudflare release metadata read failed (${response.status}).`);
-      return response.json(); // Get Object returns the object's bytes, not an API envelope.
-    },
-    async listInstallers() {
-      const objects = [], seen = new Set();
-      let cursor;
-      do {
-        const url = new URL(endpoint);
-        url.searchParams.set('prefix', 'releases/');
-        url.searchParams.set('per_page', '1000');
-        if (cursor) url.searchParams.set('cursor', cursor);
-        const body = await checkedJson(await request(url), 'release listing');
-        if (!Array.isArray(body.result)) throw Error('Invalid Cloudflare release listing.');
-        objects.push(...body.result);
-        if (!body.result_info || typeof body.result_info.is_truncated !== 'boolean') throw Error('Invalid Cloudflare pagination.');
-        cursor = body.result_info.is_truncated ? body.result_info.cursor : null;
-        if (body.result_info.is_truncated && (!cursor || seen.has(cursor))) throw Error('Incomplete Cloudflare release listing.');
-        seen.add(cursor);
-      } while (cursor);
-      return objects;
-    },
-    async writeRetention(state) {
-      validateRetention(state);
-      await checkedJson(await request(objectUrl(RETENTION_KEY), {method: 'PUT',
-        headers: {'Content-Type': 'application/json', 'Cache-Control': 'no-store'},
-        body: JSON.stringify(state)}), 'retention write');
-    },
-    async deleteInstaller(version) {
-      const response = await request(objectUrl(installerKey(version)), {method: 'DELETE'});
-      if (response.status !== 404) await checkedJson(response, 'installer deletion');
-    }
+export function createReleaseStore(options) {
+  const store = createStorageStore(options);
+  return {...store,
+    async writeRetention(state) { validateRetention(state); await store.writeRetention(state); },
+    async deleteInstaller(version) { await store.deleteObject(installerKey(version)); }
   };
 }
 

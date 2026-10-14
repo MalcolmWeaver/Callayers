@@ -6,7 +6,7 @@ Assert-ReleaseVersion $Version
 if (-not $Output) { $Output = Join-Path (Split-Path $Installer -Parent) 'latest.json' }
 $file = Get-Item -LiteralPath $Installer
 $payload = [ordered]@{schema=1;channel='tester';version=$Version;
-    url="https://downloads.callayers.com/releases/$Version/CallayersSetup-$Version.exe";
+    url=($script:ReleaseDownloadBase + "/releases/$Version/CallayersSetup-$Version.exe");
     sha256=(Get-FileHash -LiteralPath $Installer -Algorithm SHA256).Hash.ToLowerInvariant();
     size=$file.Length;publishedAt=[DateTimeOffset]::UtcNow.ToString('o')}
 $bytes = [Text.Encoding]::UTF8.GetBytes(($payload | ConvertTo-Json -Compress))

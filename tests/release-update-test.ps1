@@ -15,7 +15,7 @@ function Envelope($Payload){
 }
 try{
  $file=Join-Path $directory 'setup.exe';[IO.File]::WriteAllText($file,'test installer bytes; never executed')
- $payload=[ordered]@{schema=1;channel='tester';version='0.3.1';url='https://downloads.callayers.com/releases/0.3.1/CallayersSetup-0.3.1.exe';sha256=(Get-FileHash $file).Hash.ToLowerInvariant();size=(Get-Item $file).Length;publishedAt=[DateTimeOffset]::UtcNow.ToString('o')}
+ $payload=[ordered]@{schema=1;channel='tester';version='0.3.1';url=($script:ReleaseDownloadBase+'/releases/0.3.1/CallayersSetup-0.3.1.exe');sha256=(Get-FileHash $file).Hash.ToLowerInvariant();size=(Get-Item $file).Length;publishedAt=[DateTimeOffset]::UtcNow.ToString('o')}
  $signed=Envelope $payload;$release=Get-VerifiedRelease $signed $key
  Assert (Test-ReleaseFile $file $release) 'authentic matching installer'
  Assert ([version]$release.version -gt [version]'0.3.0') 'numeric newer-version ordering'
@@ -27,7 +27,7 @@ try{
  Reject {Get-VerifiedRelease $signed $wrongKey} 'wrong signing identity rejected'
  [IO.File]::AppendAllText($file,'tampered');Assert (-not(Test-ReleaseFile $file $release)) 'modified installer rejected'
  $payload.url='https://evil.example/setup.exe';Reject {Get-VerifiedRelease (Envelope $payload) $key} 'signed unexpected host rejected'
- $payload.url='https://downloads.callayers.com/releases/0.3.1/CallayersSetup-0.3.1.exe';$payload.version='../../outside'
+ $payload.url=$script:ReleaseDownloadBase+'/releases/0.3.1/CallayersSetup-0.3.1.exe';$payload.version='../../outside'
  Reject {Get-VerifiedRelease (Envelope $payload) $key} 'signed traversal version rejected'
  $payload.version='0.3.1';$payload.size=536870913
  Reject {Get-VerifiedRelease (Envelope $payload) $key} 'oversized signed installer rejected'
@@ -37,13 +37,17 @@ try{
  Assert (Test-CameraFileIdle $camera) 'idle camera file available'
  $locked=[IO.File]::Open($camera,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
  try{Assert (-not(Test-CameraFileIdle $camera)) 'calling-app lock defers update'}finally{$locked.Dispose()}
- Reject {Receive-UpdateFile 'http://downloads.callayers.com/setup.exe' (Join-Path $directory 'bad') 10} 'unencrypted download rejected'
+ Reject {Receive-UpdateFile 'http://downloads.callayers.com/tester/latest.json' (Join-Path $directory 'bad') 10} 'unencrypted download rejected'
  Reject {Receive-UpdateFile 'https://evil.example/setup.exe' (Join-Path $directory 'bad') 10} 'untrusted host rejected before request'
+ Reject {Receive-UpdateFile 'https://storage.googleapis.com/another-bucket/tester/latest.json' (Join-Path $directory 'bad') 10} 'Google download address rejected before request'
+ Reject {Receive-UpdateFile 'https://downloads.callayers.com.evil.example/tester/latest.json' (Join-Path $directory 'bad') 10} 'similar host name rejected before request'
+ Reject {Receive-UpdateFile ($script:ReleaseDownloadBase+'/../other/tester/latest.json') (Join-Path $directory 'bad') 10} 'path traversal rejected before request'
+ Reject {Receive-UpdateFile ($script:ReleaseDownloadBase+'/tester/latest.json?redirect=elsewhere') (Join-Path $directory 'bad') 10} 'download query rejected before request'
  # Exercise the actual updater in an isolated installation, never executing the fixture installer.
  $root=Join-Path $directory 'installed';[IO.Directory]::CreateDirectory((Join-Path $root 'versions/0.3.0'))|Out-Null
  [IO.Directory]::CreateDirectory((Join-Path $root 'updates/0.3.1'))|Out-Null
  $repo=Split-Path $PSScriptRoot -Parent
- Copy-Item -LiteralPath (Join-Path $repo 'release/update.ps1'),(Join-Path $repo 'release/update-common.ps1') -Destination $root
+ Copy-Item -LiteralPath (Join-Path $repo 'release/update.ps1'),(Join-Path $repo 'release/update-common.ps1'),(Join-Path $repo 'release/download-config.json') -Destination $root
  [IO.File]::WriteAllText((Join-Path $root 'current-version.txt'),'0.3.0')
  [IO.File]::WriteAllText((Join-Path $root 'update-public-key.json'),($key|ConvertTo-Json -Compress))
  $staged=Join-Path $root 'updates/0.3.1/setup.exe';[IO.File]::WriteAllText($staged,'fixture; never executed')

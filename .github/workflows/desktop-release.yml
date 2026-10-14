@@ -58,9 +58,9 @@ jobs:
         with:
           name: callayers-${{ inputs.version }}-x64
           path: build/installers/${{ inputs.version }}/
-      - name: Upload installer, then publish update feed
+      - name: Upload installer to R2, then publish update feed
         shell: pwsh
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_R2_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
         run: node scripts/publish-desktop.mjs $env:VERSION
