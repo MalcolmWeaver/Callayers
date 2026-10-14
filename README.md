@@ -55,7 +55,7 @@ Optional resource sampling uses `-GenerationBuild` with the existing measurement
 
 ### Image import (step 7, first build)
 
-Build with `.\scripts\build.ps1 -ImageBuild`; launch `.\build\image-workspace-x64\Release\Callayers.exe` after closing other Callayers instances. Eight automated checks pass; user preview/Meet/restoration verification is pending. The existing camera registration and service URL are reused.
+Build with `.\scripts\build.ps1 -ImageBuild`; launch `.\build\image-workspace-x64\Release\Callayers.exe` after closing other Callayers instances. Eight automated checks pass. On October 13, 2026, the user explicitly accepted image import, search, preview/Meet behavior, proportional resizing, transparency and saved placement/visibility restoration for executable SHA256 `FA7D3F4CD387BA1B2A74753ABB1D84698E2D7052F0586A6D7A902CC38DBF4D32`. The existing camera registration and service URL are reused.
 
 Import image accepts local PNG, JPEG and BMP files up to 32 MB / 24 million pixels. It preserves alpha and proportions, fits within 1280×720, and reduces detailed images further to bound each saved PNG to 1 MiB. Imported cards start hidden, use the filename, and support existing search, visibility, private border movement/corner resizing and saved placement/visibility. The combined library retains the current 16-card limit; rename, stacking and confirmed delete are the next small improvement.
 
