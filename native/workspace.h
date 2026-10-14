@@ -22,6 +22,7 @@ struct WorkspaceActions {
     std::function<bool(std::wstring,bool,double)> text;
     std::function<void()> retry, privacy, hideAll, clear, quit, layout;
     std::function<void()> authPrimary,authCancel,signOut;
+    std::function<bool()> restartUpdate;
 #ifdef CALLAYERS_GENERATION
     std::function<void(std::wstring)> generate;
     std::function<void()> cancelGeneration;
@@ -60,6 +61,7 @@ public:
     void focus(bool reverse);
     void state(const std::wstring& status, const std::wstring& help, bool fresh, bool privacy, bool retryPreference=false, bool cameraChoices=true);
     void authentication(const AuthSnapshot& state);
+    void refreshUpdate();
     void layout(int width, int height, float dpi, const RECT& preview);
     int toolbarHeight() const;
 };

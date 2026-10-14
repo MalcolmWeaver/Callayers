@@ -77,6 +77,7 @@ struct App {
     static constexpr ULONGLONG PictureWaitMs=15000;
     std::atomic<unsigned> commandVersion{1};
     std::atomic<bool> demand{false}, quitting{false};
+    bool restartForUpdate=false;
     std::atomic<HRESULT> captureError{S_OK};
     std::atomic<bool> opening{false};
     std::thread worker;
@@ -834,6 +835,17 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam
             };
             actions.clear=[app]{if(!app->workspace->finishText())return;app->finishGesture();if(MessageBoxW(app->window,L"Clear all annotations? This cannot be undone.",L"Clear annotations",MB_YESNO|MB_ICONQUESTION)==IDYES){app->annotations.clear();app->selectedAnnotation=app->hoveredAnnotation=-1;app->changed();app->syncAnnotationControls();app->saveAnnotations();}};
             actions.quit=[app]{PostMessageW(app->window,WM_CLOSE,0,0);};
+            actions.restartUpdate=[app]{
+                if(app->bridge.consumerActive())return false;
+                auto root=ReleaseRoot();if(root.empty())return false;
+                wchar_t exe[32768]{};GetModuleFileNameW(nullptr,exe,32768);
+                auto camera=std::filesystem::path(exe).parent_path()/L"CallayersCamera.dll";
+                HANDLE idle=CreateFileW(camera.c_str(),GENERIC_READ|GENERIC_WRITE,0,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
+                if(idle==INVALID_HANDLE_VALUE)return false;
+                CloseHandle(idle);
+                if(!app->workspace->finishText())return false;
+                app->restartForUpdate=true;PostMessageW(app->window,WM_CLOSE,0,0);return true;
+            };
             actions.authPrimary=[app]{auto login=app->auth.snapshot();if(login.retryAvailable)app->auth.retry();else app->auth.signIn();app->refreshAuth();};
             actions.authCancel=[app]{app->auth.cancel();app->refreshAuth();};
             actions.signOut=[app]{app->signOut();};
@@ -853,7 +865,7 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam
         } catch(winrt::hresult_error const& error) {Resources().event("workspace_controls_failed hresult="+std::to_string(error.code().value));MessageBoxW(window,L"Couldn't open the workspace. Close and reopen Callayers.",L"Callayers",MB_OK|MB_ICONERROR);return -1;}
         catch(...) {Resources().event("workspace_controls_failed");MessageBoxW(window,L"Couldn't open the workspace. Close and reopen Callayers.",L"Callayers",MB_OK|MB_ICONERROR);return -1;}
     }
-    case WM_TIMER:app->refreshAuth();app->updateDemand();app->overlay.capture();
+    case WM_TIMER:if(app->workspace)app->workspace->refreshUpdate();app->refreshAuth();app->updateDemand();app->overlay.capture();
 #ifdef CALLAYERS_GENERATION
         app->refreshGeneration();
 #endif
@@ -896,6 +908,7 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam
     case WM_CTLCOLORBTN:SetTextColor(reinterpret_cast<HDC>(wParam),RGB(230,235,245));SetBkColor(reinterpret_cast<HDC>(wParam),RGB(18,22,31));return reinterpret_cast<LRESULT>(app->background);
     case WM_PAINT:app->paint();return 0;
     case WM_CLOSE:
+        if(app->restartForUpdate && app->bridge.consumerActive()){app->restartForUpdate=false;return 0;}
         if(app->workspace && !app->workspace->finishText())return 0;
         app->finishGesture();
         app->auth.cancel();
@@ -922,7 +935,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,LPWSTR,int show) {
     HRESULT com=CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED);
     if(FAILED(com) || FAILED(MFStartup(MF_VERSION))){MessageBoxW(nullptr,L"Windows couldn't start the video services.",L"Callayers",MB_OK|MB_ICONERROR);CloseHandle(single);return 1;}
     InitCommonControls();
-    int result=0;
+    int result=0;bool restartForUpdate=false;
     try {
         WorkspaceRuntime runtime;
         App app;
@@ -930,7 +943,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,LPWSTR,int show) {
         else {
             WNDCLASSW wc{};wc.style=CS_DBLCLKS;wc.lpfnWndProc=WindowProc;wc.hInstance=instance;wc.lpszClassName=L"CallayersFoundation";wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);wc.hIcon=LoadIconW(instance,MAKEINTRESOURCEW(1));RegisterClassW(&wc);
             HWND window=CreateWindowExW(0,wc.lpszClassName,L"Callayers",WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,CW_USEDEFAULT,CW_USEDEFAULT,1280,850,nullptr,nullptr,instance,&app);
-            if(window){ShowWindow(window,show);StartReleaseUpdate(L"Stage");MSG message{};while(GetMessageW(&message,nullptr,0,0)>0){
+            if(window){ShowWindow(window,show);MSG message{};while(GetMessageW(&message,nullptr,0,0)>0){
 #ifdef CALLAYERS_INTERACTIVE
                 const bool cardKey=app.focusedCard>=0 && message.hwnd==window && message.message>=WM_KEYFIRST && message.message<=WM_KEYLAST;
                 if(cardKey || (app.workspace && app.workspace->textEditorOwns(message.hwnd)) || !ContentPreTranslateMessage(&message))
@@ -941,11 +954,13 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,LPWSTR,int show) {
             }}
             else {app.quitting=true;result=1;}
             if(app.worker.joinable())app.worker.join();
+            restartForUpdate=app.restartForUpdate;
         }
     }
     catch(winrt::hresult_error const& error) {Resources().event("workspace_runtime_failed hresult="+std::to_string(error.code().value));MessageBoxW(nullptr,L"Couldn't start the Callayers workspace. Make sure Windows App Runtime 1.6 is installed, then reopen the app.",L"Callayers",MB_OK|MB_ICONERROR);result=1;}
     catch(...) {Resources().event("workspace_runtime_failed");MessageBoxW(nullptr,L"Couldn't start the Callayers workspace. Close and reopen the app.",L"Callayers",MB_OK|MB_ICONERROR);result=1;}
     MFShutdown();CoUninitialize();ReleaseMutex(single);CloseHandle(single);
-    if(result==0)StartReleaseUpdate(L"Apply",GetCurrentProcessId());
+    if(result==0 && !StartReleaseUpdate(restartForUpdate?L"ApplyAndLaunch":L"Apply",GetCurrentProcessId()) && restartForUpdate)
+        MessageBoxW(nullptr,L"Couldn’t start the update. Open Callayers again and try updating from File → About Callayers.",L"Callayers",MB_OK|MB_ICONINFORMATION);
     return result;
 }

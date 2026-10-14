@@ -1,6 +1,8 @@
 #include "workspace.h"
 #include "resource_diagnostics.h"
 #include "text_editor.h"
+#include "release_updates.h"
+#include <winrt/Windows.Data.Json.h>
 #ifdef GetCurrentTime
 #undef GetCurrentTime
 #endif
@@ -129,6 +131,47 @@ struct Workspace::Impl {
     bool lastRetryPreference = false;
     bool listedVisible[3]{true,true,true};
     std::wstring lastStatus, lastHelp;
+    controls::Flyout about{nullptr};
+    controls::TextBlock updateMessage{nullptr};
+    controls::Button updateButton{nullptr};
+    HANDLE updateProcess=nullptr;
+    ULONGLONG updatePoll=0;
+    bool updateReady=false;
+    bool aboutOpen=false;
+    std::wstring updateState;
+    void showUpdate(const std::wstring& state,const std::wstring& version=L"") {
+        updateState=state;updateReady=state==L"ready" || state==L"waiting-for-camera";
+        bool busy=state==L"checking" || state==L"downloading";
+        updateButton.Content(winrt::box_value(updateReady?L"Restart to update":busy?(state==L"checking"?L"Checking…":L"Downloading…"):L"Check for updates"));
+        updateButton.IsEnabled(!busy && !ReleaseRoot().empty());
+        updateMessage.Text(state==L"development"?L"Updates are available in installed releases.":state==L"current"?L"You’re up to date.":state==L"checking"?L"Checking for updates…":state==L"downloading"?L"Downloading version "+version+L"…":state==L"ready"?L"Version "+version+L" is ready to install.":state==L"waiting-for-camera"?L"Close apps using the Callayers camera, then restart to update.":state==L"deferred"?L"Couldn’t complete the update. Check your connection and try again.":L"Updates install when Callayers and its camera are closed.");
+    }
+    void checkUpdate() {
+        if(updateProcess)return;
+        showUpdate(L"checking");
+        if(!StartReleaseUpdate(L"Stage",0,&updateProcess))showUpdate(ReleaseRoot().empty()?L"development":L"deferred");
+    }
+    void pollUpdate() {
+        if(!aboutOpen && !updateProcess)return;
+        if(GetTickCount64()-updatePoll<500)return;
+        updatePoll=GetTickCount64();
+        bool running=updateProcess && WaitForSingleObject(updateProcess,0)==WAIT_TIMEOUT;
+        if(updateProcess && !running){CloseHandle(updateProcess);updateProcess=nullptr;}
+        auto root=ReleaseRoot();if(root.empty())return;
+        try {
+            std::ifstream file(root/L"update-status.json");
+            std::string bytes((std::istreambuf_iterator<char>(file)),{});
+            auto json=winrt::Windows::Data::Json::JsonObject::Parse(winrt::to_hstring(bytes));
+            auto state=std::wstring(json.GetNamedString(L"state"));
+            auto version=std::wstring(json.GetNamedString(L"version",L""));
+            // A prior completed check must not enable restart during a new check.
+            if(running){if(state==L"downloading")showUpdate(state,version);return;}
+            if(state==L"checking" || state==L"downloading")state=L"deferred";
+            if(state==L"installed")state=L"current";
+            if(state==L"ready" && updateState==L"waiting-for-camera")return;
+            if(state!=updateState)showUpdate(state,version);
+        }catch(...){if(!running && (updateState==L"checking" || updateState==L"downloading"))showUpdate(L"deferred");}
+    }
     int selected = -1;
 #ifdef CALLAYERS_GENERATION
     controls::TextBox prompt{nullptr};controls::Button generateButton{nullptr},cancelButton{nullptr};controls::TextBlock generationMessage{nullptr};
@@ -199,7 +242,7 @@ struct Workspace::Impl {
         header = load(LR"(<Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Background="#242428" Padding="20,0" ColumnSpacing="12">
  <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
  <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center"><Image x:Name="Logo" Width="32" Height="32" AutomationProperties.Name="Callayers logo"/><TextBlock Text="Callayers" FontSize="21" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,16,0"/></StackPanel>
- <Button Grid.Column="1" Content="File" VerticalAlignment="Center"><Button.Flyout><MenuFlyout><MenuFlyoutItem x:Name="Account" Text="Signed in" IsEnabled="False"/><MenuFlyoutItem x:Name="SignOut" Text="Sign out"/><MenuFlyoutSeparator/><MenuFlyoutItem x:Name="Quit" Text="Quit"/></MenuFlyout></Button.Flyout></Button>
+ <Button x:Name="File" Grid.Column="1" Content="File" VerticalAlignment="Center"><Button.Flyout><MenuFlyout><MenuFlyoutItem x:Name="Account" Text="Signed in" IsEnabled="False"/><MenuFlyoutItem x:Name="SignOut" Text="Sign out"/><MenuFlyoutSeparator/><MenuFlyoutItem x:Name="About" Text="About Callayers"/><MenuFlyoutItem x:Name="Quit" Text="Quit"/></MenuFlyout></Button.Flyout></Button>
  <ToggleButton Grid.Column="2" x:Name="Annotate" Content="✎  Annotate" IsChecked="False" VerticalAlignment="Center"/>
  <ComboBox Grid.Column="3" x:Name="Camera" PlaceholderText="Choose your webcam" Width="220" HorizontalAlignment="Right" VerticalAlignment="Center" AutomationProperties.Name="Webcam"/>
  <StackPanel Grid.Column="4" Width="180" VerticalAlignment="Center" Spacing="2"><TextBlock x:Name="Status" FontSize="12" Foreground="#BBB9C8" TextWrapping="Wrap"/><Button x:Name="RetryChoice" Content="Retry" Visibility="Collapsed" ToolTipService.ToolTip="Try again"/></StackPanel>
@@ -324,6 +367,19 @@ struct Workspace::Impl {
         BOOL dark = TRUE; DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));
         find<controls::MenuFlyoutItem>(header,L"Quit").Click([this](auto&&,auto&&){actions.quit();});
         find<controls::MenuFlyoutItem>(header,L"SignOut").Click([this](auto&&,auto&&){actions.signOut();});
+        auto aboutContent=load(LR"(<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Width="300" Spacing="12"><TextBlock Text="About Callayers" FontSize="20" FontWeight="SemiBold"/><TextBlock x:Name="Version" Foreground="#BBB9C8" IsTextSelectionEnabled="True"/><TextBlock x:Name="UpdateMessage" TextWrapping="Wrap"/><Button x:Name="Update" Content="Check for updates"/></StackPanel>)");
+        find<controls::TextBlock>(aboutContent,L"Version").Text(std::wstring(L"Version ")+CALLAYERS_VERSION_TEXT);
+        updateMessage=find<controls::TextBlock>(aboutContent,L"UpdateMessage");updateButton=find<controls::Button>(aboutContent,L"Update");
+        about=controls::Flyout();about.Content(aboutContent);
+        // These islands are only as tall as their toolbars. Let the popovers
+        // measure against the monitor work area so all their content fits.
+        about.ShouldConstrainToRootBounds(false);
+        find<controls::Button>(toolbar,L"Color").Flyout().ShouldConstrainToRootBounds(false);
+        about.Closed([this](auto&&,auto&&){aboutOpen=false;});
+        showUpdate(ReleaseRoot().empty()?L"development":L"idle");
+        find<controls::MenuFlyoutItem>(header,L"About").Click([this](auto&&,auto&&){aboutOpen=true;updatePoll=0;pollUpdate();about.ShowAt(find<controls::Button>(header,L"File"));});
+        updateButton.Click([this](auto&&,auto&&){if(updateReady){if(actions.restartUpdate())about.Hide();else showUpdate(L"waiting-for-camera");}else checkUpdate();});
+        if(!ReleaseRoot().empty())checkUpdate();
         find<controls::Button>(authView,L"AuthPrimary").Click([this](auto&&,auto&&){actions.authPrimary();});
         find<controls::Button>(authView,L"AuthCancel").Click([this](auto&&,auto&&){actions.authCancel();});
         find<controls::Primitives::ToggleButton>(header,L"Annotate").Click([this](auto&& sender,auto&&){annotating = sender.template as<controls::Primitives::ToggleButton>().IsChecked().GetBoolean();if(!annotating)actions.tool(AnnotationTool::Select);actions.layout();SaveAnnotationBarOpen(annotating);});
@@ -371,10 +427,11 @@ struct Workspace::Impl {
         Resources().event("workspace_controls_ready");
         StartupTrace("controls-ready");
     }
-    ~Impl() { lifetime.reset();editor.close();authIsland.Close();helpIsland.Close(); toolbarIsland.Close(); sidebarIsland.Close(); headerIsland.Close(); }
+    ~Impl() { lifetime.reset();if(updateProcess)CloseHandle(updateProcess);if(about)about.Hide();editor.close();authIsland.Close();helpIsland.Close(); toolbarIsland.Close(); sidebarIsland.Close(); headerIsland.Close(); }
 };
 Workspace::Workspace(HWND window,WorkspaceActions actions) : impl_(std::make_unique<Impl>(window,std::move(actions))) {}
 Workspace::~Workspace() = default;
+void Workspace::refreshUpdate(){impl_->pollUpdate();}
 int Workspace::toolbarHeight() const { return impl_->authorized && impl_->annotating?56:0; }
 void Workspace::cameras(const std::vector<std::wstring>& names,int selected,const std::wstring& missingName) {
     auto& ui=*impl_; ui.syncing=true;
