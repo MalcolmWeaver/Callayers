@@ -131,66 +131,60 @@ test('a single published release remains protected without requiring a previous 
   assert.deepEqual(bucket.writes, []);
 });
 
-test('Google listing follows pagination and DELETE protects the exact object generation', async () => {
+test('R2 listing follows pagination and DELETE targets an exact installer', async () => {
   const calls = [];
-  const store = createReleaseStore({token: 'test-token',
+  const store = createReleaseStore({token: 'test-token', account: 'a'.repeat(32),
     fetchImpl: async (url, options) => {
       const parsed = new URL(url);
       calls.push({url: parsed, options});
-      if (options.method === 'DELETE') return new Response(null, {status: 204});
-      const secondPage = parsed.searchParams.has('pageToken');
-      return Response.json({kind: 'storage#objects', items: [{name: installerKey(secondPage ? '0.4.0' : '0.3.0'), generation: '123'}],
-        nextPageToken: secondPage ? undefined : 'next/page'});
+      if (options.method === 'DELETE') return Response.json({success: true});
+      const secondPage = parsed.searchParams.has('cursor');
+      return Response.json({success: true, result: objects(secondPage ? '0.4.0' : '0.3.0'),
+        result_info: {is_truncated: !secondPage, cursor: secondPage ? undefined : 'next/page'}});
     }});
-  assert.deepEqual((await store.listInstallers()).map(item => item.key), objects('0.3.0', '0.4.0').map(item => item.key));
-  assert.equal(calls[1].url.searchParams.get('pageToken'), 'next/page');
+  assert.deepEqual(await store.listInstallers(), objects('0.3.0', '0.4.0'));
+  assert.equal(calls[1].url.searchParams.get('cursor'), 'next/page');
   await store.deleteInstaller('0.3.0');
-  assert(calls[2].url.pathname.endsWith('/o/releases%2F0.3.0%2FCallayersSetup-0.3.0.exe'));
-  assert.equal(calls[2].url.searchParams.get('ifGenerationMatch'), '123');
+  assert(calls[2].url.pathname.endsWith('/objects/releases/0.3.0/CallayersSetup-0.3.0.exe'));
   assert.equal(calls[2].options.method, 'DELETE');
   await assert.rejects(store.deleteInstaller('../unrelated'));
   assert.equal(calls.length, 3);
 });
 
-test('Google errors and incomplete listings fail closed', async () => {
-  for (const response of [Response.json({error: 'bad response'}), Response.json({kind: 'storage#objects', items: [],
-    nextPageToken: ''}), new Response('', {status: 403})]) {
-    const store = createReleaseStore({token: 'test-token', fetchImpl: async () => response});
+test('R2 errors and incomplete listings fail closed', async () => {
+  for (const response of [Response.json({success: false}), Response.json({success: true, result: [],
+    result_info: {is_truncated: true}}), new Response('', {status: 403})]) {
+    const store = createReleaseStore({token: 'test-token', account: 'a'.repeat(32), fetchImpl: async () => response});
     await assert.rejects(store.listInstallers());
   }
 });
 
-test('GCS uploads store cache policy and use generation preconditions', async () => {
-  const calls = [];
-  const store = createReleaseStore({token: 'test-token', fetchImpl: async (url, options) => {
-    calls.push({url: new URL(url), options});
-    if (options.method === 'POST') return Response.json({generation: '456'});
-    return new Response(null, {status: 404});
-  }});
+test('R2 uploads preserve feed cache policy and refuse to replace an installer', async () => {
+  const uploaded = [];
+  const files = new Map();
+  const store = createReleaseStore({token: 'test-token', account: 'a'.repeat(32),
+    fetchImpl: async url => {
+      const key = new URL(url).pathname.split('/objects/')[1];
+      return files.has(key) ? new Response(files.get(key)) : new Response(null, {status: 404});
+    },
+    uploadImpl: async (key, bytes, type, cache) => {
+      uploaded.push({key, type, cache}); files.set(key, Buffer.from(bytes));
+    }});
   await store.readJson(RETENTION_KEY);
   const state = {schema: 1, latestVersion: '0.3.0', previousVersion: null, retired: []};
   await store.writeRetention(state);
-  assert.equal(calls[1].url.searchParams.get('ifGenerationMatch'), '0');
-  assert.equal(calls[1].url.searchParams.get('uploadType'), 'multipart');
-  const body = calls[1].options.body.toString('utf8');
-  assert(body.includes('"cacheControl":"no-store"'));
-  assert(body.includes('"contentType":"application/json"'));
-  assert(body.includes(JSON.stringify(state)));
-  await store.writeRetention(state);
-  assert.equal(calls[2].url.searchParams.get('ifGenerationMatch'), '456');
+  assert.deepEqual(uploaded[0], {key: RETENTION_KEY, type: 'application/json', cache: 'no-store'});
   await store.writeObject(installerKey('0.3.0'), Buffer.from('fixture'), 'application/octet-stream', 'immutable', {createOnly: true});
-  assert.equal(calls[3].url.searchParams.get('ifGenerationMatch'), '0');
+  assert.equal(uploaded.length, 2);
+  await assert.rejects(store.writeObject(installerKey('0.3.0'), Buffer.from('different'), 'application/octet-stream', 'immutable', {createOnly: true}), /changed/);
+  assert.equal(uploaded.length, 2);
 });
 
-test('GCS reads pin an object generation and fail if a concurrent write wins', async () => {
-  const calls = [];
-  const store = createReleaseStore({token: 'test-token', fetchImpl: async (url, options) => {
-    calls.push({url: new URL(url), options});
-    if (options.method === 'POST') return new Response(null, {status: 412});
-    if (new URL(url).searchParams.get('alt') === 'media') return Response.json({fixture: true});
-    return Response.json({generation: '123'});
-  }});
-  assert.deepEqual(await store.readJson('tester/latest.json'), {fixture: true});
-  assert.equal(calls[1].url.searchParams.get('generation'), '123');
-  await assert.rejects(store.writeObject('tester/latest.json', '{}', 'application/json', 'no-store'), /412/);
+test('R2 rejects metadata overwritten by another publisher before upload', async () => {
+  let calls = 0;
+  const store = createReleaseStore({token: 'test-token', account: 'a'.repeat(32),
+    fetchImpl: async () => Response.json({fixture: ++calls}),
+    uploadImpl: async () => {throw Error('Should not upload');}});
+  assert.deepEqual(await store.readJson('tester/latest.json'), {fixture: 1});
+  await assert.rejects(store.writeObject('tester/latest.json', '{}', 'application/json', 'no-store'), /changed/);
 });

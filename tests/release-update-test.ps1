@@ -37,11 +37,11 @@ try{
  Assert (Test-CameraFileIdle $camera) 'idle camera file available'
  $locked=[IO.File]::Open($camera,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
  try{Assert (-not(Test-CameraFileIdle $camera)) 'calling-app lock defers update'}finally{$locked.Dispose()}
- Reject {Receive-UpdateFile ('http://storage.googleapis.com/'+$script:ReleaseDownloadConfig.bucket+'/tester/latest.json') (Join-Path $directory 'bad') 10} 'unencrypted download rejected'
+ Reject {Receive-UpdateFile 'http://downloads.callayers.com/tester/latest.json' (Join-Path $directory 'bad') 10} 'unencrypted download rejected'
  Reject {Receive-UpdateFile 'https://evil.example/setup.exe' (Join-Path $directory 'bad') 10} 'untrusted host rejected before request'
- Reject {Receive-UpdateFile 'https://storage.googleapis.com/another-bucket/tester/latest.json' (Join-Path $directory 'bad') 10} 'other Google bucket rejected before request'
- Reject {Receive-UpdateFile ($script:ReleaseDownloadBase+'-other/tester/latest.json') (Join-Path $directory 'bad') 10} 'similar bucket name rejected before request'
- Reject {Receive-UpdateFile ($script:ReleaseDownloadBase+'/../another-bucket/tester/latest.json') (Join-Path $directory 'bad') 10} 'bucket traversal rejected before request'
+ Reject {Receive-UpdateFile 'https://storage.googleapis.com/another-bucket/tester/latest.json' (Join-Path $directory 'bad') 10} 'Google download address rejected before request'
+ Reject {Receive-UpdateFile 'https://downloads.callayers.com.evil.example/tester/latest.json' (Join-Path $directory 'bad') 10} 'similar host name rejected before request'
+ Reject {Receive-UpdateFile ($script:ReleaseDownloadBase+'/../other/tester/latest.json') (Join-Path $directory 'bad') 10} 'path traversal rejected before request'
  Reject {Receive-UpdateFile ($script:ReleaseDownloadBase+'/tester/latest.json?redirect=elsewhere') (Join-Path $directory 'bad') 10} 'download query rejected before request'
  # Exercise the actual updater in an isolated installation, never executing the fixture installer.
  $root=Join-Path $directory 'installed';[IO.Directory]::CreateDirectory((Join-Path $root 'versions/0.3.0'))|Out-Null

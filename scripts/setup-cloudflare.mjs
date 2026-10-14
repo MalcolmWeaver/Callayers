@@ -21,4 +21,4 @@ if(addressRecords.some(r=>r.type!=='CNAME'||r.content!=='callayers.pages.dev'))t
 const domains=await api(`${projectRoute}/domains`);
 if(!domains.some(d=>d.name==='callayers.com'))await api(`${projectRoute}/domains`,'POST',{name:'callayers.com'});
 if(!addressRecords.length)await api(`/zones/${zone}/dns_records`,'POST',{type:'CNAME',name:'callayers.com',content:'callayers.pages.dev',proxied:true,ttl:1});
-console.log('Cloudflare website resources prepared. Downloads use Google Cloud Storage; no R2 resources are created.');
+console.log('Cloudflare website resources prepared. Configure R2 downloads separately with scripts/setup-release-storage.mjs.');

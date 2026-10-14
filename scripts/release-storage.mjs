@@ -1,63 +1,76 @@
 import {readFileSync} from 'node:fs';
-import {execFileSync} from 'node:child_process';
-import {randomUUID} from 'node:crypto';
+import {mkdtemp, writeFile, unlink, rmdir} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {spawnSync} from 'node:child_process';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 
-export const RELEASE_BUCKET = JSON.parse(readFileSync(new URL('../release/download-config.json', import.meta.url), 'utf8')).bucket;
-if (!/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(RELEASE_BUCKET)) throw Error('Invalid release bucket configuration.');
-export const RELEASE_BASE_URL = `https://storage.googleapis.com/${RELEASE_BUCKET}`;
+const config = JSON.parse(readFileSync(new URL('../release/download-config.json', import.meta.url), 'utf8'));
+export const RELEASE_BUCKET = config.bucket;
+export const RELEASE_BASE_URL = config.baseUrl;
+if (RELEASE_BUCKET !== 'callayers-downloads' || RELEASE_BASE_URL !== 'https://downloads.callayers.com') throw Error('Invalid release storage configuration.');
 
 export function getStorageToken() {
-  try {
-    // Keep credentials in gcloud/GitHub's short-lived identity; never print the token.
-    const token = process.platform === 'win32'
-      ? execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
-        '& gcloud auth print-access-token; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }'], {encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']})
-      : execFileSync('gcloud', ['auth', 'print-access-token'], {encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']});
-    if (!token.trim()) throw Error();
-    return token.trim();
-  } catch { throw Error('Google authentication unavailable. Sign in with gcloud or configure the GitHub workload identity.'); }
+  if (!process.env.CLOUDFLARE_API_TOKEN) throw Error('Configure CLOUDFLARE_API_TOKEN for R2 publishing.');
+  return process.env.CLOUDFLARE_API_TOKEN;
 }
 
-export function createReleaseStore({token, fetchImpl = fetch}) {
-  if (!token) throw Error('Google authentication is required.');
-  const endpoint = `https://storage.googleapis.com/storage/v1/b/${RELEASE_BUCKET}/o`;
-  const generations = new Map();
-  const objectUrl = key => `${endpoint}/${encodeURIComponent(key)}`;
+async function uploadWithWrangler(key, bytes, contentType, cacheControl, {token, account}) {
+  const directory = await mkdtemp(path.join(tmpdir(), 'callayers-r2-upload-'));
+  const file = path.join(directory, 'object.bin');
+  try {
+    await writeFile(file, bytes);
+    const args = ['--yes', 'wrangler@4.77.0', 'r2', 'object', 'put', `${RELEASE_BUCKET}/${key}`,
+      '--file', file, '--content-type', contentType, '--cache-control', cacheControl, '--remote'];
+    const env = {...process.env, CLOUDFLARE_API_TOKEN: token, CLOUDFLARE_ACCOUNT_ID: account};
+    const result = process.platform === 'win32'
+      ? spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File',
+        fileURLToPath(new URL('./upload-r2.ps1', import.meta.url)), '-Object', `${RELEASE_BUCKET}/${key}`,
+        '-File', file, '-ContentType', contentType, '-CacheControl', cacheControl], {stdio: 'inherit', env})
+      : spawnSync('npx', args, {stdio: 'inherit', env});
+    if (result.status !== 0) throw Error('Cloudflare upload failed.');
+  } finally {
+    // Remove only the exact file and empty directory created by this invocation.
+    await unlink(file).catch(error => {if (error.code !== 'ENOENT') throw error;});
+    await rmdir(directory);
+  }
+}
+
+export function createReleaseStore({token, account = process.env.CLOUDFLARE_ACCOUNT_ID, fetchImpl = fetch, uploadImpl = uploadWithWrangler}) {
+  if (!token || !/^[a-f0-9]{32}$/.test(account ?? '')) throw Error('Configure Cloudflare account and API token.');
+  const endpoint = `https://api.cloudflare.com/client/v4/accounts/${account}/r2/buckets/${RELEASE_BUCKET}/objects`;
+  const objectUrl = key => `${endpoint}/${key.split('/').map(encodeURIComponent).join('/')}`;
+  const allowedKey = key => /^(tester\/(latest|retention)\.json|releases\/(0|[1-9]\d{0,4})\.(0|[1-9]\d{0,4})\.(0|[1-9]\d{0,4})\/CallayersSetup-\3\.\4\.\5\.exe)$/.test(key);
+  const reads = new Map();
   async function request(url, options = {}) {
-    return fetchImpl(url, {...options, redirect: 'error', signal: AbortSignal.timeout(300000),
+    return fetchImpl(url, {...options, redirect: 'error', signal: AbortSignal.timeout(120000),
       headers: {Authorization: `Bearer ${token}`, ...options.headers}});
   }
   async function checkedJson(response, operation) {
-    if (!response.ok) throw Error(`Google Storage ${operation} failed (${response.status}); operation stopped.`);
-    return response.json();
+    if (!response.ok) throw Error(`Cloudflare ${operation} failed (${response.status}); operation stopped.`);
+    const body = await response.json();
+    if (body.success !== true) throw Error(`Cloudflare ${operation} failed; operation stopped.`);
+    return body;
   }
   async function readBytes(key) {
-    const metadataResponse = await request(objectUrl(key));
-    if (metadataResponse.status === 404) { generations.set(key, '0'); return null; }
-    const metadata = await checkedJson(metadataResponse, 'metadata read');
-    if (!/^\d+$/.test(metadata.generation ?? '')) throw Error('Invalid object generation.');
-    generations.set(key, metadata.generation);
-    const url = new URL(objectUrl(key));
-    url.searchParams.set('alt', 'media');
-    url.searchParams.set('generation', metadata.generation);
-    const response = await request(url);
-    if (!response.ok) throw Error(`Google Storage object read failed (${response.status}).`);
-    return Buffer.from(await response.arrayBuffer());
+    const response = await request(objectUrl(key));
+    if (response.status === 404) {reads.set(key, null); return null;}
+    if (!response.ok) throw Error(`Cloudflare object read failed (${response.status}).`);
+    const bytes = Buffer.from(await response.arrayBuffer());
+    reads.set(key, bytes);
+    return bytes;
   }
   async function writeObject(key, bytes, contentType, cacheControl, {createOnly = false} = {}) {
-    const generation = createOnly ? '0' : generations.get(key);
-    if (generation === undefined) throw Error('Read an object before replacing it.');
-    const boundary = `callayers-${randomUUID()}`;
-    const metadata = JSON.stringify({name: key, contentType, cacheControl});
-    const body = Buffer.concat([Buffer.from(`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n--${boundary}\r\nContent-Type: ${contentType}\r\n\r\n`),
-      Buffer.from(bytes), Buffer.from(`\r\n--${boundary}--\r\n`)]);
-    const url = new URL(`https://storage.googleapis.com/upload/storage/v1/b/${RELEASE_BUCKET}/o`);
-    url.searchParams.set('uploadType', 'multipart');
-    url.searchParams.set('ifGenerationMatch', generation);
-    const result = await checkedJson(await request(url, {method: 'POST',
-      headers: {'Content-Type': `multipart/related; boundary=${boundary}`}, body}), 'upload');
-    if (!/^\d+$/.test(result.generation ?? '')) throw Error('Invalid uploaded object generation.');
-    generations.set(key, result.generation);
+    if (!allowedKey(key)) throw Error('Unexpected release object.');
+    if (!reads.has(key) && !createOnly) throw Error('Read an object before replacing it.');
+    // GitHub serializes all releases and cleanup. Detect changes made outside that workflow too.
+    const expected = reads.get(key);
+    const current = await readBytes(key);
+    if (createOnly ? current !== null : expected === null ? current !== null : !current || !expected.equals(current)) {
+      throw Error('Release object changed before upload; operation stopped.');
+    }
+    await uploadImpl(key, bytes, contentType, cacheControl, {token, account});
+    reads.set(key, Buffer.from(bytes));
   }
   return {
     readBytes, writeObject,
@@ -67,35 +80,29 @@ export function createReleaseStore({token, fetchImpl = fetch}) {
     },
     async listInstallers() {
       const objects = [], seen = new Set();
-      let pageToken;
+      let cursor;
       do {
         const url = new URL(endpoint);
         url.searchParams.set('prefix', 'releases/');
-        url.searchParams.set('maxResults', '1000');
-        if (pageToken) url.searchParams.set('pageToken', pageToken);
+        url.searchParams.set('per_page', '1000');
+        if (cursor) url.searchParams.set('cursor', cursor);
         const body = await checkedJson(await request(url), 'release listing');
-        if (body.kind !== 'storage#objects' || (body.items !== undefined && !Array.isArray(body.items))) throw Error('Invalid Google Storage release listing.');
-        for (const item of body.items ?? []) {
-          if (typeof item.name !== 'string' || !/^\d+$/.test(item.generation ?? '')) throw Error('Invalid installer metadata.');
-          generations.set(item.name, item.generation);
-          objects.push({key: item.name, generation: item.generation});
-        }
-        pageToken = body.nextPageToken;
-        if (pageToken !== undefined && (typeof pageToken !== 'string' || !pageToken || seen.has(pageToken))) throw Error('Incomplete Google Storage release listing.');
-        seen.add(pageToken);
-      } while (pageToken);
+        if (!Array.isArray(body.result)) throw Error('Invalid Cloudflare release listing.');
+        objects.push(...body.result);
+        if (!body.result_info || typeof body.result_info.is_truncated !== 'boolean') throw Error('Invalid Cloudflare pagination.');
+        cursor = body.result_info.is_truncated ? body.result_info.cursor : null;
+        if (body.result_info.is_truncated && (!cursor || seen.has(cursor))) throw Error('Incomplete Cloudflare release listing.');
+        seen.add(cursor);
+      } while (cursor);
       return objects;
     },
     async writeRetention(state) {
       await writeObject('tester/retention.json', JSON.stringify(state), 'application/json', 'no-store');
     },
     async deleteObject(key) {
-      const generation = generations.get(key);
-      if (!generation || generation === '0') throw Error('List an installer before deleting it.');
-      const url = new URL(objectUrl(key));
-      url.searchParams.set('ifGenerationMatch', generation);
-      const response = await request(url, {method: 'DELETE'});
-      if (!response.ok && response.status !== 404) throw Error(`Google Storage installer deletion failed (${response.status}).`);
+      if (!allowedKey(key) || !key.startsWith('releases/')) throw Error('Unexpected installer object.');
+      const response = await request(objectUrl(key), {method: 'DELETE'});
+      if (response.status !== 404) await checkedJson(response, 'installer deletion');
     }
   };
 }

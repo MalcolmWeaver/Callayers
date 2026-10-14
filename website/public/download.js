@@ -5,8 +5,8 @@ async function showRelease(){
   const configResponse=await fetch('/download-config.json',{cache:'no-store',signal:AbortSignal.timeout(8000)});
   if(!configResponse.ok)return;
   const config=await configResponse.json();
-  if(!/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(config.bucket))return;
-  const base=`https://storage.googleapis.com/${config.bucket}`;
+  if(config.bucket!=='callayers-downloads'||config.baseUrl!=='https://downloads.callayers.com')return;
+  const base=config.baseUrl;
   const response=await fetch(`${base}/tester/latest.json`,{cache:'no-store',signal:AbortSignal.timeout(8000)});
   if(!response.ok)return;
   const envelope=await response.json(),bytes=Uint8Array.from(atob(envelope.payload),c=>c.charCodeAt(0));
