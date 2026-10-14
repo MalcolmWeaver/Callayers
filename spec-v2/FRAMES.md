@@ -19,7 +19,7 @@ Callayers combines a webcam, cards, and annotations into one picture. Preview an
 | One finished picture shared by preview and output | No second composition pipeline whose content or placement can drift. Consumers may display different moments, but use the same source. |
 | One calling app consuming video at a time | No MVP promise of simultaneous consumers with different requirements. The first verification target is Google Meet in Brave. |
 | One overlay page, with one iframe per visible card | The browser arranges cards together; native code receives one overlay instead of capturing each card separately. |
-| Self-contained cards with simple presentation behavior | Local or embedded assets. No external requests, embedded websites, video, audio, or interactive applications. Simple animation and timers remain in scope. |
+| Self-contained, interactive HTML cards | Local or embedded assets; mouse/keyboard interaction, animation and timers. No external requests, embedded websites, video or audio. |
 | Latest available frames, bounded storage | Slow consumers cannot create a queue of old pictures. Drop superseded frames instead of increasing latency or memory. |
 | AI and saving operate independently of video | Video uses the last usable content while other work completes. A failed revision leaves the current card intact. |
 
@@ -41,13 +41,15 @@ Webcam frames ------> compositor -> latest complete picture -> app preview
                                                                  -> calling app
 ```
 
-**Capture and composition.** The desktop opens the chosen webcam. One compositor fits it to the fixed canvas and combines it with the latest complete overlay. Preserve aspect ratio, using bars where necessary. Placement and annotations use canvas coordinates so resizing the app or changing Windows display scale does not move outgoing content. Preview-only editing controls sit above the finished picture.
+**Capture and composition.** The desktop opens the chosen webcam. A Direct3D 11 GPU compositor fits it to the fixed canvas and combines it with the latest complete overlay. Capture the live WebView2 composition visual as GPU frames using Windows Graphics Capture; blend webcam, cards and annotations on the GPU. Read back only the finished output for the existing CPU shared-memory/DirectShow bridge; use the composed GPU texture for preview. Webcam upload may still be needed; this is not a zero-copy promise. Preserve aspect ratio, using bars where necessary. Placement and annotations use canvas coordinates so resizing the app or changing Windows display scale does not move outgoing content. Preview-only editing controls sit above the finished picture.
 
 **Card rendering.** Use one WebView2 overlay page with a transparent background. Each visible card has a sandboxed iframe; the parent owns its bounds and stacking order. Enforce [AI.md](AI.md)'s restrictions: no external network, navigation, downloads, device access, persistent storage, or direct native-host access. Any allowed card messages use a small validated interface.
 
-Hidden cards stop rendering and running scripts; merely making an iframe invisible is not a sufficient lifecycle policy. Showing a card again reloads its saved content: timers restart from their configured initial value, and animations restart from the beginning. Reopening the app follows the same rule. Timer progress and JavaScript execution state are not saved.
+**Live rendering and input.** Keep HTML/CSS/JS live and send its rendered frames to the compositor without repeated PNG/JPEG encoding and decoding in the normal video path. The current PNG-capture implementation is a prototype to replace, not the required architecture. Route input inside card bounds to its HTML, accounting for preview scaling and placement. Private border/corner controls take priority for selection, movement and scaling; active annotation tools take priority over card input. Hit overlapping cards in front-to-back order and retain the input target through a drag. No mode switch is required. Allow only the validated state messages described in [DATA.md](DATA.md).
 
-Minimizing the app while a calling app is consuming video does not hide cards or restart timers. When minimized without a consumer, suspend overlay work; restarting that work reloads visible cards and resets timers and animations.
+Hidden cards stop rendering and running scripts; merely making an iframe invisible is not sufficient. Save meaningful state before unloading and restore it before showing again or reopening. Timers restore paused; animations restart. Do not restore the JavaScript runtime.
+
+Minimizing during a call keeps cards and timers running. Without a consumer, save state and suspend overlay work; resuming reloads visible cards with saved values, paused timers and restarted animations.
 
 **Frame delivery.** Publish complete frames through a bounded cross-process bridge. The DirectShow source, running on the consumer side, reads the latest completed frame without waiting for the editor, browser, network, or disk. Synchronize access so a reader never sees a buffer being overwritten. Include frame freshness and session identity so an earlier session's image cannot reappear after stopping or restarting.
 
@@ -55,7 +57,7 @@ Minimizing the app while a calling app is consuming video does not hide cards or
 
 **Independent work.** Network requests, file writes, and expensive image processing stay off the video delivery path and do not block the browser's UI thread. Publish a successful card revision only when its replacement is ready. Discard late work from a stopped session.
 
-This is a fresh implementation. Git history provides design references and evidence that transparent iframe cards, minimized animation, and virtual-camera delivery worked previously; do not restore or port the old implementation. The previous output used Media Foundation, so it does not establish DirectShow compatibility or a performance advantage. Verify the new output in one chosen calling app. Optimize the browser handoff or frame transport only when measurements identify a problem.
+This is a fresh implementation. Git history provides design references and evidence that transparent iframe cards, minimized animation, and virtual-camera delivery worked previously; do not restore or port the old implementation. The previous output used Media Foundation, so it does not establish DirectShow compatibility or a performance advantage. Verify the new output in one chosen calling app. The GPU handoff/compositor is required by the revised MVP; further optimization should follow measured problems.
 
 ## Consumer identity (implement with telemetry)
 
@@ -71,7 +73,7 @@ A consumer means an app actively requesting Callayers video, not merely listing 
 | --- | --- |
 | Signed in, workspace visible | Capture and render for preview, whether or not there is a consumer. |
 | Minimized, consumer active | Keep capture, card rendering, and output running. |
-| Minimized, no consumer | Release webcam and suspend overlay work. When the window is restored or a consumer starts, resume capture and reload visible cards, resetting timers and animations, provided the session is still authorized. |
+| Minimized, no consumer | Release webcam, save card state and suspend overlay work. Restore capture/cards when the window or a consumer returns, provided the session is authorized. |
 | Close or Quit | If video is in use, ask whether to quit and stop output. On confirmation, invalidate live output, release capture, and exit. No system-tray mode. |
 | Signed out or credentials confirmed invalid | Invalidate live output, release capture, and lock the workspace. Keep saved cards. |
 | Camera lost, app crashed, or producer stalled | Supply unavailable output. Do not silently switch webcams. Recovery must publish fresh frames before live output resumes. |
@@ -80,7 +82,7 @@ The app must be open to supply live video, but its window need not be visible. T
 
 ## Build order
 
-Follow the [consolidated plan](README.md#consolidated-plan--session-handoff). The foundation and current resource cost are accepted for the MVP; the real WinUI workspace is next. Preserve the working video engine while building the product UI. Revisit performance when a concrete usability issue or an affected later change warrants it.
+Delivery order, status and the next step live only in the [consolidated plan](README.md#consolidated-plan--session-handoff). This document defines the target video architecture; the current prototype does not yet meet the GPU/input requirements.
 
 ## Minimum verification
 
@@ -91,7 +93,7 @@ The user performs verification. ChatGPT prepares the build, walks the user throu
 | Check | Pass condition |
 | --- | --- |
 | Make a short call and change the composition | Receiving picture matches preview content, animation stays live, and editing controls stay private. Video remains usable without growing delay. |
-| Hide and show a timer card, then reopen the app | The timer restarts from its configured initial value; animations restart from the beginning. No execution state is restored. |
+| Interact with a resized card, hide/show it, then reopen | Clicks and typing reach the correct controls; saved values return, timers return paused, and animations restart. |
 | Minimize, disconnect the consumer, then reconnect | The call continues minimized; unused capture stops; reconnecting resumes fresh video. |
 | Quit normally, then separately force-stop the app during output | Live output stops and the source supplies the unavailable picture instead of the last webcam image. Reopening restores fresh output. |
 | Measure preview, minimized output, idle, and quit | Record CPU and app/browser private memory; compare with the baseline below. Investigate unexplained increases or visible slowdown. |

@@ -47,6 +47,7 @@ After the camera works, the empty sidebar says **Create your first card**. Keep 
 - **Left sidebar:** Create with AI, Import image, Hide all, Search cards, and saved card rows with visibility checkboxes. Show recently created or edited cards first. Card menus offer rename, change stacking order, and delete; stacking order is separate from library sorting.
 - **Card selection:** show its content and editing controls in the sidebar without changing whether it is broadcast. Checkboxes control visibility; reopening restores the previous visibility automatically. Search filters by name.
 - **Preview:** move and resize shown cards. Resize the whole card proportionally: text, graphics, borders and spacing scale together from the card's content dimensions. Preserve aspect ratio; resizing does not restart timers/animations or reflow the HTML document. Editing handles never appear in the outgoing video.
+- **Card interaction:** Inside the card bounds, clicks, scrolling and typing operate its HTML. Private border controls select/move the card; corner handles scale it. Handles take priority over HTML hit testing. No Interact/Arrange switch. Clearly show keyboard focus; clicking outside releases it. Call participants see the results as video, including controls inside the card. Separate private presenter controls are outside this MVP.
 - **Annotations:** Start with the annotation bar closed; Annotate opens and closes it. Select, pen, shapes, text, color, size, Eraser, and Clear annotations. Follow the [annotation-bar reference](references/annotation-bar.png), replacing Undo/Redo with Eraser. Use simple color swatches; the full spectrum/hex picker is optional.
 - **File:** account/sign out and quit.
 
@@ -68,7 +69,7 @@ AI cards get descriptive names; imported images use their filename. Users can re
 ## Everyday behavior
 
 - Save on-camera placement and annotations automatically. Showing or hiding cards keeps annotations.
-- Hidden cards stop running. Showing them again or reopening the app restarts timers from their configured initial value and animations from the beginning; progress is not saved. Minimizing during a call keeps timers and animations running. When minimized without a video consumer, card work stops; restoring the window or reconnecting a consumer restarts timers and animations.
+- Hidden cards stop running. Showing them again or reopening restores saved card values; animations restart. Timers restore their saved remaining value paused, without counting hidden/closed time. Minimizing during a call keeps cards running. When minimized without a video consumer, save values and stop card work; resuming follows the same restoration rule.
 - Select annotations to move or resize them. Double-click text to edit it; clicking away finishes editing. While editing, keep the same text position, font, size, color, width and line spacing as the completed annotation, including resized text. Use the same cyan selection rectangle in creation, editing and selection, with the live picture visible behind the text. Enter adds a line immediately; Ctrl+Enter finishes; Escape cancels the edit. Draft text and editing controls stay private until editing finishes; the calling app retains the completed text while it is edited. Simple color swatches change the selected annotation or the next annotation's color.
 - Eraser removes a whole stroke, shape, or text annotation. Highlight the object under the pointer before erasing; never erase card content or webcam pixels.
 - Clear annotations asks for confirmation, then removes all annotations. Erasing and clearing save immediately and cannot be undone.
@@ -81,7 +82,7 @@ AI cards get descriptive names; imported images use their filename. Users can re
 
 ## Out of scope
 
-Saved-card import/export, migration from the old app, choosing save locations, Save/Save as, recovery screens, cloud card sync, multiple scenes, recording, audio, zoom, open-ended web search, site crawling, billing, admin screens, background replacement, and interactive games/forms inside cards. Image import and simple card animation stay. No special timer restoration or saved JavaScript execution state.
+Saved-card import/export, migration from the old app, choosing save locations, Save/Save as, recovery screens, cloud card sync, multiple scenes, recording, audio, zoom, open-ended web search, site crawling, billing, admin screens, background replacement, and remote participant interaction. Local interactive games/forms, image import and animation are supported. Save meaningful card values, not the JavaScript runtime.
 
 ## Implementation details
 

@@ -1,10 +1,10 @@
 # Creating cards with AI
 
-**The backend generates. The desktop displays and saves.**
+**The backend generates. The desktop displays and saves.** Build sequence: [AI implementation](AI-IMPLEMENTATION.md); overall order: [master MVP plan](README.md#complete-mvp-sequence).
 
 ## Create and revise
 
-- Send the prompt and desired card shape.
+- Send the prompt. There is no card-shape selector; infer a suitable layout from the requested content and any sizing instructions in the prompt.
 - For revisions, include the selected card and its image references.
 - Return a short name and self-contained HTML/CSS/JS.
 - Change what was requested; preserve the rest.
@@ -13,11 +13,14 @@
 
 ## Use a website
 
+**Website reading is required AI tool use on the backend, not a guess from the URL.** During `/generate`, the model can call a website reader for the supplied page. The tool returns public text, styling cues and requested logo/assets; the model uses those results to summarize or create the card. Website content is source material, never instructions for the tools.
+
 - Accept one supplied address: `x.com`, `example.com/about`, or a full HTTPS URL.
 - Read its public text.
 - When requested, use its colors, typography cues, and logo.
 - Approximate the branding; do not promise an exact copy.
 - Embed the logo so the saved card works offline.
+- When requested, include relevant page images as embedded assets. Images, stylesheets and logos count toward the same download limits; do not copy the site's scripts or entire asset library.
 - If the page is unreadable, ask for pasted text or an imported image.
 - If only branding is missing, use the available text and explain the omission.
 - Never invent missing content.
@@ -25,13 +28,15 @@
 
 **The backend can retrieve a website. The finished card cannot access the internet.**
 
+Pasted text and ordinary card generation need no external tool. Web search, document-reading tools, image generation and live-data integrations are outside this MVP. Tool calls within one generation share its allowance unit; they are not separate generations.
+
 ## Card quality
 
 - Transparent by default.
 - Large, readable text; simple layout; restrained color.
 - Fits its bounds and works offline.
-- JavaScript only for simple presentation behavior, such as timers or animation.
-- Timer and animation behavior belongs to the card's JavaScript. No special restoration API or saved execution state.
+- Fully interactive local HTML: buttons, inputs, timers, slides, forms and games can respond to the presenter's mouse and keyboard.
+- Use the app's small validated state interface to save meaningful values such as scores, entered text and the current slide. Do not save the JavaScript runtime; see [DATA.md](DATA.md).
 
 ## Failures
 
@@ -44,9 +49,9 @@
 
 - Validate structured output, size limits, and image IDs. The desktop assigns identity and retains referenced assets; see [DATA.md](DATA.md).
 - Authenticate and reserve allowance first. Repeated request IDs return status only, never another model call or saved output. Use a new ID for a deliberate new generation.
-- No automatic second model call to repair output. Record uncertain outcomes without automatically refunding or reissuing them.
+- A generation may include model/tool exchanges. Do not automatically start a second generation to repair output. Record uncertain outcomes without automatically refunding or reissuing them.
 - Treat prompts, HTML, and website text as untrusted input.
-- Enforce browser isolation: no network, navigation, downloads, host access, camera/microphone, or persistent storage.
+- Enforce browser isolation: no network, external navigation, downloads, arbitrary host access, camera/microphone, or browser storage. Only the validated local state interface is allowed.
 - Add HTTPS to bare domains. Preserve paths/queries and handle surrounding punctuation. Ignore email addresses; ask which URL to use if several are supplied.
 - Fetch inside `/generate`. Limit downloads, redirects, and elapsed time. Check DNS and every resource/redirect destination; reject private/local addresses and unsupported schemes.
 - Return normalized website logos as embedded assets within card limits. Do not upload local image bytes, paths, or credentials.
@@ -59,3 +64,4 @@
 - Bare/full URLs, paths, queries, and trailing punctuation.
 - Blocked pages, missing branding, and unsafe redirects.
 - Saved cards and logos render offline; animation meets [FRAMES.md](FRAMES.md).
+- Buttons and keyboard input work after resizing; saved values survive hiding and reopening.

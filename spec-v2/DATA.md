@@ -6,12 +6,14 @@
 
 | What we save | Includes |
 | --- | --- |
-| Cards | Names, HTML/CSS/JS, embedded images, and prompts used to create or revise them |
+| Cards | Names, HTML/CSS/JS, embedded images, prompts, and meaningful interactive state |
 | One previous version per card | Name, HTML/CSS/JS, and referenced images from before the latest successful AI revision |
 | Workspace | Which cards are showing, each card's position, size and stacking order, selected card, annotations, and unfinished prompt |
 | Preferences and sign-in | Webcam choice, window placement, and credentials secured by Windows |
 
-**Simple approach:** keep the card files and one autosaved `workspace.json`. After sign-in and successful webcam connection, restore the workspace, including which cards and annotations appear on camera. Save after edits, not every video frame. Timer/animation behavior belongs to the card's JavaScript; no special restoration interface or saved execution state.
+**Simple approach:** keep the card files and one autosaved `workspace.json`. After sign-in and successful webcam connection, restore the workspace, including which cards and annotations appear on camera. Save after edits, not every video frame.
+
+Cards report small, validated state objects through an app-owned interface: entered values, scores, current slide and timer remaining time. Restore these before showing the card. Timers resume paused after unloading; animations restart. Do not serialize the DOM or JavaScript runtime, or grant browser storage/filesystem access. Save state after meaningful changes and before unloading; timer checkpoints are bounded, not per-frame. Revisions/restoration reset interactive state to the replacement content's defaults, avoiding incompatible old values.
 
 The fresh implementation uses `%LOCALAPPDATA%\Callayers\WorkspaceV2\workspace.json`, isolated from old saved work. The annotation milestone saves annotations there now; card placement, visibility and the remaining workspace fields arrive with the saved-card milestone.
 
