@@ -20,6 +20,7 @@
 #include "camera_preferences.h"
 #include "annotations.h"
 #include "annotation_store.h"
+#include "auth.h"
 #include <Microsoft.UI.Dispatching.Interop.h>
 #include <winrt/base.h>
 
@@ -79,6 +80,9 @@ struct App {
     RECT previewRect{};
     float dpi = 1;
     std::wstring status;
+    bool authenticated=false,rendererInitialized=false;
+    unsigned authRevision=unsigned(-1);
+    Auth auth;
     int px(double value) const { return int(std::lround(value * dpi)); }
     ~App() {
         if (oldBitmap) SelectObject(backDC, oldBitmap);
@@ -87,6 +91,27 @@ struct App {
         if (font) DeleteObject(font); if (titleFont) DeleteObject(titleFont); DeleteObject(background);
     }
     void invalidateOutput() { bridge.stop(); }
+    void lockVideo() {demand=false;++commandVersion;bridge.stop();}
+    void refreshAuth() {
+        auth.tick();auto login=auth.snapshot();
+        auto url=auth.takeBrowserUrl();
+        if(!url.empty() && reinterpret_cast<INT_PTR>(ShellExecuteW(window,L"open",url.c_str(),nullptr,nullptr,SW_SHOWNORMAL))<=32){auth.cancel();MessageBoxW(window,L"Couldn't open your browser. Check your Windows default browser, then try signing in again.",L"Google sign-in",MB_OK|MB_ICONINFORMATION);login=auth.snapshot();}
+        if(authRevision==login.revision && authenticated==login.allowed)return;
+        bool was=authenticated;authenticated=login.allowed;authRevision=login.revision;
+        if(!authenticated){
+            lockVideo();overlay.enable(false);
+            {std::lock_guard lock(previewMutex);preview.reset();}
+            if(workspace && workspace->editingText())workspace->finishText(false);
+            finishGesture(true);
+        }else if(!rendererInitialized){rendererInitialized=true;overlay.initialize(GetModuleHandleW(nullptr));}
+        if(workspace)workspace->authentication(login);
+        if(was!=authenticated){if(authenticated)enumerate();layout();updateDemand();if(authenticated){ShowWindow(window,SW_RESTORE);SetForegroundWindow(window);}}
+    }
+    void signOut() {
+        lockVideo();
+        if(workspace && !workspace->finishText())workspace->finishText(false);
+        finishGesture();auth.signOut();refreshAuth();
+    }
     std::wstring scene() const {
         std::wostringstream out; out.imbue(std::locale::classic()); out << std::fixed << std::setprecision(2) << L"{\"cards\":[";
         for (int i = 0; i < 3; ++i) {
@@ -145,7 +170,7 @@ struct App {
         preferenceRevision=preferences.save(savingCamera);
     }
     void updateDemand() {
-        bool wanted = selectedCamera >= 0 && (!IsIconic(window) || bridge.consumerActive());
+        bool wanted = authenticated && auth.outputAllowed() && selectedCamera >= 0 && (!IsIconic(window) || bridge.consumerActive());
         bool was = demand.exchange(wanted);
         if(was!=wanted)pictureWaitSince=0;
         if (was && !wanted) invalidateOutput();
@@ -275,7 +300,7 @@ struct App {
     }
     void pointerDown(int x,int y) {
         if(workspace && !workspace->finishText())return;
-        POINT at{x,y};if(!PtInRect(&previewRect,at) || !demand || FAILED(captureError.load()))return;
+        POINT at{x,y};if(!authenticated || !auth.outputAllowed() || !PtInRect(&previewRect,at) || !demand || FAILED(captureError.load()))return;
         SetFocus(window);InkPoint p=canvasPoint(x,y);dragStart=p;
         if(tool==AnnotationTool::Text){int hit=annotationAt(p);beginText(p,hit>=0 && annotations[hit].kind==AnnotationTool::Text?hit:-1);return;}
         if(tool==AnnotationTool::Eraser){eraseAnnotation(annotationAt(p));return;}
@@ -367,6 +392,7 @@ struct App {
         if(workspace)workspace->textBackdrop(fresh && (!editingAnnotationId || frame->hiddenTextId==editingAnnotationId));
     }
     void refreshWorkspace() {
+        if(!authenticated){if(workspace)workspace->state(L"",L"",false,false,false,false);return;}
         std::shared_ptr<const PresentedFrame> frame;
         { std::lock_guard lock(previewMutex); frame=preview; }
         HRESULT error=captureError.load();
@@ -395,9 +421,10 @@ struct App {
         if(fresh && preferenceSaveFailed)state=L"Couldn't remember webcam";
         if(fresh && annotationSaveFailed)state=L"Couldn't save annotations";
         if(fresh && FAILED(annotationRestoreError))state=L"Couldn't restore annotations";
+        auto login=auth.snapshot();if(fresh && !login.message.empty())state=login.message;
         status=state;
         bool cameraChoices=!fresh && (selectedCamera<0 || overlay.state->failed || FAILED(error) || pictureTimedOut);
-        if(workspace)workspace->state(state,message,fresh,error==E_ACCESSDENIED,fresh && (preferenceSaveFailed || annotationSaveFailed || FAILED(annotationRestoreError)),cameraChoices);
+        if(workspace)workspace->state(state,message,fresh,error==E_ACCESSDENIED,fresh && (preferenceSaveFailed || annotationSaveFailed || FAILED(annotationRestoreError) || !login.message.empty()),cameraChoices);
     }
     static void compose(const CameraImage& camera, const OverlayImage& overlay, std::vector<uint8_t>& output) {
         StageTimer timing(VideoStage::Compose);
@@ -432,7 +459,7 @@ struct App {
                     if(started || attempted) { bridge.stop(); camera.stop(); }
                     started=false; attempted=false; overlayFrame.reset();privateOverlayFrame.reset(); version=requested;
                 }
-                if(demand && !attempted) {
+                if(demand && auth.outputAllowed() && !attempted) {
                     std::wstring identity; {std::lock_guard lock(commandMutex);identity=wantedIdentity;}
                     attempted=true; opening=true;
                     HRESULT hr=identity.empty()?E_INVALIDARG:camera.start(identity);
@@ -464,11 +491,11 @@ struct App {
                         {std::lock_guard lock(camera.state->mutex);image=camera.state->latest;}
                         ULONGLONG now=GetTickCount64();
                         bool fresh=image && overlayFrame && now-image->tick<FreshMs && now-overlayFrame->tick<FreshMs && !overlay.state->failed;
-                        if(fresh && version==commandVersion && demand && !quitting) {
+                        if(fresh && version==commandVersion && demand && auth.outputAllowed() && !quitting) {
                             auto result=std::make_shared<PresentedFrame>();
                             compose(*image,*overlayFrame,result->pixels); result->live=true; result->version=version;
                             result->tick=std::min(image->tick,overlayFrame->tick);
-                            if(version==commandVersion && demand && !quitting) {
+                            if(version==commandVersion && demand && auth.outputAllowed() && !quitting) {
                                 { StageTimer timing(VideoStage::Publish); bridge.publish(result->pixels,session,result->tick); }
                                 // The completed overlay alone crosses the camera bridge. Only
                                 // this window's preview hides the text being privately edited.
@@ -507,6 +534,7 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam
             actions.size=[app](int size){app->setInkSize(size);};
             actions.text=[app](std::wstring text,bool commit,double height){return app->commitText(std::move(text),commit,height);};
             actions.retry=[app]{
+                auto login=app->auth.snapshot();if(login.allowed && !login.message.empty()){app->auth.retry();return;}
                 if(app->status==L"Couldn't restore annotations"){if(app->restoreAnnotations(!app->annotations.empty())){app->changed();app->syncAnnotationControls();app->saveAnnotations();}return;}
                 if(app->status==L"Couldn't save annotations"){app->saveAnnotations();return;}
                 if(app->preferenceSaveFailed && SUCCEEDED(app->captureError.load()) && app->demand && !app->overlay.state->failed) {
@@ -518,16 +546,20 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam
             actions.hideAll=[app]{for(auto& card:app->cards)card.visible=false;app->changed();};
             actions.clear=[app]{if(!app->workspace->finishText())return;app->finishGesture();if(MessageBoxW(app->window,L"Clear all annotations? This cannot be undone.",L"Clear annotations",MB_YESNO|MB_ICONQUESTION)==IDYES){app->annotations.clear();app->selectedAnnotation=app->hoveredAnnotation=-1;app->changed();app->syncAnnotationControls();app->saveAnnotations();}};
             actions.quit=[app]{PostMessageW(app->window,WM_CLOSE,0,0);};
+            actions.authPrimary=[app]{auto login=app->auth.snapshot();if(login.retryAvailable)app->auth.retry();else app->auth.signIn();app->refreshAuth();};
+            actions.authCancel=[app]{app->auth.cancel();app->refreshAuth();};
+            actions.signOut=[app]{app->signOut();};
             actions.layout=[app]{app->layout();};
             app->restoreAnnotations();
             app->workspace=std::make_unique<Workspace>(window,std::move(actions));
+            app->auth.onRevoke([app]{app->lockVideo();});app->bridge.stop();app->workspace->authentication(app->auth.snapshot());
             app->dpi=GetDpiForWindow(window)/96.0f;app->buildFonts();app->enumerate(true);app->refreshWorkspace();app->layout();app->syncCards();app->syncAnnotationControls();
-            app->overlay.update(app->scene());app->overlay.initialize(GetModuleHandleW(nullptr));
+            app->overlay.update(app->scene());app->auth.restore();app->refreshAuth();
             app->worker=std::thread([app]{app->videoLoop();});SetTimer(window,1,33,nullptr);return 0;
         } catch(winrt::hresult_error const& error) {Resources().event("workspace_controls_failed hresult="+std::to_string(error.code().value));MessageBoxW(window,L"Couldn't open the workspace. Close and reopen Callayers.",L"Callayers",MB_OK|MB_ICONERROR);return -1;}
         catch(...) {Resources().event("workspace_controls_failed");MessageBoxW(window,L"Couldn't open the workspace. Close and reopen Callayers.",L"Callayers",MB_OK|MB_ICONERROR);return -1;}
     }
-    case WM_TIMER:app->updateDemand();app->overlay.capture();app->refreshWorkspace();if(!IsIconic(window))InvalidateRect(window,nullptr,FALSE);return 0;
+    case WM_TIMER:app->refreshAuth();app->updateDemand();app->overlay.capture();app->refreshWorkspace();if(!IsIconic(window))InvalidateRect(window,nullptr,FALSE);return 0;
     case WM_SIZE:if(app->workspace){app->layout();app->updateDemand();}return 0;
     case WM_DPICHANGED: {
         app->dpi=HIWORD(wParam)/96.0f;app->buildFonts();auto r=reinterpret_cast<RECT*>(lParam);SetWindowPos(window,nullptr,r->left,r->top,r->right-r->left,r->bottom-r->top,SWP_NOZORDER|SWP_NOACTIVATE);app->layout();return 0;
@@ -536,7 +568,7 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam
     case WM_KEYDOWN:
         if(wParam==VK_TAB && app->workspace){app->workspace->focus((GetKeyState(VK_SHIFT)&0x8000)!=0);return 0;}
         if(wParam==VK_ESCAPE){app->finishGesture(true);return 0;}
-        if(wParam==VK_DELETE){app->eraseAnnotation(app->selectedAnnotation);return 0;}break;
+        if(wParam==VK_DELETE && app->authenticated && app->auth.outputAllowed()){app->eraseAnnotation(app->selectedAnnotation);return 0;}break;
     case WM_LBUTTONDOWN:app->pointerDown(GET_X_LPARAM(lParam),GET_Y_LPARAM(lParam));return 0;
     case WM_MOUSEMOVE:app->pointerMove(GET_X_LPARAM(lParam),GET_Y_LPARAM(lParam));return 0;
     case WM_LBUTTONUP:app->finishGesture();return 0;
@@ -552,6 +584,7 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam
     case WM_CLOSE:
         if(app->workspace && !app->workspace->finishText())return 0;
         app->finishGesture();
+        app->auth.cancel();
         if(app->bridge.consumerActive() && MessageBoxW(window,L"Quit Callayers and stop video in your calling app?",L"Stop video and quit",MB_YESNO|MB_ICONQUESTION)!=IDYES)return 0;
         app->quitting=true;app->demand=false;app->bridge.stop();KillTimer(window,1);app->overlay.enable(false);app->workspace.reset();
         DestroyWindow(window);return 0;

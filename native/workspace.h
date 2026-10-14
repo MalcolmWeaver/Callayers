@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 #include "annotations.h"
+#include "auth.h"
 
 namespace callayers {
 struct WorkspaceActions {
@@ -15,6 +16,7 @@ struct WorkspaceActions {
     std::function<void(int)> size;
     std::function<bool(std::wstring,bool,double)> text;
     std::function<void()> retry, privacy, hideAll, clear, quit, layout;
+    std::function<void()> authPrimary,authCancel,signOut;
 };
 // All XAML and callbacks stay on the UI thread. Video workers never touch WinUI.
 class Workspace {
@@ -32,6 +34,7 @@ public:
     bool editingText() const;
     void focus(bool reverse);
     void state(const std::wstring& status, const std::wstring& help, bool fresh, bool privacy, bool retryPreference=false, bool cameraChoices=true);
+    void authentication(const AuthSnapshot& state);
     void layout(int width, int height, float dpi, const RECT& preview);
     int toolbarHeight() const;
 };

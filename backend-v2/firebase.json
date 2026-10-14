@@ -1,0 +1,3 @@
+{
+  "firestore": [ { "database": "callayers-v2", "rules": "firestore.rules" } ]
+}

@@ -114,14 +114,15 @@ WorkspaceRuntime::~WorkspaceRuntime() = default;
 struct Workspace::Impl {
     HWND window;
     WorkspaceActions actions;
-    hosting::DesktopWindowXamlSource headerIsland, sidebarIsland, toolbarIsland, helpIsland;
-    ux::FrameworkElement header{nullptr}, sidebar{nullptr}, toolbar{nullptr}, help{nullptr};
+    hosting::DesktopWindowXamlSource headerIsland, sidebarIsland, toolbarIsland, helpIsland,authIsland;
+    ux::FrameworkElement header{nullptr}, sidebar{nullptr}, toolbar{nullptr}, help{nullptr},authView{nullptr};
     controls::ContentControl sidebarGate, toolbarGate;
     TextEditor editor;
     bool finishingText=false;
     unsigned editorToken=0;
     std::shared_ptr<int> lifetime=std::make_shared<int>(0);
     bool syncing = false, annotating = LoadAnnotationBarOpen();
+    bool authorized=false;
     bool lastFresh = true, lastPrivacy = false;
     bool lastCameraChoices = false;
     bool lastRetryPreference = false;
@@ -137,6 +138,7 @@ struct Workspace::Impl {
         if(visible)island.SiteBridge().Show();else island.SiteBridge().Hide();
     }
     std::vector<hosting::DesktopWindowXamlSource> focusOrder() {
+        if(!authorized)return {authIsland};
         if(!lastFresh) {
             if(lastCameraChoices)return {headerIsland,helpIsland};
             return {headerIsland};
@@ -152,7 +154,7 @@ struct Workspace::Impl {
         header = load(LR"(<Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Background="#242428" Padding="20,0" ColumnSpacing="12">
  <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
  <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center"><Image x:Name="Logo" Width="32" Height="32" AutomationProperties.Name="Callayers logo"/><TextBlock Text="Callayers" FontSize="21" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,16,0"/></StackPanel>
- <Button Grid.Column="1" Content="File" VerticalAlignment="Center"><Button.Flyout><MenuFlyout><MenuFlyoutItem x:Name="Quit" Text="Quit"/></MenuFlyout></Button.Flyout></Button>
+ <Button Grid.Column="1" Content="File" VerticalAlignment="Center"><Button.Flyout><MenuFlyout><MenuFlyoutItem x:Name="Account" Text="Signed in" IsEnabled="False"/><MenuFlyoutItem x:Name="SignOut" Text="Sign out"/><MenuFlyoutSeparator/><MenuFlyoutItem x:Name="Quit" Text="Quit"/></MenuFlyout></Button.Flyout></Button>
  <ToggleButton Grid.Column="2" x:Name="Annotate" Content="✎  Annotate" IsChecked="False" VerticalAlignment="Center"/>
  <ComboBox Grid.Column="3" x:Name="Camera" PlaceholderText="Choose your webcam" Width="220" HorizontalAlignment="Right" VerticalAlignment="Center" AutomationProperties.Name="Webcam"/>
  <StackPanel Grid.Column="4" Width="180" VerticalAlignment="Center" Spacing="2"><TextBlock x:Name="Status" FontSize="12" Foreground="#BBB9C8" TextWrapping="Wrap"/><Button x:Name="RetryChoice" Content="Retry" Visibility="Collapsed" ToolTipService.ToolTip="Try again"/></StackPanel>
@@ -198,13 +200,23 @@ struct Workspace::Impl {
  <ComboBox x:Name="HelpCamera" PlaceholderText="Choose your webcam" HorizontalAlignment="Stretch" AutomationProperties.Name="Choose your webcam" Visibility="Collapsed"/>
  <StackPanel x:Name="HelpActions" Orientation="Horizontal" Spacing="12" HorizontalAlignment="Center" Visibility="Collapsed"><Button x:Name="Retry" Content="Retry"/><Button x:Name="Privacy" Content="Camera privacy settings" Visibility="Collapsed"/></StackPanel>
 </StackPanel></Grid>)");
+        authView=load(LR"(<Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Background="#1D1D21" Padding="24"><StackPanel Width="420" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="24">
+ <Image x:Name="AuthLogo" Width="76" Height="76" AutomationProperties.Name="Callayers logo"/>
+ <TextBlock Text="Callayers" FontSize="32" FontWeight="SemiBold" HorizontalAlignment="Center"/>
+ <TextBlock x:Name="AuthMessage" Text="Sign in to use Callayers." FontSize="16" Foreground="#BBB9C8" TextAlignment="Center" TextWrapping="Wrap"/>
+ <ProgressRing x:Name="AuthProgress" Width="28" Height="28" Visibility="Collapsed" IsActive="False"/>
+ <Button x:Name="AuthPrimary" Content="Sign in with Google" HorizontalAlignment="Center" MinWidth="240" Padding="24,12"/>
+ <Button x:Name="AuthCancel" Content="Cancel" HorizontalAlignment="Center" Visibility="Collapsed"/>
+</StackPanel></Grid>)");
         sidebarGate.Content(sidebar); toolbarGate.Content(toolbar);
         toolbarGate.Visibility(annotating?ux::Visibility::Visible:ux::Visibility::Collapsed);
         find<controls::Primitives::ToggleButton>(header,L"Annotate").IsChecked(annotating);
         for(auto gate:{sidebarGate,toolbarGate}) {gate.HorizontalContentAlignment(ux::HorizontalAlignment::Stretch);gate.VerticalContentAlignment(ux::VerticalAlignment::Stretch);}
         attach(headerIsland, header); attach(sidebarIsland, sidebarGate); attach(toolbarIsland, toolbarGate,false); attach(helpIsland, help,false);
+        attach(authIsland,authView);
+        headerIsland.SiteBridge().Hide();sidebarIsland.SiteBridge().Hide();toolbarIsland.SiteBridge().Hide();helpIsland.SiteBridge().Hide();
         StartupTrace("islands-ready");
-        for(auto island:{headerIsland,sidebarIsland,toolbarIsland,helpIsland}) {
+        for(auto island:{headerIsland,sidebarIsland,toolbarIsland,helpIsland,authIsland}) {
             island.TakeFocusRequested([this](auto&& sender,auto&& args){
                 bool reverse=args.Request().Reason()==hosting::XamlSourceFocusNavigationReason::Last;
                 auto order=focusOrder();auto current=std::find(order.begin(),order.end(),sender);
@@ -217,8 +229,12 @@ struct Workspace::Impl {
         wchar_t executable[32768]{}; GetModuleFileNameW(nullptr,executable,32768);
         auto logo=(std::filesystem::path(executable).parent_path()/L"assets"/L"callayers.png").generic_wstring();
         find<controls::Image>(header,L"Logo").Source(ux::Media::Imaging::BitmapImage(winrt::Windows::Foundation::Uri(L"file:///"+logo)));
+        find<controls::Image>(authView,L"AuthLogo").Source(ux::Media::Imaging::BitmapImage(winrt::Windows::Foundation::Uri(L"file:///"+logo)));
         BOOL dark = TRUE; DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));
         find<controls::MenuFlyoutItem>(header,L"Quit").Click([this](auto&&,auto&&){actions.quit();});
+        find<controls::MenuFlyoutItem>(header,L"SignOut").Click([this](auto&&,auto&&){actions.signOut();});
+        find<controls::Button>(authView,L"AuthPrimary").Click([this](auto&&,auto&&){actions.authPrimary();});
+        find<controls::Button>(authView,L"AuthCancel").Click([this](auto&&,auto&&){actions.authCancel();});
         find<controls::Primitives::ToggleButton>(header,L"Annotate").Click([this](auto&& sender,auto&&){annotating = sender.template as<controls::Primitives::ToggleButton>().IsChecked().GetBoolean();if(!annotating)actions.tool(AnnotationTool::Select);actions.layout();SaveAnnotationBarOpen(annotating);});
         auto cameraChange = [this](auto&& sender,auto&&) { if (!syncing) actions.camera(sender.template as<controls::ComboBox>().SelectedIndex()); };
         find<controls::ComboBox>(header,L"Camera").SelectionChanged(cameraChange);
@@ -256,11 +272,11 @@ struct Workspace::Impl {
         Resources().event("workspace_controls_ready");
         StartupTrace("controls-ready");
     }
-    ~Impl() { lifetime.reset();editor.close();helpIsland.Close(); toolbarIsland.Close(); sidebarIsland.Close(); headerIsland.Close(); }
+    ~Impl() { lifetime.reset();editor.close();authIsland.Close();helpIsland.Close(); toolbarIsland.Close(); sidebarIsland.Close(); headerIsland.Close(); }
 };
 Workspace::Workspace(HWND window,WorkspaceActions actions) : impl_(std::make_unique<Impl>(window,std::move(actions))) {}
 Workspace::~Workspace() = default;
-int Workspace::toolbarHeight() const { return impl_->annotating?56:0; }
+int Workspace::toolbarHeight() const { return impl_->authorized && impl_->annotating?56:0; }
 void Workspace::cameras(const std::vector<std::wstring>& names,int selected,const std::wstring& missingName) {
     auto& ui=*impl_; ui.syncing=true;
     for(auto combo : {ui.find<controls::ComboBox>(ui.header,L"Camera"), ui.find<controls::ComboBox>(ui.help,L"HelpCamera")}) {
@@ -333,17 +349,31 @@ void Workspace::state(const std::wstring& status,const std::wstring& message,boo
     if(ui.lastRetryPreference!=retryPreference){ui.find<controls::Button>(ui.header,L"RetryChoice").Visibility(retryPreference?ux::Visibility::Visible:ux::Visibility::Collapsed);ui.lastRetryPreference=retryPreference;}
     if(ui.lastFresh!=fresh){
         ui.sidebarGate.IsEnabled(fresh); ui.toolbarGate.IsEnabled(fresh);
-        if(fresh)ui.helpIsland.SiteBridge().Hide();else ui.helpIsland.SiteBridge().Show();ui.lastFresh=fresh;
+        if(fresh || !ui.authorized)ui.helpIsland.SiteBridge().Hide();else ui.helpIsland.SiteBridge().Show();ui.lastFresh=fresh;
     }
+}
+void Workspace::authentication(const AuthSnapshot& state) {
+    auto& ui=*impl_;ui.authorized=state.allowed;
+    ui.find<controls::MenuFlyoutItem>(ui.header,L"Account").Text(state.email.empty()?L"Signed in":state.email);
+    ui.find<controls::TextBlock>(ui.authView,L"AuthMessage").Text(state.message.empty()?L"Sign in to use Callayers.":state.message);
+    bool busy=state.phase==AuthPhase::Checking || state.phase==AuthPhase::SigningIn;
+    ui.find<controls::ProgressRing>(ui.authView,L"AuthProgress").IsActive(busy);
+    ui.find<controls::ProgressRing>(ui.authView,L"AuthProgress").Visibility(busy?ux::Visibility::Visible:ux::Visibility::Collapsed);
+    ui.find<controls::Button>(ui.authView,L"AuthPrimary").Visibility(busy?ux::Visibility::Collapsed:ux::Visibility::Visible);
+    ui.find<controls::Button>(ui.authView,L"AuthPrimary").Content(winrt::box_value(state.retryAvailable?L"Retry":L"Sign in with Google"));
+    ui.find<controls::Button>(ui.authView,L"AuthCancel").Visibility(busy?ux::Visibility::Visible:ux::Visibility::Collapsed);
+    if(state.allowed){ui.authIsland.SiteBridge().Hide();ui.headerIsland.SiteBridge().Show();ui.sidebarIsland.SiteBridge().Show();if(ui.annotating)ui.toolbarIsland.SiteBridge().Show();if(!ui.lastFresh)ui.helpIsland.SiteBridge().Show();}
+    else {ui.headerIsland.SiteBridge().Hide();ui.sidebarIsland.SiteBridge().Hide();ui.toolbarIsland.SiteBridge().Hide();ui.helpIsland.SiteBridge().Hide();ui.authIsland.SiteBridge().Show();}
 }
 void Workspace::layout(int width,int height,float dpi,const RECT& preview) {
     auto& ui=*impl_; int header=int(72*dpi), sidebar=int(300*dpi), toolbar=int(toolbarHeight()*dpi);
     ui.headerIsland.SiteBridge().MoveAndResize({0,0,width,header});
+    ui.authIsland.SiteBridge().MoveAndResize({0,0,width,height});
     ui.sidebarIsland.SiteBridge().MoveAndResize({0,header,sidebar,std::max(1,height-header)});
     ui.toolbarIsland.SiteBridge().MoveAndResize({sidebar,header,std::max(1,width-sidebar),std::max(1,toolbar)});
     ui.toolbarGate.Visibility(ui.annotating?ux::Visibility::Visible:ux::Visibility::Collapsed);
     ui.find<controls::TextBlock>(ui.toolbar,L"ToolHelp").Visibility(width/dpi>=1450?ux::Visibility::Visible:ux::Visibility::Collapsed);
-    if(toolbar)ui.toolbarIsland.SiteBridge().Show();else ui.toolbarIsland.SiteBridge().Hide();
+    if(toolbar && ui.authorized)ui.toolbarIsland.SiteBridge().Show();else ui.toolbarIsland.SiteBridge().Hide();
     ui.helpIsland.SiteBridge().MoveAndResize({preview.left,preview.top,std::max(1L,preview.right-preview.left),std::max(1L,preview.bottom-preview.top)});
 }
 }

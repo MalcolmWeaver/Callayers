@@ -1,0 +1,7 @@
+.git
+node_modules
+test
+README.md
+*.local.*
+firebase.json
+firestore.rules
