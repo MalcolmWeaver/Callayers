@@ -5,12 +5,15 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 #include <QFile>
+#include <QScopeGuard>
+#include <cerrno>
 #include <cstring>
 
 Output::~Output() { stop(); }
 
 bool Output::start() {
     stop();
+    { std::lock_guard lock(mutex_); problem_.clear(); }
     stop_ = false;
     thread_ = std::thread([this] { run(); });
     return true;
@@ -20,6 +23,9 @@ void Output::stop() {
     stop_ = true;
     if (thread_.joinable()) thread_.join();
     active_ = false;
+    std::lock_guard lock(mutex_);
+    pending_ = {};
+    fresh_ = false;
 }
 
 void Output::publish(const QImage& frame) {
@@ -67,6 +73,7 @@ void Output::run() {
     }
     { std::lock_guard lock(mutex_); problem_.clear(); }
     active_ = true;
+    const auto finished = qScopeGuard([this, fd] { active_ = false; ::close(fd); });
     std::vector<uint8_t> yuyv;
     while (!stop_) {
         QImage frame;
@@ -81,11 +88,14 @@ void Output::run() {
         size_t remaining = yuyv.size();
         while (remaining && !stop_) {
             ssize_t wrote = ::write(fd, data, remaining);
-            if (wrote < 0) { if (errno == EAGAIN || errno == EINTR) { usleep(2000); continue; } break; }
+            if (wrote < 0 && (errno == EAGAIN || errno == EINTR)) { usleep(2000); continue; }
+            if (wrote <= 0) {
+                std::lock_guard lock(mutex_);
+                problem_ = "The Callayers camera stopped receiving video. Click Retry.";
+                return;
+            }
             data += wrote;
             remaining -= size_t(wrote);
         }
     }
-    active_ = false;
-    ::close(fd);
 }

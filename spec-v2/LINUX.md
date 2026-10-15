@@ -91,6 +91,19 @@ cmake --build build/linux
 linux/packaging/build-deb.sh
 ```
 
+For local camera/UI development without Google sign-in:
+
+```bash
+cmake -S linux -B build/linux-camera -DCMAKE_BUILD_TYPE=Release -DCALLAYERS_DEVELOPMENT=ON
+cmake --build build/linux-camera
+./build/linux-camera/callayers
+```
+
+This build is labelled **Callayers — Development** and opens the workspace directly.
+Camera, image import, and local editing are available; AI generation requires authentication
+and is unavailable in this mode. It does not load or change the saved sign-in session.
+The package script explicitly disables development mode. The default build still requires sign-in.
+
 ## Sign-in
 
 Use the existing Google desktop client, loopback listener, and Firebase exchange. Open the system browser, then bring the Qt window forward when the callback succeeds. The completion page remains the fallback when the window manager leaves the browser in front.

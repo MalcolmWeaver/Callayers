@@ -1,5 +1,6 @@
 #include "window.h"
 #include "compose.h"
+#include "camera_selector.h"
 #include <algorithm>
 #include <QCloseEvent>
 #include <QComboBox>
@@ -34,7 +35,11 @@ QString NewId() { return QUuid::createUuid().toString(QUuid::WithoutBraces); }
 }
 
 MainWindow::MainWindow() : store_(), auth_(this) {
+#ifdef CALLAYERS_DEVELOPMENT
+    setWindowTitle("Callayers — Development");
+#else
     setWindowTitle("Callayers");
+#endif
     resize(1280, 800);
     cards_ = store_.cards();
     annotations_ = store_.annotations();
@@ -47,10 +52,22 @@ MainWindow::MainWindow() : store_(), auth_(this) {
     timer_->start(1000 / OutputFps);
     connect(&auth_, &AuthController::changed, this, &MainWindow::refresh);
     auto file = menuBar()->addMenu("File");
+#ifndef CALLAYERS_DEVELOPMENT
     file->addAction("Sign out", this, &MainWindow::signOut);
+#endif
     file->addAction("Quit", this, &QWidget::close);
+#ifndef CALLAYERS_DEVELOPMENT
     auth_.restore();
+#endif
     refresh();
+}
+
+bool MainWindow::workspaceAllowed() const {
+#ifdef CALLAYERS_DEVELOPMENT
+    return true;
+#else
+    return auth_.allowed();
+#endif
 }
 
 void MainWindow::signOut() { auth_.signOut(); output_.stop(); capture_.stop(); outputWanted_ = false; }
@@ -82,11 +99,17 @@ void MainWindow::buildWorkspace() {
     auto mark = new QLabel("Callayers");
     mark->setStyleSheet("font-weight:650; padding:0 8px;");
     camerasBox_ = new QComboBox;
+    camerasBox_->setAccessibleName("Webcam");
+    camerasBox_->setObjectName("cameraSelector");
+    retryCamera_ = new QPushButton("Refresh cameras");
+    retryCamera_->setObjectName("retryCamera");
     status_ = new QLabel("In your calling app, choose Callayers");
+    status_->setObjectName("cameraStatus");
     auto annotate = new QPushButton("Annotate");
     header->addWidget(mark);
     header->addWidget(annotate);
     header->addWidget(camerasBox_, 1);
+    header->addWidget(retryCamera_);
     header->addWidget(status_);
     column->addLayout(header);
     auto body = new QHBoxLayout;
@@ -150,7 +173,9 @@ void MainWindow::buildWorkspace() {
         preferences.annotateOpen = annotateBar_->isVisible();
         store_.setPreferences(preferences);
     });
-    connect(camerasBox_, &QComboBox::currentIndexChanged, this, &MainWindow::chooseCamera);
+    // Activation also permits retrying the currently selected camera.
+    connect(camerasBox_, &QComboBox::activated, this, &MainWindow::chooseCamera);
+    connect(retryCamera_, &QPushButton::clicked, this, &MainWindow::refresh);
     connect(create, &QPushButton::clicked, this, [this] { selected_ = -1; chatHeading_->setText("New card"); prompt_->setFocus(); });
     connect(import, &QPushButton::clicked, this, &MainWindow::importImage);
     connect(hide, &QPushButton::clicked, this, [this] { for (auto& card : cards_) card.visible = false; save(); refreshCards(); });
@@ -223,24 +248,23 @@ QString MainWindow::cameraMessage(CaptureError error) const {
 }
 
 void MainWindow::refresh() {
-    stack_->setCurrentIndex(auth_.allowed() ? 1 : 0);
+    stack_->setCurrentIndex(workspaceAllowed() ? 1 : 0);
     if (authMessage_) authMessage_->setText(auth_.message().isEmpty() ? "Sign in to use Callayers." : auth_.message());
-    if (!auth_.allowed()) { capture_.stop(); output_.stop(); outputWanted_ = false; return; }
+    if (!workspaceAllowed()) { capture_.stop(); output_.stop(); outputWanted_ = false; capturePaused_ = false; return; }
     cameras_ = EnumerateCameras();
-    camerasBox_->blockSignals(true);
-    camerasBox_->clear();
-    int match = -1;
     auto preferences = store_.preferences();
-    for (int i = 0; i < cameras_.size(); ++i) {
-        camerasBox_->addItem(cameras_[i].name, cameras_[i].identity);
-        if (cameras_[i].identity == preferences.cameraIdentity) match = i;
-    }
-    camerasBox_->blockSignals(false);
-    if (match >= 0) camerasBox_->setCurrentIndex(match);
-    else if (!preferences.cameraIdentity.isEmpty()) preview_->setMessage("Your saved webcam isn't connected.", "Reconnect it and Retry, or choose another camera.");
-    else preview_->setMessage("Choose your webcam", "Your camera and cards will appear here");
+    int match = PopulateCameraSelector(*camerasBox_, cameras_, preferences.cameraIdentity, preferences.cameraName);
+    retryCamera_->setText(preferences.cameraIdentity.isEmpty() ? "Refresh cameras" : "Retry");
     refreshCards();
     if (match >= 0) chooseCamera(match);
+    else {
+        capture_.stop();
+        outputWanted_ = false;
+        capturePaused_ = false;
+        status_->setText("Choose a webcam to start video");
+        if (!preferences.cameraIdentity.isEmpty()) preview_->setMessage("Your saved webcam isn't connected.", "Reconnect it and Retry, or choose another camera.");
+        else preview_->setMessage("Choose your webcam", cameras_.isEmpty() ? "Connect a webcam, then click Refresh cameras." : "Your camera and cards will appear here");
+    }
 }
 
 void MainWindow::refreshCards() {
@@ -268,11 +292,16 @@ void MainWindow::refreshCards() {
 }
 
 void MainWindow::chooseCamera(int index) {
-    if (index < 0 || index >= cameras_.size()) return;
+    if (!workspaceAllowed() || index < 0 || index >= cameras_.size()) return;
     auto preferences = store_.preferences();
     preferences.cameraIdentity = cameras_[index].identity;
     preferences.cameraName = cameras_[index].name;
     store_.setPreferences(preferences);
+    capturePaused_ = false;
+    preview_->setSelection({}, false);
+    preview_->setMessage("Opening your webcam…", cameras_[index].name);
+    status_->setText("Opening your webcam…");
+    retryCamera_->setText("Retry");
     capture_.start(cameras_[index].identity);
     outputWanted_ = true;
     if (!output_.active()) output_.start();
@@ -281,20 +310,26 @@ void MainWindow::chooseCamera(int index) {
 void MainWindow::save() { store_.setCards(cards_); store_.setAnnotations(annotations_); }
 
 void MainWindow::tick() {
-    if (!auth_.allowed()) return;
+    if (!workspaceAllowed()) return;
     bool minimized = windowState().testFlag(Qt::WindowMinimized);
     QString consumer = ConsumerName();
     if (minimized && consumer.isEmpty()) {
-        if (capture_.running()) capture_.stop();
-    } else if (outputWanted_ && !capture_.running() && !store_.preferences().cameraIdentity.isEmpty()) {
+        if (capture_.running()) { capture_.stop(); capturePaused_ = true; }
+        return;
+    } else if (outputWanted_ && capturePaused_) {
+        capturePaused_ = false;
         capture_.start(store_.preferences().cameraIdentity);
     }
     auto error = capture_.error();
     auto webcam = capture_.latest();
-    if (error != CaptureError::None && webcam.isNull()) {
+    if (error != CaptureError::None) {
+        preview_->setSelection({}, false);
         preview_->setMessage(error == CaptureError::Missing ? "Your saved webcam isn't connected." : "Camera", cameraMessage(error));
+        status_->setText("Camera unavailable — Retry or choose another webcam");
         return;
     }
+    // Report output setup failures even before the first webcam frame arrives.
+    if (outputWanted_ && !output_.problem().isEmpty()) status_->setText(output_.problem());
     if (webcam.isNull()) return;
     quint64 hidden = editingText_;
     auto frame = ComposeFrame(webcam, cards_, annotations_, hidden);
@@ -303,8 +338,6 @@ void MainWindow::tick() {
     if (selected_ >= 0 && selected_ < cards_.size()) selected = QRectF(cards_[selected_].x, cards_[selected_].y, cards_[selected_].w, cards_[selected_].h);
     preview_->setSelection(selected, tool_ == Tool::Select && selected_ >= 0);
     if (outputWanted_ && (!minimized || !consumer.isEmpty())) output_.publish(frame);
-    if (minimized && consumer.isEmpty()) capture_.stop();
-    else if (outputWanted_ && !capture_.running() && !store_.preferences().cameraIdentity.isEmpty()) capture_.start(store_.preferences().cameraIdentity);
     status_->setText(output_.problem().isEmpty() ? (consumer.isEmpty() ? "In your calling app, choose Callayers" : "Sending video to " + consumer) : output_.problem());
 }
 
@@ -440,6 +473,10 @@ void MainWindow::importImage() {
 }
 
 void MainWindow::generate() {
+#ifdef CALLAYERS_DEVELOPMENT
+    status_->setText("AI generation is unavailable without sign-in. Use Import image for local testing.");
+    return;
+#endif
     if (generating_ || auth_.token().isEmpty()) { status_->setText("Enter a prompt and sign in to continue."); return; }
     auto text = prompt_->toPlainText().trimmed();
     if (text.isEmpty()) return;

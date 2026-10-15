@@ -13,6 +13,7 @@ public:
     void setMessage(const QString& title, const QString& body);
     void setSelection(QRectF logical, bool handles);
     QRectF selection() const { return selection_; }
+    bool hasFrame() const { return !frame_.isNull(); }
 signals:
     void pressed(QPointF logical, QPointF local);
     void moved(QPointF logical);

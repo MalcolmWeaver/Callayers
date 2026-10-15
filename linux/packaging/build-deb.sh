@@ -4,7 +4,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
 version="0.3.0"
 build="$root/build/linux"
-cmake -S "$root/linux" -B "$build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
+cmake -S "$root/linux" -B "$build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DCALLAYERS_DEVELOPMENT=OFF
 cmake --build "$build" --parallel
 stage="$(mktemp -d)"
 trap 'rm -rf "$stage"' EXIT

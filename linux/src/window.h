@@ -22,6 +22,7 @@ class MainWindow : public QMainWindow {
 public:
     explicit MainWindow();
 private:
+    bool workspaceAllowed() const;
     void buildSignIn();
     void buildWorkspace();
     void refresh();
@@ -52,6 +53,7 @@ private:
     Preview* preview_ = nullptr;
     QListWidget* library_ = nullptr;
     QComboBox* camerasBox_ = nullptr;
+    QPushButton* retryCamera_ = nullptr;
     QLabel* status_ = nullptr;
     QLabel* authMessage_ = nullptr;
     QLabel* chatHeading_ = nullptr;
@@ -74,4 +76,5 @@ private:
     QString editingOriginal_;
     bool generating_ = false;
     bool outputWanted_ = false;
+    bool capturePaused_ = false;
 };
