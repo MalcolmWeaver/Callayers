@@ -9,11 +9,15 @@
 #endif
 
 namespace callayers {
-inline constexpr int Width = 1280, Height = 720, Fps = 30;
+// Saved layouts and input use logical pixels; video and renderer surfaces use output pixels.
+inline constexpr int CanvasWidth = 1280, CanvasHeight = 720;
+inline constexpr int Width = 1920, Height = 1080, Fps = 30;
+inline constexpr double OutputScale = double(Width) / CanvasWidth;
+static_assert(Width * CanvasHeight == Height * CanvasWidth);
 inline constexpr size_t PixelBytes = size_t(Width) * Height * 4;
 inline constexpr ULONGLONG FreshMs = 1000;
-inline constexpr wchar_t BridgeName[] = L"Local\\Callayers.Foundation.v2.Frames";
-inline constexpr wchar_t LockName[] = L"Local\\Callayers.Foundation.v2.FrameLock";
+inline constexpr wchar_t BridgeName[] = L"Local\\Callayers.Foundation.v3.Frames";
+inline constexpr wchar_t LockName[] = L"Local\\Callayers.Foundation.v3.FrameLock";
 
 // Fixed-size, same-session transport. Only complete pictures cross this boundary.
 // The mutex is always tried without waiting on the video paths. An abandoned
@@ -33,7 +37,7 @@ inline void Neutral(std::vector<uint8_t>& pixels) {
     pixels.resize(PixelBytes);
     for (int y = 0; y < Height; ++y) for (int x = 0; x < Width; ++x) {
         auto p = &pixels[(size_t(y) * Width + x) * 4];
-        bool bar = (y >= 348 && y < 372 && x >= 540 && x < 740);
+        bool bar = (y >= 348 * OutputScale && y < 372 * OutputScale && x >= 540 * OutputScale && x < 740 * OutputScale);
         p[0] = bar ? 142 : 34; p[1] = bar ? 130 : 29; p[2] = bar ? 120 : 25; p[3] = 255;
     }
 }

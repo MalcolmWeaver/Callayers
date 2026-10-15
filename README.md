@@ -6,6 +6,8 @@ Windows app that combines webcam video with interactive cards and annotations, t
 
 Video flow: **webcam → Media Foundation capture → CPU composition → native preview + DirectShow virtual camera**. Ultralight renders cards and annotations; editing controls stay private to the app.
 
+Cards and annotations render at 1920 × 1080 for the 1080p/30 virtual camera output. Layouts retain their 1280 × 720 logical coordinates and apparent size; webcam capture still prefers native 720p/30.
+
 | Location | Purpose |
 | --- | --- |
 | `native/app.cpp`, `native/workspace.*` | Application coordination and WinUI 3 interface |
