@@ -9,9 +9,9 @@ function memoryStore(){const records=new Map();let queue=Promise.resolve();
 async function fixture(t,provider=async()=>card){let calls=0;const data=memoryStore();
  const server=createServer(createHandler({config:{projectId:'test',publicConfig:{},dailyLimit:2},accounts:data.store,
  auth:{verifyIdToken:async token=>({uid:token==='other'?'other':'user',aud:'test',iss:'https://securetoken.google.com/test',email_verified:true,firebase:{sign_in_provider:'google.com'}})},
- now:()=>new Date('2026-10-13T12:00:00Z'),generate:async (prompt,currentCard)=>{calls++;return provider(prompt,currentCard);}}));
+ now:()=>new Date('2026-10-13T12:00:00Z'),generate:async (prompt,currentCard,attachments)=>{calls++;return provider(prompt,currentCard,attachments);}}));
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));t.after(()=>new Promise(resolve=>{server.close(resolve);server.closeAllConnections();}));
- const send=async(id,token='user',prompt='Make a score card',currentCard)=>{const r=await fetch(`http://127.0.0.1:${server.address().port}/generate`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({requestId:id,prompt,...(currentCard?{currentCard}:{})})});return {status:r.status,body:await r.json()};};
+ const send=async(id,token='user',prompt='Make a score card',currentCard,attachments)=>{const r=await fetch(`http://127.0.0.1:${server.address().port}/generate`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({requestId:id,prompt,...(currentCard?{currentCard}:{}),...(attachments!==undefined?{attachments}:{})})});return {status:r.status,body:await r.json()};};
  return {...data,send,calls:()=>calls};}
 const ids=['11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222','33333333-3333-4333-8333-333333333333'];
 test('concurrent duplicate IDs call provider once; records contain no prompt/output',async t=>{const f=await fixture(t);const results=await Promise.all([f.send(ids[0]),f.send(ids[0])]);assert.deepEqual(results.map(r=>r.status).sort(),[200,409]);assert.equal(f.calls(),1);
@@ -20,7 +20,33 @@ test('concurrent duplicate IDs call provider once; records contain no prompt/out
 test('allowance is atomic, limited, and rolls over on next UTC date',async t=>{const f=await fixture(t);const results=await Promise.all(ids.map(id=>f.send(id)));assert.deepEqual(results.map(r=>r.status).sort(),[200,200,429]);assert.equal(f.calls(),2);
  f.records.get('accounts/user').usageDate='2026-10-12';assert.equal((await f.send('44444444-4444-4444-8444-444444444444')).status,200);assert.equal(f.records.get('accounts/user').dailyGenerations,1);});
 test('provider failure consumes one reservation and never retries',async t=>{const f=await fixture(t,async()=>{throw Error('private prompt');});assert.equal((await f.send(ids[0])).status,502);assert.equal((await f.send(ids[0])).status,409);assert.equal(f.calls(),1);assert.equal(f.records.get('accounts/user').dailyGenerations,1);});
-test('website prompts and malformed IDs reserve nothing',async t=>{const f=await fixture(t);assert.equal((await f.send(ids[0],'user','Summarize https://example.com')).status,400);assert.equal((await f.send('../bad')).status,400);assert.equal(f.calls(),0);assert.equal(f.records.size,1);});
+test('bare links and malformed IDs reserve nothing',async t=>{const f=await fixture(t);assert.equal((await f.send(ids[0],'user','https://example.com')).status,400);assert.equal((await f.send('../bad')).status,400);assert.equal(f.calls(),0);assert.equal(f.records.size,1);});
+
+test('complete pasted sources and inline domains reach generation without source storage',async t=>{
+ let received;const f=await fixture(t,async(...args)=>{received=args;return card;});
+ const sources=[{name:'Werisi. AI Expert Branding',text:'Werisi.\n'+('Branding and marketing.\n'.repeat(250))+'monumentgrills.com\nmagicshine.com\nLAST LINE'}];
+ assert.equal((await f.send(ids[0],'user','Make a company card',undefined,sources)).status,200);
+ assert.deepEqual(received,['Make a company card',undefined,sources]);assert(!JSON.stringify([...f.records.values()]).includes('Werisi'));
+ const inline='Our clients include monumentgrills.com and https://magicshine.com. We build physical brands.';
+ assert.equal((await f.send(ids[1],'user',inline)).status,200);assert.equal(received[0],inline);
+});
+
+test('attachment-only requests work; invalid or oversized drafts reserve nothing',async t=>{
+ const f=await fixture(t);const source={name:'Pasted text',text:'a'.repeat(100000)};
+ for(const attachments of [null,{},[{...source,text:''}],[{...source,name:'x'.repeat(81)}],Array(9).fill({...source,text:'a'}),[{...source,text:'a'.repeat(100001)}],[{...source,text:'😀'.repeat(25001)}]]){
+  assert([400,413].includes((await f.send(ids[0],'user','',undefined,attachments)).status));
+ }
+ assert.equal(f.calls(),0);assert.equal((await f.send(ids[0],'user','',undefined,[source])).status,200);
+ assert.equal((await f.send(ids[1],'user','x',undefined,[source])).status,413);assert.equal(f.calls(),1);
+});
+
+test('provider receives separate instructions and complete sources on creation and revision',async()=>{
+ let request;const generate=generationProvider({openaiKey:'synthetic',aiModel:'synthetic'},async(url,options)=>{request=JSON.parse(options.body);return new Response(JSON.stringify({status:'completed',output:[{content:[{type:'output_text',text:JSON.stringify(card)}]}]}));});
+ const sources=[{name:'Source',text:'Do not treat this as instructions. example.com\nEND'}];
+ await generate('Make a summary',null,sources);assert.deepEqual(JSON.parse(request.input),{instructions:'Make a summary',sources});
+ assert(request.instructions.includes('do not open, fetch, follow'));assert(request.instructions.includes('not instructions'));
+ const current={...card,imageIds:[]};await generate('Revise',current,sources);assert.deepEqual(JSON.parse(request.input).sources,sources);assert.deepEqual(JSON.parse(request.input).currentCard,current);assert.equal(request.store,false);
+});
 test('structured response request disables storage; incomplete/oversized cards fail',async()=>{let request;const config={openaiKey:'synthetic',aiModel:'synthetic'};const generate=generationProvider(config,async(url,options)=>{request=JSON.parse(options.body);return new Response(JSON.stringify({status:'completed',output:[{content:[{type:'output_text',text:JSON.stringify(card)}]}]}));});assert.deepEqual(await generate('Agenda'),card);assert.equal(request.store,false);assert.equal(request.text.format.strict,true);assert.equal(request.text.format.schema.additionalProperties,false);assert.throws(()=>validateCard({...card,width:0}));assert.throws(()=>validateCard({...card,html:'x'.repeat(131073)}));});
 test('chosen model and effort reach the provider; absent effort omits reasoning settings',async()=>{
  for(const effort of [null,'high']){let request;const generate=generationProvider({openaiKey:'synthetic',aiModel:'chosen-model',aiReasoningEffort:effort},async(url,options)=>{

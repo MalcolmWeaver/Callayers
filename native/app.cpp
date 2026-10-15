@@ -105,7 +105,7 @@ struct App {
                 if(!overlay.reviseCard(result->target,result->contentVersion,result->card)){generation.message(L"Edit not applied. Your current card was kept.");MessageBoxW(window,L"This edit couldn't be applied. The card may have changed or been deleted. Your current work was kept.",L"Edit not applied",MB_OK|MB_ICONINFORMATION);}
             }else
 #endif
-            if(overlay.addGenerated(result->card)){auto& value=result->card;Card c{value.x,value.y,value.w,value.h,false};c.contentW=value.width;c.contentH=value.height;cards.push_back(c);selectedCard=cardCount()-1;changed();}
+            if(overlay.addGenerated(result->card)){auto& value=result->card;Card c{value.x,value.y,value.w,value.h,value.visible};c.contentW=value.width;c.contentH=value.height;cards.push_back(c);selectedCard=cardCount()-1;changed();}
             else MessageBoxW(window,L"The card couldn't be added to your library. Your existing cards were preserved.",L"Card not saved",MB_OK|MB_ICONINFORMATION);
         }
 #ifdef CALLAYERS_LIBRARY
@@ -773,14 +773,14 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam
 #endif
             };
 #ifdef CALLAYERS_GENERATION
-            actions.generate=[app](std::wstring prompt){if(app->authenticated && app->auth.outputAllowed())app->generation.start(prompt,app->auth.idToken());};
+            actions.generate=[app](std::wstring prompt,std::vector<TextAttachment> attachments){if(app->authenticated && app->auth.outputAllowed())app->generation.start(prompt,app->auth.idToken(),std::nullopt,std::move(attachments));};
             actions.cancelGeneration=[app]{app->generation.cancel();};
 #ifdef CALLAYERS_LIBRARY
             actions.renameCard=[app](std::wstring id,std::wstring name){
                 auto first=name.find_first_not_of(L" \t\r\n"),last=name.find_last_not_of(L" \t\r\n");name=first==std::wstring::npos?L"":name.substr(first,last-first+1);
                 if(!app->overlay.renameCard(app->libraryIndex(id),name))MessageBoxW(app->window,L"Use a name between 1 and 80 characters. If an edit is being saved, wait and try again.",L"Name not saved",MB_OK|MB_ICONINFORMATION);app->syncCards();
             };
-            actions.editCard=[app](std::wstring id,std::wstring prompt){int i=app->libraryIndex(id);if(i<0 || app->overlay.applying())return;app->finishGesture();app->blurCard();app->overlay.saveGenerated();if(app->authenticated && app->auth.outputAllowed())app->generation.start(prompt,app->auth.idToken(),app->overlay.generated()[i]);};
+            actions.editCard=[app](std::wstring id,std::wstring prompt,std::vector<TextAttachment> attachments){int i=app->libraryIndex(id);if(i<0 || app->overlay.applying())return;app->finishGesture();app->blurCard();app->overlay.saveGenerated();if(app->authenticated && app->auth.outputAllowed())app->generation.start(prompt,app->auth.idToken(),app->overlay.generated()[i],std::move(attachments));};
             actions.deleteCard=[app](std::wstring id){int i=app->libraryIndex(id);if(i<0)return;app->finishGesture();app->blurCard();auto message=L"Delete \""+app->overlay.generated()[i].name+L"\"? It will be removed from your library and camera. This cannot be undone.";
                 if(MessageBoxW(app->window,message.c_str(),L"Delete card",MB_YESNO|MB_DEFBUTTON2|MB_ICONQUESTION)!=IDYES)return;
                 if(app->overlay.deleteCard(i)){app->selectedCard=-1;app->rebuildLibrary();app->changed();}

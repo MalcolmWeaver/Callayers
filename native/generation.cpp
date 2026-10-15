@@ -42,20 +42,24 @@ GenerationSnapshot Generation::snapshot(){std::lock_guard lock(mutex_);return st
 void Generation::message(const std::wstring& value){std::lock_guard lock(mutex_);state_.message=value;}
 std::optional<GenerationResult> Generation::takeResult(){std::lock_guard lock(mutex_);auto result=std::move(state_.result);state_.result.reset();return result;}
 int Generation::takeAccessError(){std::lock_guard lock(mutex_);int result=state_.accessError;state_.accessError=0;return result;}
-void Generation::start(const std::wstring& prompt,const std::wstring& token,std::optional<GeneratedCard> current){
+void Generation::start(const std::wstring& prompt,const std::wstring& token,std::optional<GeneratedCard> current,std::vector<TextAttachment> attachments){
     if(working_){std::lock_guard lock(mutex_);state_.message=L"The cancelled request is still finishing. Try again shortly.";return;}
-    if(worker_.joinable())worker_.join();if(prompt.empty()||winrt::to_string(prompt).size()>12000||token.empty()){std::lock_guard lock(mutex_);state_.message=L"Enter a prompt and sign in to continue.";return;}
+    if(worker_.joinable())worker_.join();size_t bytes=winrt::to_string(prompt).size();for(auto& attachment:attachments)bytes+=winrt::to_string(attachment.text).size();
+    if(bytes>GenerationTextLimit || attachments.size()>8){message(L"This draft is too large. Use up to 100 KB of text and 8 attachments. Your draft was kept.");return;}
+    if((prompt.empty() && attachments.empty())||token.empty()){message(L"Enter a prompt and sign in to continue.");return;}
     const auto version=++version_;{std::lock_guard lock(mutex_);state_.busy=true;state_.message=current?L"Editing your card…":L"Creating your card…";state_.result.reset();}working_=true;
-    worker_=std::thread([this,version,prompt,token,current]{winrt::init_apartment();GenerationSnapshot result;
+    worker_=std::thread([this,version,prompt,token,current,attachments=std::move(attachments)]{winrt::init_apartment();GenerationSnapshot result;
         try{GUID guid{};if(FAILED(CoCreateGuid(&guid)))throw std::runtime_error("Cannot identify request");guid.Data3=(guid.Data3&0x0fff)|0x4000;guid.Data4[0]=(guid.Data4[0]&0x3f)|0x80;wchar_t raw[40]{};StringFromGUID2(guid,raw,40);
             std::wstring id(raw+1,36);std::transform(id.begin(),id.end(),id.begin(),::towlower);
             JsonObject input;input.SetNamedValue(L"requestId",JsonValue::CreateStringValue(id));input.SetNamedValue(L"prompt",JsonValue::CreateStringValue(prompt));if(current)input.SetNamedValue(L"currentCard",JsonObject::Parse(RevisionInput(*current)));
+            if(!attachments.empty()){JsonArray sources;for(auto& attachment:attachments){JsonObject source;source.SetNamedValue(L"name",JsonValue::CreateStringValue(attachment.name));source.SetNamedValue(L"text",JsonValue::CreateStringValue(attachment.text));sources.Append(source);}input.SetNamedValue(L"attachments",sources);}
             auto response=request(token,winrt::to_string(input.Stringify()),activeRequest_,[this,version]{return version_!=version;});
             if(response.json.HasKey(L"allowance"))result.remaining=int(response.json.GetNamedObject(L"allowance").GetNamedNumber(L"remaining"));
             if(response.status==200){auto data=response.json.GetNamedObject(L"card");GeneratedCard card;card.id=id;card.name=data.GetNamedString(L"name");card.html=data.GetNamedString(L"html");card.width=data.GetNamedNumber(L"width");card.height=data.GetNamedNumber(L"height");card.w=card.width;card.h=card.height;card.x=std::min(48.0,1280-card.w);card.y=std::min(48.0,720-card.h);
-                if(response.json.GetNamedString(L"requestId")!=id||!ValidGeneratedCard(card))throw std::runtime_error("Invalid generated card");result.result=GenerationResult{std::move(card),current?current->id:L"",current?current->contentVersion:0};result.message=current?L"Edit received. Saving your card…":L"Card created. It will appear in your saved cards.";
+                card.visible=true;
+                if(response.json.GetNamedString(L"requestId")!=id||!ValidGeneratedCard(card))throw std::runtime_error("Invalid generated card");result.result=GenerationResult{std::move(card),current?current->id:L"",current?current->contentVersion:0};result.message=current?L"Edit received. Saving your card…":L"Card created. It is shown in your preview and saved cards.";
             }else{auto error=response.json.GetNamedString(L"error",L"");result.accessError=response.status==403?2:response.status==401?1:0;
-                result.message=error==L"daily_limit_reached"?L"You've reached today's generation limit. It resets at midnight UTC.":error==L"website_tools_not_ready"?L"Website reading isn't available. Paste the page text to create this card.":response.status==401||response.status==403?L"Sign in again to continue.":L"Couldn't complete this request. Your existing card was kept. Trying again may use another allowance unit.";}
+                result.message=error==L"daily_limit_reached"?L"You've reached today's generation limit. It resets at midnight UTC.":error==L"website_tools_not_ready"?L"Links aren't opened in this version. Paste the page text to create this card.":error==L"prompt_too_large"?L"This draft is too large. Use up to 100 KB of text. Your draft was kept.":response.status==401||response.status==403?L"Sign in again to continue.":L"Couldn't complete this request. Your existing card was kept. Trying again may use another allowance unit.";}
         }catch(...){result.message=L"The response couldn't be received or validated. It will not be retried automatically. Trying again starts a new generation and may use another allowance unit.";}
         {std::lock_guard lock(mutex_);if(version_==version){if(result.remaining<0)result.remaining=state_.remaining;state_=std::move(result);}}working_=false;winrt::uninit_apartment();
     });
