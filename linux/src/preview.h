@@ -14,6 +14,8 @@ public:
     void setSelection(QRectF logical, bool handles);
     QRectF selection() const { return selection_; }
     bool hasFrame() const { return !frame_.isNull(); }
+    QRectF localRect(QRectF logicalRect) const;
+    void setHover(QRectF logicalRect) { hover_ = logicalRect; update(); }
 signals:
     void pressed(QPointF logical, QPointF local);
     void moved(QPointF logical);
@@ -35,5 +37,6 @@ private:
     QString title_, body_;
     QRect destination_;
     QRectF selection_;
+    QRectF hover_;
     bool handles_ = false;
 };

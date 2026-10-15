@@ -5,6 +5,9 @@
 #include "output.h"
 #include "preview.h"
 #include "store.h"
+#include "scene_renderer.h"
+#include <QPointer>
+#include <QElapsedTimer>
 #include <QMainWindow>
 
 class QCloseEvent;
@@ -16,6 +19,11 @@ class QPlainTextEdit;
 class QPushButton;
 class QStackedWidget;
 class QTimer;
+class TextEditorWidget;
+class Telemetry;
+class PromptEditor;
+class QNetworkReply;
+class QNetworkAccessManager;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -41,11 +49,17 @@ private:
     int annotationAt(QPointF logical) const;
     void beginText(QPointF logical, int existing);
     void finishText(bool commit);
+    void positionTextEditor();
+    void selectTool(Tool tool);
+    void cancelGeneration();
+    void refreshAttachments();
+    bool eventFilter(QObject* watched, QEvent* event) override;
     QString cameraMessage(CaptureError error) const;
     Store store_;
     AuthController auth_;
     Capture capture_;
     Output output_;
+    SceneRenderer renderer_;
     QVector<Card> cards_;
     QVector<Annotation> annotations_;
     QVector<CameraChoice> cameras_;
@@ -58,10 +72,18 @@ private:
     QLabel* authMessage_ = nullptr;
     QLabel* chatHeading_ = nullptr;
     QLineEdit* search_ = nullptr;
-    QPlainTextEdit* prompt_ = nullptr;
-    QPlainTextEdit* textEdit_ = nullptr;
+    PromptEditor* prompt_ = nullptr;
+    QWidget* attachmentsPanel_ = nullptr;
+    TextEditorWidget* textEdit_ = nullptr;
     QWidget* annotateBar_ = nullptr;
     QTimer* timer_ = nullptr;
+    Telemetry* telemetry_ = nullptr;
+    QNetworkAccessManager* network_ = nullptr;
+    QPointer<QNetworkReply> generationReply_;
+    QPushButton* retrySave_ = nullptr;
+    QPushButton* cancelGeneration_ = nullptr;
+    QLabel* operationStatus_ = nullptr;
+    QElapsedTimer checkpointTimer_;
     Tool tool_ = Tool::Select;
     QString color_ = "#ffd166";
     int size_ = 1;
@@ -74,6 +96,15 @@ private:
     double originW_ = 0, originH_ = 0;
     quint64 editingText_ = 0;
     QString editingOriginal_;
+    Annotation textDraft_;
+    Annotation annotationOrigin_;
+    bool editingNew_ = false;
+    bool cardInput_ = false;
+    bool rendererPaused_ = false;
+    bool offlinePreview_ = false;
+    QPointF lastPointer_;
+    int resizeCorner_ = -1;
+    quint64 generationEpoch_ = 0;
     bool generating_ = false;
     bool outputWanted_ = false;
     bool capturePaused_ = false;

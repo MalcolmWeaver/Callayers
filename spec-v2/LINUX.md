@@ -2,6 +2,10 @@
 
 The Linux app is the same product as [APP.md](APP.md), on the same backend as [BACKEND.md](BACKEND.md). Cards, annotations, sign-in, allowances, and telemetry follow [AI.md](AI.md) and [DATA.md](DATA.md). Video follows [FRAMES.md](FRAMES.md) except for the differences in this document.
 
+Parity follows the accepted Windows functionality, interaction, and visual design. Linux-native window borders, menus, and file dialogs are allowed; identical pixels are not required. Ubuntu 24.04/26.04 x64 on Wayland and X11 remain the target. Public apt-repository and website publication are separate from a locally installable package.
+
+For the current implementation pass, virtual-camera changes and verification are explicitly deferred by the user. Do not treat that portion as accepted.
+
 The shell is Qt 6 Widgets. The real webcam and the Callayers camera are both V4L2 devices. The app does not implement a PipeWire node, a portal, or a camera helper process.
 
 ## Decisions
@@ -27,7 +31,7 @@ Save the same workspace and cards described in [DATA.md](DATA.md), under the sta
 | --- | --- |
 | Cards and `workspace.json` | `$XDG_DATA_HOME/Callayers`, or `~/.local/share/Callayers` |
 | Window and camera preferences | `$XDG_CONFIG_HOME/Callayers`, or `~/.config/Callayers` |
-| Sign-in session | The desktop Secret Service, via libsecret |
+| Sign-in session | The desktop Secret Service, via Qt DBus |
 
 Remember the webcam by its stable V4L2 device identity, not by its `/dev/video` number. Signing out keeps the saved cards. Another account on the same Linux user can open them after signing in.
 
@@ -86,6 +90,7 @@ The package installed from the repository is signed by the archive key. The firs
 The Linux app is a separate CMake project. It does not replace the Windows build.
 
 ```bash
+python3 linux/packaging/acquire-renderer.py
 cmake -S linux -B build/linux -DCMAKE_BUILD_TYPE=Release
 cmake --build build/linux
 linux/packaging/build-deb.sh
@@ -103,6 +108,19 @@ This build is labelled **Callayers — Development** and opens the workspace dir
 Camera, image import, and local editing are available; AI generation requires authentication
 and is unavailable in this mode. It does not load or change the saved sign-in session.
 The package script explicitly disables development mode. The default build still requires sign-in.
+
+The renderer acquisition script downloads Ultralight **2.0.0-beta.2** for Linux x64 and verifies its pinned SHA-256. It needs Python 3, curl, and libarchive. Development builds and the package include the shared HTML overlay, text editor, renderer resources, libraries, and license notices. Generated cards run in the same restricted iframe scene as Windows; the renderer filesystem only exposes its packaged ICU and certificate resources.
+
+For development without opening either camera, use the development build with `--offline-preview`. This mode still uses the local workspace, so imported cards and edits save normally. It does not perform authentication or AI generation.
+
+```bash
+./build/linux-camera/callayers --offline-preview
+ctest --test-dir build/linux-camera -R 'linux_html_renderer|linux_preview_interactions|linux_development_workspace' --output-on-failure
+```
+
+The package derives its minimum system-library requirements from the build host. Build on Ubuntu 24.04 for a package intended for that release; a 26.04 build is not automatically compatible with 24.04. Package extraction and `callayers --self-check` check bundled renderer loading without opening a camera, accessing saved work, or signing in. They do not establish desktop or calling-app acceptance. `CALLAYERS_BUILD_JOBS` controls package-build parallelism and `CALLAYERS_CMAKE` can select a CMake binary.
+
+Workspace and preference saves use atomic replacement. Existing Linux workspaces remain readable and gain card state/revision metadata when saved. A malformed existing workspace is retained rather than overwritten. Local session, content-created, and preview-card telemetry are bounded and best effort; virtual-camera/output telemetry remains part of the deferred virtual-camera work.
 
 ## Sign-in
 

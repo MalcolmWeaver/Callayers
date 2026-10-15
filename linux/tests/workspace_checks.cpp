@@ -1,6 +1,7 @@
 #include "window.h"
 #include "app_style.h"
 #include "compose.h"
+#include "scene_renderer.h"
 #include <QApplication>
 #include <QComboBox>
 #include <QElapsedTimer>
@@ -71,6 +72,15 @@ void Drag(Preview& preview, QPointF from, QPointF to) {
     send(QEvent::MouseMove, to, Qt::NoButton, Qt::LeftButton);
     send(QEvent::MouseButtonRelease, to, Qt::LeftButton, Qt::NoButton);
 }
+QImage CardFrame(const Card& card) {
+    SceneRenderer renderer; QVector<Card> cards{card};
+    QElapsedTimer timer;timer.start();
+    while(timer.elapsed()<5000) {
+        if(renderer.render(cards,{}))return ComposeFrame({},renderer.image());
+        QApplication::processEvents();QThread::msleep(10);
+    }
+    Check(false,"Card renderer did not start");return {};
+}
 int WhitePixels(const QImage& image) {
     int count = 0;
     for (int y = 0; y < image.height(); ++y) {
@@ -134,18 +144,18 @@ int main(int argc, char** argv) {
                 Check(library && library->count() == 1 && library->item(0)->text() == SampleCard().name,
                       "Sample card did not load in the library");
                 const auto original = Store().cards().first();
-                const auto rendered = ComposeFrame({}, {original}, {}, 0);
+                const auto rendered = CardFrame(original);
                 const int originalTextPixels = WhitePixels(rendered);
                 Check(originalTextPixels > 100, "Sample card text did not render");
                 Screenshot(window, screenshots, "05-test-card-visible.png");
                 library->item(0)->setCheckState(Qt::Unchecked);
                 const auto hidden = Store().cards().first();
-                Check(!hidden.visible && ComposeFrame({}, {hidden}, {}, 0) == ComposeFrame({}, {}, {}, 0),
+                Check(!hidden.visible && CardFrame(hidden) == ComposeFrame({}, {}),
                       "Hiding the card did not remove it from the composition");
                 Screenshot(window, screenshots, "06-test-card-hidden.png");
                 library->item(0)->setCheckState(Qt::Checked);
                 Check(Store().cards().first().visible, "Showing the card did not persist");
-                const QPointF start(original.x + 40, original.y + 40);
+                const QPointF start(original.x + 4, original.y + 40);
                 Drag(*preview, start, start + QPointF(160, 90));
                 const auto moved = Store().cards().first();
                 Check(std::abs(moved.x - original.x - 160) < 3 && std::abs(moved.y - original.y - 90) < 3,
@@ -157,7 +167,7 @@ int main(int argc, char** argv) {
                 Check(finalCard.w > original.w + 100 && std::abs(finalCard.w / finalCard.h - original.w / original.h) < 0.01,
                       "Resizing did not enlarge the card box proportionally");
                 Screenshot(window, screenshots, "08-test-card-resized.png");
-                const int resizedTextPixels = WhitePixels(ComposeFrame({}, {finalCard}, {}, 0));
+                const int resizedTextPixels = WhitePixels(CardFrame(finalCard));
                 const double areaFactor = std::pow(finalCard.w / original.w, 2);
                 if (resizedTextPixels < originalTextPixels * areaFactor * 0.8) {
                     ++cardFailures;

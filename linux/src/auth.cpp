@@ -35,7 +35,22 @@ QString Required(const QJsonObject& object, const char* key, int maximum = 16384
 }
 }
 
-AuthController::AuthController(QObject* parent) : QObject(parent) {}
+AuthController::AuthController(QObject* parent) : QObject(parent) {
+    auto timer = new QTimer(this);
+    timer->setInterval(30000);
+    connect(timer, &QTimer::timeout, this, [this] {
+        if (!allowed_ || renewing_ || QDateTime::currentDateTimeUtc().secsTo(expires_) > 120) return;
+        renewing_=true;
+        activeGeneration_=generation_;
+        Grant current{serviceUrl_,projectId_,uid_,refresh_,token_,email_,expires_};
+        try { accept(refresh(config_,current)); }
+        catch (const QString& message) {
+            if (message=="invalid-session" || message=="denied" || QDateTime::currentDateTimeUtc()>=expires_) fail(message,false);
+        } catch (...) { if (QDateTime::currentDateTimeUtc()>=expires_) fail("Couldn't renew your sign-in. Sign in again.",false); }
+        renewing_=false;
+    });
+    timer->start();
+}
 
 QString AuthController::token() const { return allowed_ && QDateTime::currentDateTimeUtc() < expires_ ? token_ : QString(); }
 
@@ -122,6 +137,8 @@ void AuthController::accept(Grant grant) {
     SavedSession saved{grant.serviceUrl, grant.projectId, grant.uid, grant.refresh};
     QString error;
     bool remembered = SaveSession(saved, error);
+    if (!remembered) { fail(error.isEmpty() ? "Your session couldn't be saved. Unlock your desktop keyring and retry." : error, false); return; }
+    const bool wasAllowed=allowed_;
     allowed_ = true;
     token_ = grant.token;
     refresh_ = grant.refresh;
@@ -130,8 +147,9 @@ void AuthController::accept(Grant grant) {
     serviceUrl_ = grant.serviceUrl;
     email_ = grant.email;
     expires_ = grant.expires;
-    message_ = remembered ? QString() : error;
-    emit changed();
+    message_.clear();
+    emit credentialsChanged();
+    if (!wasAllowed) emit changed();
 }
 
 void AuthController::fail(const QString& message, bool clearSaved) {
@@ -219,6 +237,7 @@ void AuthController::interactive(const Config& config) {
                 if (value.size() == 43) ticket = value;
             } catch (...) {}
             accept(grant);
+            if(!allowed_)throw message_;
             QByteArray location = "https://callayers.com/signed-in";
             if (!ticket.isEmpty()) location += "#ticket=" + ticket.toUtf8();
             QByteArray response = "HTTP/1.1 303 See Other\r\nLocation: " + location + "\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";

@@ -4,6 +4,7 @@
 #include <QString>
 #include <QVector>
 #include <QtGlobal>
+#include <QJsonObject>
 
 enum class Tool { Select, Pen, Rectangle, Ellipse, Line, Arrow, Text, Eraser };
 
@@ -16,6 +17,8 @@ struct Card {
     QString previousName, previousHtml;
     double previousW = 0, previousH = 0;
     bool hasPrevious = false;
+    QJsonObject state;
+    quint64 contentVersion = 0;
 };
 
 struct Annotation {

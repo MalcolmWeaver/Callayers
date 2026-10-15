@@ -15,9 +15,11 @@ public:
     QString token() const;
     QString email() const { return email_; }
     QString message() const { return message_; }
+    QString accountId() const { return uid_; }
     QString serviceUrl() const { return serviceUrl_; }
 signals:
     void changed();
+    void credentialsChanged();
 private:
     struct Config { QString url, project, client, secret, apiKey; };
     struct Grant { QString serviceUrl, projectId, uid, refresh, token, email; QDateTime expires; };
@@ -33,5 +35,6 @@ private:
     QString serviceUrl_, email_, message_, token_, refresh_, uid_, projectId_;
     QDateTime expires_;
     bool allowed_ = false;
+    bool renewing_ = false;
     unsigned generation_ = 0, activeGeneration_ = 0;
 };

@@ -1,6 +1,8 @@
 #include "store.h"
 #include <QDir>
 #include <QFile>
+#include <QSaveFile>
+#include "card_validation.h"
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -30,6 +32,8 @@ QJsonObject CardJson(const Card& card) {
     object["visible"] = card.visible;
     object["layer"] = card.layer;
     object["edited"] = double(card.edited);
+    object["state"] = card.state;
+    object["contentVersion"] = double(card.contentVersion);
     if (card.hasPrevious) {
         QJsonObject previous;
         previous["name"] = card.previousName;
@@ -55,6 +59,8 @@ Card CardFrom(const QJsonObject& object) {
     card.visible = object["visible"].toBool(true);
     card.layer = object["layer"].toInt();
     card.edited = qint64(object["edited"].toDouble());
+    card.state = object["state"].toObject();
+    card.contentVersion = quint64(object["contentVersion"].toDouble());
     if (object.contains("previous")) {
         auto previous = object["previous"].toObject();
         card.hasPrevious = true;
@@ -78,9 +84,26 @@ QString Store::imageDirectory() const { return dataRoot_ + "/images"; }
 
 void Store::load() {
     QFile workspace(dataRoot_ + "/workspace.json");
-    if (workspace.open(QIODevice::ReadOnly)) {
-        auto root = QJsonDocument::fromJson(workspace.readAll()).object();
-        for (const auto& value : root["cards"].toArray()) cards_.push_back(CardFrom(value.toObject()));
+    if (workspace.exists() && !workspace.open(QIODevice::ReadOnly)) { loadFailed_=true; problem_="Couldn't read your saved workspace. The original file has been kept."; return; }
+    if (workspace.isOpen()) {
+        QJsonParseError parse;
+        auto document = QJsonDocument::fromJson(workspace.readAll(), &parse);
+        if (parse.error != QJsonParseError::NoError || !document.isObject() || !document.object()["cards"].isArray() || !document.object()["annotations"].isArray()) {
+            problem_="Couldn't read your saved workspace. The original file has been kept."; loadFailed_=true; return;
+        }
+        auto root = document.object();
+        for (const auto& value : root["cards"].toArray()) {
+            auto card=CardFrom(value.toObject());
+            if (!ValidCardContent(card) || card.id.isEmpty() || card.x<0 || card.y<0 || card.w<=0 || card.h<=0 || card.x+card.w>1280.1 || card.y+card.h>720.1) {
+                problem_="Couldn't read your saved cards. The original file has been kept."; loadFailed_=true; return;
+            }
+            for(const auto& existing:cards_)if(existing.id==card.id) { loadFailed_=true;problem_="Saved card identities conflict. The original file has been kept.";return; }
+            if(card.hasPrevious) {
+                auto backup=card;backup.name=card.previousName;backup.html=card.previousHtml;backup.contentW=card.previousW;backup.contentH=card.previousH;
+                if(!ValidCardContent(backup)) {loadFailed_=true;problem_="Couldn't read the saved previous version. The original file has been kept.";return;}
+            }
+            cards_.push_back(card);
+        }
         for (const auto& value : root["annotations"].toArray()) {
             auto object = value.toObject();
             Annotation mark;
@@ -93,6 +116,7 @@ void Store::load() {
             mark.text = object["text"].toString();
             for (const auto& point : object["points"].toArray()) {
                 auto pair = point.toArray();
+                if (pair.size()!=2 || !pair[0].isDouble() || !pair[1].isDouble()) { loadFailed_=true; problem_="Couldn't read saved annotations. The original file has been kept."; return; }
                 mark.points.push_back({pair.at(0).toDouble(), pair.at(1).toDouble()});
             }
             annotations_.push_back(mark);
@@ -107,11 +131,16 @@ void Store::load() {
     }
 }
 
+bool Store::setWorkspace(const QVector<Card>& cards, const QVector<Annotation>& annotations) {
+    cards_=cards; annotations_=annotations; saveWorkspace(); return problem_.isEmpty();
+}
+
 void Store::setCards(QVector<Card> cards) { cards_ = std::move(cards); saveWorkspace(); }
 void Store::setAnnotations(QVector<Annotation> annotations) { annotations_ = std::move(annotations); saveWorkspace(); }
 void Store::setPreferences(Preferences preferences) { preferences_ = std::move(preferences); savePreferences(); }
 
 void Store::saveWorkspace() {
+    if (loadFailed_) return;
     QJsonArray cards, annotations;
     for (const auto& card : cards_) cards.append(CardJson(card));
     for (const auto& mark : annotations_) {
@@ -134,8 +163,10 @@ void Store::saveWorkspace() {
     QJsonObject root;
     root["cards"] = cards;
     root["annotations"] = annotations;
-    QFile file(dataRoot_ + "/workspace.json");
-    if (file.open(QIODevice::WriteOnly | QIODevice::Truncate)) file.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
+    QSaveFile file(dataRoot_ + "/workspace.json");
+    const auto bytes=QJsonDocument(root).toJson(QJsonDocument::Compact);
+    if (!file.open(QIODevice::WriteOnly) || file.write(bytes)!=bytes.size() || !file.commit()) problem_="Couldn't save your workspace. Retry. Quitting may lose unsaved changes.";
+    else problem_.clear();
 }
 
 void Store::savePreferences() {
@@ -143,6 +174,7 @@ void Store::savePreferences() {
     root["cameraIdentity"] = preferences_.cameraIdentity;
     root["cameraName"] = preferences_.cameraName;
     root["annotateOpen"] = preferences_.annotateOpen;
-    QFile file(configRoot_ + "/preferences.json");
-    if (file.open(QIODevice::WriteOnly | QIODevice::Truncate)) file.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
+    QSaveFile file(configRoot_ + "/preferences.json");
+    const auto bytes=QJsonDocument(root).toJson(QJsonDocument::Compact);
+    if (!file.open(QIODevice::WriteOnly) || file.write(bytes)!=bytes.size() || !file.commit()) problem_="Couldn't save preferences. Retry.";
 }

@@ -53,7 +53,7 @@ QList<QDBusObjectPath> Matching(QString& error) {
     QDBusInterface collection(Service, Collection, "org.freedesktop.Secret.Collection", QDBusConnection::sessionBus());
     auto reply = collection.call("SearchItems", QVariant::fromValue(QMap<QString, QString>{{"application", "callayers"}}));
     if (reply.type() != QDBusMessage::ReplyMessage) { error = "The session could not be saved. A desktop keyring is not available."; return {}; }
-    return reply.arguments().value(0).value<QList<QDBusObjectPath>>();
+    return qdbus_cast<QList<QDBusObjectPath>>(reply.arguments().value(0));
 }
 }
 
@@ -91,6 +91,9 @@ bool SaveSession(const SavedSession& session, QString& error) {
     message << properties << QVariant::fromValue(secret) << true;
     auto reply = QDBusConnection::sessionBus().call(message);
     if (reply.type() != QDBusMessage::ReplyMessage) { error = "The session could not be saved. A desktop keyring is not available."; return false; }
+    if(reply.arguments().size()<2 || qdbus_cast<QDBusObjectPath>(reply.arguments()[0]).path()=="/" || qdbus_cast<QDBusObjectPath>(reply.arguments()[1]).path()!="/") {
+        error="Your session couldn't be saved. Unlock your desktop keyring, then retry."; return false;
+    }
     error.clear();
     return true;
 }
@@ -99,9 +102,11 @@ bool ClearSession(QString& error) {
     if (!QDBusConnection::sessionBus().isConnected()) return true;
     Session session;
     if (!Open(session, error)) return false;
-    for (const auto& item : Matching(error)) {
+    const auto items=Matching(error);
+    if(!error.isEmpty())return false;
+    for (const auto& item : items) {
         auto reply = QDBusConnection::sessionBus().call(QDBusMessage::createMethodCall(Service, item.path(), "org.freedesktop.Secret.Item", "Delete"));
-        if (reply.type() != QDBusMessage::ReplyMessage) { error = "Signed out. Couldn't remove your saved sign-in. Retry."; return false; }
+        if (reply.type() != QDBusMessage::ReplyMessage || (!reply.arguments().isEmpty() && qdbus_cast<QDBusObjectPath>(reply.arguments()[0]).path()!="/")) { error = "Signed out. Couldn't remove your saved sign-in. Unlock your desktop keyring and Retry."; return false; }
     }
     error.clear();
     return true;
