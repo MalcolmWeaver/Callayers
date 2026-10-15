@@ -9,6 +9,7 @@
 #include <QPointer>
 #include <QElapsedTimer>
 #include <QMainWindow>
+#include <future>
 
 class QCloseEvent;
 class QComboBox;
@@ -84,6 +85,9 @@ private:
     QPushButton* cancelGeneration_ = nullptr;
     QLabel* operationStatus_ = nullptr;
     QElapsedTimer checkpointTimer_;
+    QElapsedTimer consumerTimer_;
+    std::future<QString> consumerQuery_;
+    QString consumer_;
     Tool tool_ = Tool::Select;
     QString color_ = "#ffd166";
     int size_ = 1;

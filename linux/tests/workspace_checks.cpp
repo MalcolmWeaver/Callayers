@@ -146,6 +146,30 @@ int main(int argc, char** argv) {
                 return 1;
             }
             std::cout << "Live preview: " << selector->currentText().toStdString() << '\n';
+            if (app.arguments().contains("--measure-fps")) {
+                // Keep the real app pipeline running while a separate V4L2
+                // reader measures delivery from the virtual camera.
+                std::cout << "Virtual camera measurement ready (30 seconds)" << std::endl;
+                QElapsedTimer measurement;
+                measurement.start();
+                bool minimized = false, restored = false, consumerSeen = false;
+                while (measurement.elapsed() < 30000) {
+                    QApplication::processEvents();
+                    consumerSeen |= status->text().startsWith("Sending video to ");
+                    if (!minimized && measurement.elapsed() >= 12000) {
+                        Check(consumerSeen, "No virtual-camera reader detected during measurement");
+                        window.showMinimized();
+                        minimized = true;
+                        std::cout << "Measuring while minimized" << std::endl;
+                    }
+                    if (!restored && measurement.elapsed() >= 22000) {
+                        window.showNormal();
+                        restored = true;
+                        std::cout << "Measurement window restored" << std::endl;
+                    }
+                    QThread::msleep(1);
+                }
+            }
             Screenshot(window, screenshots, "02-live-webcam.png");
             retry->click();
             Check(WaitForFrame(preview), "Retry did not restore the live preview");

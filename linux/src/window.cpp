@@ -20,6 +20,7 @@
 #include <QStyledItemDelegate>
 #include <QCoreApplication>
 #include <algorithm>
+#include <chrono>
 #include <QCloseEvent>
 #include <QComboBox>
 #include <QDateTime>
@@ -446,7 +447,18 @@ void MainWindow::save() {
 void MainWindow::tick() {
     if (!workspaceAllowed()) return;
     bool minimized = windowState().testFlag(Qt::WindowMinimized);
-    QString consumer = offlinePreview_ ? QString() : ConsumerName();
+    // Scanning process descriptors can take longer than a video frame. Poll
+    // in the background, allowing only one query at a time. Closing the app
+    // still performs a fresh check before asking whether to stop video.
+    if (!offlinePreview_) {
+        if (consumerQuery_.valid() && consumerQuery_.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+            consumer_ = consumerQuery_.get();
+        if (!consumerQuery_.valid() && (!consumerTimer_.isValid() || consumerTimer_.elapsed() >= 1000)) {
+            consumerTimer_.start();
+            consumerQuery_ = std::async(std::launch::async, [] { return ConsumerName(); });
+        }
+    }
+    const QString consumer = offlinePreview_ ? QString() : consumer_;
     if (minimized && consumer.isEmpty()) {
         telemetry_->preview(cards_, false);
         if (!rendererPaused_) { renderer_.suspend(cards_); save(); rendererPaused_ = true; }

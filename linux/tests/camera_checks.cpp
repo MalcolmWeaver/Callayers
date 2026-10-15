@@ -20,6 +20,33 @@ void WaitForCapture(Capture& capture) {
 
 int main(int argc, char** argv) {
     QApplication app(argc, argv);
+    // Opt-in hardware measurement: count newly decoded images, not repeated
+    // reads of the latest frame or the device's advertised frame rate.
+    if (app.arguments().contains("--measure-fps")) {
+        const auto cameras = EnumerateCameras();
+        Check(!cameras.isEmpty(), "No hardware camera available");
+        Capture capture;
+        capture.start(cameras.first().identity);
+        const auto warmup = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+        while (std::chrono::steady_clock::now() < warmup)
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        auto frame = capture.latest();
+        Check(!frame.isNull(), "Camera did not deliver a frame");
+        auto key = frame.cacheKey();
+        const auto started = std::chrono::steady_clock::now();
+        int frames = 0;
+        while (std::chrono::steady_clock::now() - started < std::chrono::seconds(10)) {
+            frame = capture.latest();
+            if (!frame.isNull() && frame.cacheKey() != key) { ++frames; key = frame.cacheKey(); }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+        const double fps = frames / seconds;
+        std::cout << cameras.first().name.toStdString() << ": " << frame.width() << 'x' << frame.height()
+                  << ", " << frames << " fresh decoded frames / " << seconds << " seconds = " << fps << " fps\n";
+        Check(capture.error() == CaptureError::None && fps >= 27, "Camera did not sustain approximately 30 fps");
+        return 0;
+    }
     QComboBox selector;
     const CameraChoice first{"Built-in webcam", "camera-a", "/dev/video0"};
     const CameraChoice second{"USB webcam", "camera-b", "/dev/video2"};

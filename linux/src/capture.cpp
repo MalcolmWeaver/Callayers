@@ -124,7 +124,9 @@ void Capture::run(QString identity) {
     }
     v4l2_format format{};
     format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    uint32_t formats[] = {V4L2_PIX_FMT_YUYV, V4L2_PIX_FMT_MJPEG};
+    // USB webcams often support 720p30 only with compression; raw YUYV at
+    // this resolution can be limited to 10 fps by the camera's USB bandwidth.
+    uint32_t formats[] = {V4L2_PIX_FMT_MJPEG, V4L2_PIX_FMT_YUYV};
     bool chosen = false;
     int formatError = 0;
     for (auto pixel : formats) {
@@ -143,6 +145,16 @@ void Capture::run(QString identity) {
     if (!chosen) {
         error_ = DeviceError(formatError);
         return;
+    }
+    // Request the interval after choosing the format: drivers can retain a
+    // slower interval from an earlier session. Interval control is optional,
+    // so cameras without it can still stream at their native rate.
+    v4l2_streamparm parameters{};
+    parameters.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    if (ioctl(device.fd, VIDIOC_G_PARM, &parameters) == 0 &&
+        (parameters.parm.capture.capability & V4L2_CAP_TIMEPERFRAME)) {
+        parameters.parm.capture.timeperframe = {1, OutputFps};
+        ioctl(device.fd, VIDIOC_S_PARM, &parameters);
     }
     const int stride = std::max(format.fmt.pix.bytesperline, format.fmt.pix.width * 2);
     if (format.fmt.pix.pixelformat == V4L2_PIX_FMT_YUYV && format.fmt.pix.width % 2 != 0) {
