@@ -117,7 +117,19 @@ int main(int argc, char** argv) {
         auto retry = window.findChild<QPushButton*>("retryCamera");
         auto status = window.findChild<QLabel*>("cameraStatus");
         auto preview = window.findChild<Preview*>();
-        Check(stack && stack->currentIndex() == 1, "Development build did not bypass sign-in");
+        if (!app.arguments().contains("--skip-sign-in")) {
+            Check(stack && stack->currentIndex() == 0, "Default development startup bypassed sign-in");
+            QPushButton* signIn = nullptr;
+            for (auto button : window.findChildren<QPushButton*>())
+                if (button->text() == "Sign in with Google") signIn = button;
+            Check(signIn && signIn->isVisible(), "Google sign-in button is not visible");
+            Check(preview && !preview->hasFrame(), "Workspace rendered before authentication");
+            Check(selector && !selector->isVisible(), "Camera selector exposed before authentication");
+            std::cout << "Default startup requires sign-in, including offline preview\n";
+            return 0;
+        }
+
+        Check(stack && stack->currentIndex() == 1, "Explicit test flag did not bypass sign-in");
         Check(selector && retry && status && preview, "Workspace controls are missing");
         Check(selector->currentIndex() == -1, "Fresh workspace silently selected a camera");
         Screenshot(window, screenshots, "01-workspace-without-login.png");

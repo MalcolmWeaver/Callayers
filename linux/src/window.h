@@ -102,6 +102,7 @@ private:
     bool cardInput_ = false;
     bool rendererPaused_ = false;
     bool offlinePreview_ = false;
+    bool skipSignIn_ = false;
     QPointF lastPointer_;
     int resizeCorner_ = -1;
     quint64 generationEpoch_ = 0;

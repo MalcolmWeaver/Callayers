@@ -96,7 +96,7 @@ cmake --build build/linux
 linux/packaging/build-deb.sh
 ```
 
-For local camera/UI development without Google sign-in:
+For local camera/UI development:
 
 ```bash
 cmake -S linux -B build/linux-camera -DCMAKE_BUILD_TYPE=Release -DCALLAYERS_DEVELOPMENT=ON
@@ -104,18 +104,15 @@ cmake --build build/linux-camera
 ./build/linux-camera/callayers
 ```
 
-This build is labelled **Callayers — Development** and opens the workspace directly.
-Camera, image import, and local editing are available; AI generation requires authentication
-and is unavailable in this mode. It does not load or change the saved sign-in session.
-The package script explicitly disables development mode. The default build still requires sign-in.
+This build is labelled **Callayers — Development** and requires sign-in by default, including session restoration, AI generation, and File → Sign out. For isolated local tests, `--skip-sign-in` explicitly bypasses authentication and disables AI generation without loading or changing the saved sign-in session. That flag is only honored in development builds. The package script explicitly disables development mode.
 
 The renderer acquisition script downloads Ultralight **2.0.0-beta.2** for Linux x64 and verifies its pinned SHA-256. It needs Python 3, curl, and libarchive. Development builds and the package include the shared HTML overlay, text editor, renderer resources, libraries, and license notices. Generated cards run in the same restricted iframe scene as Windows; the renderer filesystem only exposes its packaged ICU and certificate resources.
 
-For development without opening either camera, use the development build with `--offline-preview`. This mode still uses the local workspace, so imported cards and edits save normally. It does not perform authentication or AI generation.
+For development without opening either camera, use the development build with `--offline-preview`. This mode still uses the local workspace, so imported cards and edits save normally. Sign-in and AI generation remain available; add `--skip-sign-in` only for unauthenticated local tests.
 
 ```bash
 ./build/linux-camera/callayers --offline-preview
-ctest --test-dir build/linux-camera -R 'linux_html_renderer|linux_preview_interactions|linux_development_workspace' --output-on-failure
+ctest --test-dir build/linux-camera -R 'linux_html_renderer|linux_preview_interactions|linux_development_workspace|linux_sign_in_gate' --output-on-failure
 ```
 
 The package derives its minimum system-library requirements from the build host. Build on Ubuntu 24.04 for a package intended for that release; a 26.04 build is not automatically compatible with 24.04. Package extraction and `callayers --self-check` check bundled renderer loading without opening a camera, accessing saved work, or signing in. They do not establish desktop or calling-app acceptance. `CALLAYERS_BUILD_JOBS` controls package-build parallelism and `CALLAYERS_CMAKE` can select a CMake binary.

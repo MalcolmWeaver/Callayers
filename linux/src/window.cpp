@@ -74,6 +74,7 @@ MainWindow::MainWindow() : store_(), auth_(this) {
     checkpointTimer_.start();
 #ifdef CALLAYERS_DEVELOPMENT
     offlinePreview_ = QCoreApplication::arguments().contains("--offline-preview");
+    skipSignIn_ = QCoreApplication::arguments().contains("--skip-sign-in");
 #endif
     cards_ = store_.cards();
     annotations_ = store_.annotations();
@@ -87,23 +88,15 @@ MainWindow::MainWindow() : store_(), auth_(this) {
     connect(&auth_, &AuthController::changed, this, &MainWindow::refresh);
     connect(&auth_, &AuthController::changed, this, [this] { if (auth_.allowed()) { showNormal(); raise(); activateWindow(); } });
     auto file = menuBar()->addMenu("File");
-#ifndef CALLAYERS_DEVELOPMENT
-    file->addAction("Sign out", this, &MainWindow::signOut);
-#endif
+    if (!skipSignIn_) file->addAction("Sign out", this, &MainWindow::signOut);
     file->addAction("Quit", this, &QWidget::close);
-#ifndef CALLAYERS_DEVELOPMENT
-    auth_.restore();
-#endif
+    if (!skipSignIn_) auth_.restore();
     refresh();
     if (!store_.problem().isEmpty()) operationStatus_->setText(store_.problem());
 }
 
 bool MainWindow::workspaceAllowed() const {
-#ifdef CALLAYERS_DEVELOPMENT
-    return true;
-#else
-    return auth_.allowed();
-#endif
+    return skipSignIn_ || auth_.allowed();
 }
 
 void MainWindow::signOut() { finishText(true); cancelGeneration(); renderer_.suspend(cards_); save(); auth_.signOut(); output_.stop(); capture_.stop(); outputWanted_ = false; }
@@ -726,10 +719,10 @@ void MainWindow::cancelGeneration() {
 }
 
 void MainWindow::generate() {
-#ifdef CALLAYERS_DEVELOPMENT
-    operationStatus_->setText("AI generation requires sign-in. Use Import image for local testing.");
-    return;
-#endif
+    if (skipSignIn_) {
+        operationStatus_->setText("AI generation requires sign-in. Relaunch without --skip-sign-in.");
+        return;
+    }
     if (generating_) return;
     if (auth_.token().isEmpty()) { operationStatus_->setText("Sign in to continue creating cards."); return; }
     auto text=prompt_->toPlainText().trimmed();
