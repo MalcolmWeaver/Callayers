@@ -9,7 +9,7 @@ Sign in, choose a webcam, create interactive cards, annotate, and show the resul
 - [DATA.md](DATA.md): local saving, state and allowances.
 - [BACKEND.md](BACKEND.md): API and deployment.
 - [FRAMES.md](FRAMES.md): rendering, input and video delivery.
-- [LINUX.md](LINUX.md): the same product on Linux. Ubuntu package, Qt, and V4L2.
+- [LINUX.md](LINUX.md): the same product on Linux. One install command, Qt, and V4L2.
 
 These define the target product. This is a fresh implementation; v1 is a design reference, not code to restore or port.
 

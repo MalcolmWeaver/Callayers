@@ -8,7 +8,7 @@ The shell is Qt 6 Widgets. The real webcam and the Callayers camera are both V4L
 
 | Choice | Decision |
 | --- | --- |
-| Desktop | Ubuntu 24.04 x64, Wayland or X11, through Qt |
+| Desktop | Ubuntu 24.04 or 26.04 x64, Wayland or X11, through Qt |
 | UI | Qt 6 Widgets, using Ubuntu's Qt 6 packages |
 | Cards and annotations | Ultralight CPU, offscreen, bundled in the package |
 | Webcam | Open the chosen `/dev/video*` node with V4L2 |
@@ -16,7 +16,7 @@ The shell is Qt 6 Widgets. The real webcam and the Callayers camera are both V4L
 | Picture on that device | 1920×1080 YUYV at 30 fps, converted from the same composited frame as the preview |
 | After Callayers stops writing | The device keeps the last frame. No neutral-frame helper |
 | First calling app to prove | Zoom |
-| Install | One unsigned `.deb`, installed with one `apt` command |
+| Install | One command from the website, which installs a signed apt repository and the package |
 | Backend | The existing service. No Linux-specific API |
 
 ## Workspace files
@@ -47,7 +47,7 @@ devices=1 video_nr=42 card_label=Callayers exclusive_caps=1
 
 `exclusive_caps` makes other programs list it as a webcam. If `/dev/video42` is already taken by something else, stop and tell the user the Callayers camera number is unavailable. Do not search for another number.
 
-Load this device at install and at boot so Zoom can list **Callayers** before the app is running. The app is the only writer. While it is writing, Zoom and the preview show the same composition. When the app quits, signs out, crashes, or is killed, it stops writing and the device repeats the last frame. Reopening Callayers replaces that frame with a fresh picture. This is the accepted Linux difference from the Windows unavailable-picture rule.
+Load this device at install and at boot. `exclusive_caps` makes Zoom treat it as a webcam once Callayers is writing; Zoom may not list it before that writer opens. The app is the only writer. While it is writing, Zoom and the preview show the same composition. When the app quits, signs out, crashes, or is killed, it stops writing and the device repeats the last frame for as long as the module keeps that device. Reopening Callayers replaces that frame with a fresh picture. This is the accepted Linux difference from the Windows unavailable-picture rule.
 
 Minimized behavior matches Windows: keep capture and output while a consumer is connected; release the webcam and suspend card work when minimized with no consumer.
 
@@ -59,21 +59,37 @@ Consumer identity stays best-effort telemetry. Report the name of the other proc
 
 ## Install
 
-The user installs one package:
+The website shows one command, with a button that copies it:
 
 ```bash
-sudo apt install ./callayers_<version>_amd64.deb
+curl -fsSL https://downloads.callayers.com/linux/install.sh | sudo bash
 ```
 
-`apt` installs Callayers, Ultralight, the Qt 6 dependency, `v4l2loopback-dkms`, and matching kernel headers. The package setup writes the module configuration, loads `v4l2loopback`, and installs a desktop entry. A reboot is not part of a successful install. A later logout is required only if the user was just added to the `video` group.
+The script is `linux/packaging/install.sh`. It is the only install path. Do not also offer a downloaded `.deb` as a second, less reliable installer.
 
-Use `apt install` with the package path. `dpkg -i` alone does not install the camera module.
+Before it changes the machine, the script requires Ubuntu 24.04 or 26.04 on x64. If Secure Boot is enabled, it stops with one message: the Callayers camera needs the `v4l2loopback` module, and Secure Boot is blocking it. It does not enroll a machine-owner key and it does not leave the app installed without a camera.
 
-A newer build is installed with the same command and a newer package. There is no separate updater process. A hosted repository can turn that into one remote command later; it is not required for the first Linux build.
+On a supported machine it then:
 
-Secure Boot can refuse the unsigned loopback module. Detect that failure during install and stop with one message: the Callayers camera needs the `v4l2loopback` module, and Secure Boot is blocking it. Leave the desktop entry uninstalled in that case so the user does not open an app with a missing camera. Do not attempt to enroll a machine-owner key from the package.
+1. Installs the header package for the running kernel, `linux-headers-$(uname -r)`, so the camera module can build. It also installs `linux-headers-generic` when that metapackage exists, so a later generic kernel update can rebuild the module.
+2. Installs the Callayers signing key and adds `https://downloads.callayers.com/linux/apt`.
+3. Runs `apt install callayers`. That package depends on Ubuntu's `v4l2loopback-dkms` and Qt 6, installs the app and desktop entry, writes the `/dev/video42` module configuration, and loads the module.
 
-The first tester package is unsigned, matching the current Windows tester release.
+A reboot is not part of a successful install. A later logout is required only if the user was just added to the `video` group. Later versions come from `apt upgrade`. There is no separate updater process.
+
+`install.sh --deb callayers_<version>_amd64.deb` installs a locally built package with the same checks and kernel-header step. That is how a build is installed before the public repository is published. `dpkg -i` alone does not install the camera module.
+
+The package installed from the repository is signed by the archive key. The first local `.deb` used before that repository exists may be unsigned, matching the current Windows tester release.
+
+## Build
+
+The Linux app is a separate CMake project. It does not replace the Windows build.
+
+```bash
+cmake -S linux -B build/linux -DCMAKE_BUILD_TYPE=Release
+cmake --build build/linux
+linux/packaging/build-deb.sh
+```
 
 ## Sign-in
 

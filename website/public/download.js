@@ -19,3 +19,9 @@ async function showRelease(){
  }catch{unavailable('lookup_failed'); /* The page remains useful while offline. */ }
 }
 showRelease();
+const copy=document.getElementById('copy-linux'),command=document.getElementById('linux-command'),copyStatus=document.getElementById('copy-linux-status');
+if(copy&&command)copy.addEventListener('click',async()=>{
+ const text=command.textContent.trim();
+ try{await navigator.clipboard.writeText(text);if(copyStatus)copyStatus.textContent='Copied. Paste it into a terminal.';}
+ catch{if(copyStatus)copyStatus.textContent='Select the command and copy it.';}
+});
