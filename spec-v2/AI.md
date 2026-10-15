@@ -21,7 +21,7 @@ Document-reading tools, image generation and live-data integrations are also out
 
 ## Card quality
 
-- Fully transparent outer canvas, with a nearly clear glass panel using 10–20% background alpha (default 16%). Use a thin translucent border, faint highlight and restrained shadow; keep text/icons fully opaque and give controls similarly light tinted backgrounds. Avoid opaque headers, solid fills and blur filters. Keep background alpha at or below 25% unless the user explicitly asks for an opaque background.
+- Fully transparent outer canvas, with Growing Notes glass styling: dark panel `rgba(15,23,42,0.38)`, white nested sections at 19% alpha, controls at 20% (24% on hover), and a thin white border at 34%. Use a faint highlight and restrained shadow; keep text/icons fully opaque. Avoid opaque headers, solid fills and blur filters. Explicit styling requests override these defaults; revisions preserve existing styling unless a style change is requested.
 - Large, readable text; simple layout; restrained color.
 - Fits its bounds and works offline.
 - Fully interactive local HTML: buttons, inputs, timers, slides, forms and games can respond to the presenter's mouse and keyboard.
