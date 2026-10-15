@@ -228,7 +228,7 @@ struct Workspace::Impl {
     std::wstring libraryName(const std::wstring& id)const{for(auto& card:library)if(card.id==id)return card.name;return L"";}
     void refreshComposer(){
         auto name=libraryName(editingId);composerTitle.Text(editingId.empty()?L"New card":L"Edit “"+name+L"”");controls::ToolTipService::SetToolTip(composerTitle,winrt::box_value(std::wstring(composerTitle.Text())));
-        composerDescription.Text(lastGenerating?(requestName.empty()?L"Creating a new card…":L"Updating this card…"):editingId.empty()?L"New cards start hidden.":L"Your current card stays visible.");
+        composerDescription.Text(lastGenerating?(requestName.empty()?L"Creating a new card…":L"Updating this card…"):editingId.empty()?L"New cards appear in your preview automatically.":L"Your current card stays visible.");
         prompt.PlaceholderText(editingId.empty()?L"Describe your card…":L"Describe the changes…");prompt.IsEnabled(!lastGenerating);
         generateButton.IsEnabled(!lastGenerating && (!attachments.empty() || std::wstring(prompt.Text()).find_first_not_of(L" \t\r\n")!=std::wstring::npos));
         for(auto const& child:attachmentPanel.Children()){auto tile=child.as<ux::FrameworkElement>();find<controls::Button>(tile,L"Remove").IsEnabled(!lastGenerating);find<controls::HyperlinkButton>(tile,L"Show").IsEnabled(!lastGenerating);}

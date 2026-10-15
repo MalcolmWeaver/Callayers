@@ -105,7 +105,7 @@ struct App {
                 if(!overlay.reviseCard(result->target,result->contentVersion,result->card)){generation.message(L"Edit not applied. Your current card was kept.");MessageBoxW(window,L"This edit couldn't be applied. The card may have changed or been deleted. Your current work was kept.",L"Edit not applied",MB_OK|MB_ICONINFORMATION);}
             }else
 #endif
-            if(overlay.addGenerated(result->card)){auto& value=result->card;Card c{value.x,value.y,value.w,value.h,false};c.contentW=value.width;c.contentH=value.height;cards.push_back(c);selectedCard=cardCount()-1;changed();}
+            if(overlay.addGenerated(result->card)){auto& value=result->card;Card c{value.x,value.y,value.w,value.h,value.visible};c.contentW=value.width;c.contentH=value.height;cards.push_back(c);selectedCard=cardCount()-1;changed();}
             else MessageBoxW(window,L"The card couldn't be added to your library. Your existing cards were preserved.",L"Card not saved",MB_OK|MB_ICONINFORMATION);
         }
 #ifdef CALLAYERS_LIBRARY
