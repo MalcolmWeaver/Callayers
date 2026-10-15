@@ -24,13 +24,14 @@ struct WorkspaceActions {
     std::function<void()> authPrimary,authCancel,signOut;
     std::function<bool()> restartUpdate;
 #ifdef CALLAYERS_GENERATION
-    std::function<void(std::wstring)> generate;
+    std::function<void(std::wstring,std::vector<TextAttachment>)> generate;
     std::function<void()> cancelGeneration;
 #ifdef CALLAYERS_IMAGES
     std::function<void()> importImage;
 #endif
 #ifdef CALLAYERS_LIBRARY
-    std::function<void(std::wstring,std::wstring)> renameCard,editCard;
+    std::function<void(std::wstring,std::wstring)> renameCard;
+    std::function<void(std::wstring,std::wstring,std::vector<TextAttachment>)> editCard;
     std::function<void(std::wstring)> deleteCard,restoreCard;
     std::function<void(std::wstring,bool)> stackCard;
 #endif

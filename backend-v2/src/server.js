@@ -92,7 +92,7 @@ export function createHandler({ config, auth, accounts, generate, telemetry, now
         if(reserved.kind==='denied')return reply(res,403,{error:'account_unavailable'});
         if(reserved.kind==='limit')return reply(res,429,{error:'daily_limit_reached',allowance:allowance(reserved.used)});
         try{
-          const card=validateCard(await generate(input.prompt,input.currentCard));
+          const card=validateCard(await generate(input.prompt,input.currentCard,input.attachments));
           if(input.currentCard?.imageIds.length && !card.html.includes('callayers-image:local'))throw new Error('missing_image_reference');
           await accounts.finish(identity.uid,input.requestId,'completed');
           return reply(res,200,{requestId:input.requestId,card,allowance:allowance(reserved.used)});

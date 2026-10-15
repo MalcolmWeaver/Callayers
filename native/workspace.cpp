@@ -29,6 +29,7 @@
 #include <algorithm>
 #include <cwctype>
 #include <cwchar>
+#include <cmath>
 
 namespace callayers {
 namespace ux = winrt::Microsoft::UI::Xaml;
@@ -189,21 +190,59 @@ struct Workspace::Impl {
     controls::TextBlock composerTitle{nullptr},composerDescription{nullptr};
     controls::ProgressRing composerProgress{nullptr};
     controls::ScrollViewer composerStatus{nullptr};
+    controls::StackPanel attachmentPanel{nullptr};
+    std::vector<TextAttachment> attachments;
+    bool editingPaste=false;
+    size_t draftBytes()const{size_t bytes=winrt::to_string(prompt.Text()).size();for(auto& source:attachments)bytes+=winrt::to_string(source.text).size();return bytes;}
+    void refreshAttachments(){
+        attachmentPanel.Children().Clear();
+        for(size_t i=0;i<attachments.size();++i){
+            auto tile=load(LR"(<Border xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Background="#303036" BorderBrush="#44444C" BorderThickness="1" CornerRadius="10" Padding="8"><Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="32"/><ColumnDefinition Width="*"/><ColumnDefinition Width="24"/></Grid.ColumnDefinitions><Border Background="#3A3A42" CornerRadius="7" Width="32" Height="40" VerticalAlignment="Top"><FontIcon Glyph="&#xE8A5;" FontSize="18"/></Border><StackPanel Grid.Column="1" Spacing="2"><TextBlock x:Name="Title" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/><TextBlock x:Name="Count" FontSize="10" Foreground="#BBB9C8"/><HyperlinkButton x:Name="Show" Content="Show in text field" FontSize="11" Padding="0" MinHeight="20" HorizontalAlignment="Left"/></StackPanel><Button x:Name="Remove" Grid.Column="2" Content="×" Padding="0" MinWidth="24" Width="24" Height="24" MinHeight="24" CornerRadius="12" VerticalAlignment="Top" AutomationProperties.Name="Remove pasted text" ToolTipService.ToolTip="Remove pasted text"/></Grid></Border>)");
+            find<controls::TextBlock>(tile,L"Title").Text(attachments[i].name);controls::ToolTipService::SetToolTip(tile,winrt::box_value(attachments[i].name));
+            find<controls::TextBlock>(tile,L"Count").Text(std::to_wstring(attachments[i].text.size())+L" characters");
+            find<controls::Button>(tile,L"Remove").Click([this,i](auto&&,auto&&){if(lastGenerating)return;attachments.erase(attachments.begin()+i);refreshAttachments();refreshComposer();});
+            find<controls::HyperlinkButton>(tile,L"Show").Click([this,i](auto&&,auto&&){if(lastGenerating)return;auto value=std::wstring(prompt.Text());if(!value.empty())value+=L"\n\n";value+=attachments[i].text;attachments.erase(attachments.begin()+i);editingPaste=true;prompt.Text(value);refreshAttachments();refreshComposer();prompt.Focus(ux::FocusState::Programmatic);});
+            attachmentPanel.Children().Append(tile);
+        }
+        attachmentPanel.Visibility(attachments.empty()?ux::Visibility::Collapsed:ux::Visibility::Visible);
+        find<controls::ScrollViewer>(sidebar,L"AttachmentScroll").Visibility(attachments.empty()?ux::Visibility::Collapsed:ux::Visibility::Visible);
+    }
+    void clearDraft(){attachments.clear();editingPaste=false;prompt.Text(L"");refreshAttachments();}
+    void pasteText(controls::TextControlPasteEventArgs const& args){
+        // Handle every text paste before WinUI can apply an implicit control limit.
+        args.Handled(true);if(lastGenerating)return;
+        if(!OpenClipboard(window)){showComposerMessage(L"Couldn't read the clipboard. Try pasting again.");return;}
+        struct ClipboardGuard{~ClipboardGuard(){CloseClipboard();}} guard;
+        auto data=GetClipboardData(CF_UNICODETEXT);if(!data){showComposerMessage(L"Paste plain text here.");return;}
+        auto bytes=GlobalSize(data);if(bytes>2000000){showComposerMessage(L"This paste is too large. Use up to 100 KB of text. Your draft was kept.");return;}
+        auto raw=static_cast<const wchar_t*>(GlobalLock(data));if(!raw){showComposerMessage(L"Couldn't read the clipboard. Try pasting again.");return;}
+        size_t count=0;while(count<bytes/sizeof(wchar_t) && raw[count])++count;std::wstring text(raw,count);GlobalUnlock(data);
+        bool attach=text.size()>=1000 && text.find_first_not_of(L" \t\r\n")!=std::wstring::npos;auto value=std::wstring(prompt.Text());auto start=size_t(prompt.SelectionStart()),length=size_t(prompt.SelectionLength());
+        auto total=draftBytes()+winrt::to_string(text).size();if(!attach)total-=winrt::to_string(value.substr(start,length)).size();
+        if(total>GenerationTextLimit || (attach && attachments.size()>=8)){showComposerMessage(L"This paste would exceed 100 KB of text or 8 attachments. Your draft was kept; the paste is still on your clipboard.");return;}
+        if(attach){auto first=text.find_first_not_of(L" \t\r\n");auto title=text.substr(first,72);if(!title.empty() && title.back()>=0xD800 && title.back()<=0xDBFF)title.pop_back();std::replace_if(title.begin(),title.end(),[](wchar_t c){return c<L' ';},L' ');attachments.push_back({title,std::move(text)});refreshAttachments();}
+        else{value.replace(start,length,text);prompt.Text(value);prompt.SelectionStart(int(start+text.size()));prompt.SelectionLength(0);}
+        showComposerMessage(L"");refreshComposer();
+    }
     void showComposerMessage(const std::wstring& value){generationMessage.Text(value);composerStatus.Visibility(value.empty()?ux::Visibility::Collapsed:ux::Visibility::Visible);}
     std::wstring libraryName(const std::wstring& id)const{for(auto& card:library)if(card.id==id)return card.name;return L"";}
     void refreshComposer(){
         auto name=libraryName(editingId);composerTitle.Text(editingId.empty()?L"New card":L"Edit “"+name+L"”");controls::ToolTipService::SetToolTip(composerTitle,winrt::box_value(std::wstring(composerTitle.Text())));
         composerDescription.Text(lastGenerating?(requestName.empty()?L"Creating a new card…":L"Updating this card…"):editingId.empty()?L"New cards start hidden.":L"Your current card stays visible.");
         prompt.PlaceholderText(editingId.empty()?L"Describe your card…":L"Describe the changes…");prompt.IsEnabled(!lastGenerating);
-        generateButton.IsEnabled(!lastGenerating && std::wstring(prompt.Text()).find_first_not_of(L" \t\r\n")!=std::wstring::npos);
+        generateButton.IsEnabled(!lastGenerating && (!attachments.empty() || std::wstring(prompt.Text()).find_first_not_of(L" \t\r\n")!=std::wstring::npos));
+        for(auto const& child:attachmentPanel.Children()){auto tile=child.as<ux::FrameworkElement>();find<controls::Button>(tile,L"Remove").IsEnabled(!lastGenerating);find<controls::HyperlinkButton>(tile,L"Show").IsEnabled(!lastGenerating);}
+        auto value=std::wstring(prompt.Text());size_t lines=1;for(wchar_t c:value)if(c==L'\n')++lines;
+        prompt.Height(editingPaste?180.0:std::clamp(36.0+20.0*std::max(double(lines),std::ceil(double(value.size())/32.0)),56.0,140.0));
         cancelButton.Visibility(lastGenerating?ux::Visibility::Visible:ux::Visibility::Collapsed);
         composerProgress.IsActive(lastGenerating);composerProgress.Visibility(lastGenerating?ux::Visibility::Visible:ux::Visibility::Collapsed);
     }
-    void openCreate(){if(lastGenerating)return;actions.selectCard(-1);editingId.clear();prompt.Text(L"");showComposerMessage(L"");refreshComposer();prompt.Focus(ux::FocusState::Programmatic);}
-    void openEdit(const std::wstring& id){if(lastGenerating)return;for(size_t i=0;i<library.size();++i)if(library[i].id==id){actions.selectCard(int(i));if(editingId!=id)prompt.Text(L"");editingId=id;showComposerMessage(L"");refreshComposer();prompt.Focus(ux::FocusState::Programmatic);return;}}
-    void sendMessage(){if(lastGenerating)return;auto value=std::wstring(prompt.Text());if(value.find_first_not_of(L" \t\r\n")==std::wstring::npos)return;
+    void openCreate(){if(lastGenerating)return;actions.selectCard(-1);editingId.clear();clearDraft();showComposerMessage(L"");refreshComposer();prompt.Focus(ux::FocusState::Programmatic);}
+    void openEdit(const std::wstring& id){if(lastGenerating)return;for(size_t i=0;i<library.size();++i)if(library[i].id==id){actions.selectCard(int(i));if(editingId!=id)clearDraft();editingId=id;showComposerMessage(L"");refreshComposer();prompt.Focus(ux::FocusState::Programmatic);return;}}
+    void sendMessage(){if(lastGenerating)return;auto value=std::wstring(prompt.Text());if(attachments.empty() && value.find_first_not_of(L" \t\r\n")==std::wstring::npos)return;
+        if(draftBytes()>GenerationTextLimit){showComposerMessage(L"This draft is too large. Use up to 100 KB of text. Your draft was kept.");return;}
         submittedTarget=editingId;submittedPrompt=value;requestName=libraryName(editingId);lastGenerating=true;showComposerMessage(L"");refreshComposer();
-        if(editingId.empty())actions.generate(value);else actions.editCard(editingId,value);
+        if(editingId.empty())actions.generate(value,attachments);else actions.editCard(editingId,value,attachments);
     }
     void filterLibrary(){std::wstring query(find<controls::TextBox>(sidebar,L"Search").Text());std::transform(query.begin(),query.end(),query.begin(),[](wchar_t c){return wchar_t(std::towlower(c));});bool any=false;
         for(size_t i=0;i<library.size();++i){auto name=library[i].name;std::transform(name.begin(),name.end(),name.begin(),[](wchar_t c){return wchar_t(std::towlower(c));});bool show=name.find(query)!=std::wstring::npos;any|=show;generatedRows[i].Visibility(show?ux::Visibility::Visible:ux::Visibility::Collapsed);}
@@ -275,10 +314,12 @@ struct Workspace::Impl {
  <TextBox x:Name="Search" PlaceholderText="Search cards" AutomationProperties.Name="Search cards"/></StackPanel>
  <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" Padding="0,0,4,0"><StackPanel Spacing="8"><StackPanel x:Name="Rows" Spacing="4"/><TextBlock x:Name="NoResults" Text="Create your first card" Foreground="#BBB9C8" TextWrapping="Wrap" Margin="4,12"/></StackPanel></ScrollViewer>
  <StackPanel Grid.Row="2" Spacing="6"><Button x:Name="UseInCall" Content="Use in a call" HorizontalAlignment="Stretch"><Button.Flyout><Flyout><TextBlock Text="In your calling app, choose Callayers as your camera." TextWrapping="Wrap" Width="240"/></Flyout></Button.Flyout></Button></StackPanel>
- <Border Grid.Row="3" Padding="0,2,0,0"><StackPanel Spacing="6">
+ <Border Grid.Row="3" Background="#29292F" BorderBrush="#44444C" BorderThickness="1" CornerRadius="16" Padding="10"><StackPanel Spacing="6">
  <Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="ComposerTarget" Text="New card" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/><ProgressRing x:Name="ComposerProgress" Grid.Column="1" Width="16" Height="16" IsActive="False" Visibility="Collapsed"/></Grid>
  <TextBlock x:Name="ComposerDescription" FontSize="11" Foreground="#BBB9C8" TextWrapping="Wrap" MaxHeight="48"/>
- <TextBox x:Name="ComposerPrompt" PlaceholderText="Describe your card…" AutomationProperties.Name="Card message" AcceptsReturn="True" TextWrapping="Wrap" Height="56" MinHeight="56" FontSize="13" Padding="8,6" MaxLength="4000" ToolTipService.ToolTip="Enter adds a line. Ctrl+Enter sends your message."/>
+ <ScrollViewer MaxHeight="180" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Visibility="Collapsed" x:Name="AttachmentScroll"><StackPanel x:Name="ComposerAttachments" Spacing="6"/></ScrollViewer>
+ <TextBox x:Name="ComposerPrompt" PlaceholderText="Describe your card…" AutomationProperties.Name="Card message" AcceptsReturn="True" TextWrapping="Wrap" Height="56" MinHeight="56" FontSize="13" Padding="8,6" ScrollViewer.VerticalScrollBarVisibility="Auto" ToolTipService.ToolTip="Enter adds a line. Ctrl+Enter sends your message."/>
+ <TextBlock Text="Ctrl+Enter to send · Links aren't opened" FontSize="10" Foreground="#BBB9C8" TextWrapping="Wrap"/>
  <StackPanel Orientation="Horizontal" Spacing="6"><Button x:Name="ComposerSend" Content="Send" MinHeight="28" FontSize="12" Padding="12,2" Background="#A39BFA" Foreground="#201D33"/><Button x:Name="ComposerCancel" Content="Cancel" MinHeight="28" FontSize="12" Padding="12,2" Visibility="Collapsed"/></StackPanel>
  <ScrollViewer x:Name="ComposerStatus" MaxHeight="48" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><TextBlock x:Name="ComposerMessage" TextWrapping="Wrap" FontSize="11" Foreground="#BBB9C8" IsTextSelectionEnabled="True"/></ScrollViewer>
  </StackPanel></Border>
@@ -333,12 +374,14 @@ struct Workspace::Impl {
         cancelButton=controls::Button();cancelButton.Content(winrt::box_value(L"Cancel"));cancelButton.IsEnabled(false);form.Children().Append(cancelButton);
         generationMessage=controls::TextBlock();generationMessage.TextWrapping(ux::TextWrapping::Wrap);generationMessage.Text(L"Your allowance resets at midnight UTC.");form.Children().Append(generationMessage);
         controls::Flyout flyout;flyout.Content(form);ai.Flyout(flyout);
-        generateButton.Click([this](auto&&,auto&&){actions.generate(std::wstring(prompt.Text()));});cancelButton.Click([this](auto&&,auto&&){actions.cancelGeneration();});
+        generateButton.Click([this](auto&&,auto&&){actions.generate(std::wstring(prompt.Text()),{});});cancelButton.Click([this](auto&&,auto&&){actions.cancelGeneration();});
 #else
         prompt=find<controls::TextBox>(sidebar,L"ComposerPrompt");generateButton=find<controls::Button>(sidebar,L"ComposerSend");cancelButton=find<controls::Button>(sidebar,L"ComposerCancel");generationMessage=find<controls::TextBlock>(sidebar,L"ComposerMessage");
         composerTitle=find<controls::TextBlock>(sidebar,L"ComposerTarget");composerDescription=find<controls::TextBlock>(sidebar,L"ComposerDescription");composerProgress=find<controls::ProgressRing>(sidebar,L"ComposerProgress");composerStatus=find<controls::ScrollViewer>(sidebar,L"ComposerStatus");
+        attachmentPanel=find<controls::StackPanel>(sidebar,L"ComposerAttachments");
         ai.Click([this](auto&&,auto&&){openCreate();});generateButton.Click([this](auto&&,auto&&){sendMessage();});cancelButton.Click([this](auto&&,auto&&){actions.cancelGeneration();});
         prompt.TextChanged([this](auto&&,auto&&){if(!syncing)refreshComposer();});
+        prompt.Paste([this](auto&&,controls::TextControlPasteEventArgs const& args){pasteText(args);});
         prompt.KeyDown([this](auto&&,ux::Input::KeyRoutedEventArgs const& args){if(args.Key()==winrt::Windows::System::VirtualKey::Enter && (GetKeyState(VK_CONTROL)&0x8000)){sendMessage();args.Handled(true);}});
         refreshComposer();
 #endif
@@ -489,8 +532,8 @@ void Workspace::generation(const GenerationSnapshot& state){auto& ui=*impl_;auto
 #ifdef CALLAYERS_LIBRARY
     bool finished=ui.lastGenerating && !state.busy;ui.lastGenerating=state.busy;
     if(finished){
-        if((state.message==L"Card saved." || state.message.find(L"Card created.")==0) && std::wstring(ui.prompt.Text())==ui.submittedPrompt)ui.prompt.Text(L"");
-        if(ui.editingId!=ui.selectedId){ui.editingId=ui.selectedId;ui.prompt.Text(L"");}
+        if((state.message==L"Card saved." || state.message.find(L"Card created.")==0) && std::wstring(ui.prompt.Text())==ui.submittedPrompt)ui.clearDraft();
+        if(ui.editingId!=ui.selectedId){ui.editingId=ui.selectedId;ui.clearDraft();}
     }
     ui.cancelButton.IsEnabled(!state.applying);ui.refreshComposer();
     if(state.applying)ui.composerDescription.Text(state.message);
@@ -575,7 +618,7 @@ void Workspace::libraryCards(const std::vector<GeneratedCard>& cards,int selecte
     }
     for(size_t i=0;i<cards.size();++i){if(ui.generatedChecks[i].IsChecked().GetBoolean()!=cards[i].visible)ui.generatedChecks[i].IsChecked(cards[i].visible);ui.generatedRows[i].Background(ux::Media::SolidColorBrush(selected==int(i)?winrt::Windows::UI::Color{255,59,57,83}:winrt::Windows::UI::Color{0,0,0,0}));}
     std::wstring id=selected>=0 && selected<int(cards.size())?cards[selected].id:L"";
-    if(id!=ui.selectedId){ui.selectedId=id;if(!ui.lastGenerating){ui.editingId=id;ui.prompt.Text(L"");ui.showComposerMessage(L"");}}
+    if(id!=ui.selectedId){ui.selectedId=id;if(!ui.lastGenerating){ui.editingId=id;ui.clearDraft();ui.showComposerMessage(L"");}}
     ui.refreshComposer();
     ui.filterLibrary();ui.syncing=false;
 }
