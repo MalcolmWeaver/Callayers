@@ -123,7 +123,7 @@ struct App {
     int focusedCard=-1,htmlDrag=-1;
     CardPart resizePart=CardPart::BottomRight;
     void blurCard(){overlay.blur();focusedCard=-1;}
-    InkPoint inputPoint(int x,int y)const{return {double(x-previewRect.left)*Width/std::max(1L,previewRect.right-previewRect.left),double(y-previewRect.top)*Height/std::max(1L,previewRect.bottom-previewRect.top)};}
+    InkPoint inputPoint(int x,int y)const{return {double(x-previewRect.left)*CanvasWidth/std::max(1L,previewRect.right-previewRect.left),double(y-previewRect.top)*CanvasHeight/std::max(1L,previewRect.bottom-previewRect.top)};}
     void htmlUp(int x,int y){
         if(htmlDrag<0)return;auto p=inputPoint(x,y);overlay.mouse(2,int(p.x),int(p.y));overlay.pointerTarget(-1);htmlDrag=-1;
         if(GetCapture()==window)ReleaseCapture();
@@ -316,25 +316,25 @@ struct App {
         if(workspace && workspace->editingText())workspace->finishText();
         RECT client; GetClientRect(window, &client);
         int left = px(324), top = px(96+(workspace?workspace->toolbarHeight():0)), availableW = std::max<int>(1, client.right - left - px(24)), availableH = std::max<int>(1, client.bottom - top - px(24));
-        double scale = std::min(double(availableW) / Width, double(availableH) / Height);
-        int w = int(Width * scale), h = int(Height * scale);
+        double scale = std::min(double(availableW) / CanvasWidth, double(availableH) / CanvasHeight);
+        int w = int(CanvasWidth * scale), h = int(CanvasHeight * scale);
         previewRect = {left + (availableW-w)/2, top + (availableH-h)/2, left + (availableW+w)/2, top + (availableH+h)/2};
         if(workspace)workspace->layout(client.right,client.bottom,dpi,previewRect);
         InvalidateRect(window, nullptr, FALSE);
     }
     InkPoint canvasPoint(int x, int y) const {
-        return {std::clamp(double(x - previewRect.left) * Width / std::max(1L, previewRect.right-previewRect.left), 0.0, double(Width)),
-                std::clamp(double(y - previewRect.top) * Height / std::max(1L, previewRect.bottom-previewRect.top), 0.0, double(Height))};
+        return {std::clamp(double(x - previewRect.left) * CanvasWidth / std::max(1L, previewRect.right-previewRect.left), 0.0, double(CanvasWidth)),
+                std::clamp(double(y - previewRect.top) * CanvasHeight / std::max(1L, previewRect.bottom-previewRect.top), 0.0, double(CanvasHeight))};
     }
     RECT cardRect(const Card& c) const {
-        double sx = double(previewRect.right-previewRect.left) / Width, sy = double(previewRect.bottom-previewRect.top) / Height;
+        double sx = double(previewRect.right-previewRect.left) / CanvasWidth, sy = double(previewRect.bottom-previewRect.top) / CanvasHeight;
         return {previewRect.left + int(c.x*sx), previewRect.top + int(c.y*sy), previewRect.left+int((c.x+c.w)*sx), previewRect.top+int((c.y+c.h)*sy)};
     }
     RECT inkRect(InkBounds b) const {
-        double sx=double(previewRect.right-previewRect.left)/Width,sy=double(previewRect.bottom-previewRect.top)/Height;
+        double sx=double(previewRect.right-previewRect.left)/CanvasWidth,sy=double(previewRect.bottom-previewRect.top)/CanvasHeight;
         return {previewRect.left+int(b.x*sx),previewRect.top+int(b.y*sy),previewRect.left+int((b.x+b.w)*sx),previewRect.top+int((b.y+b.h)*sy)};
     }
-    double hitTolerance() const {return double(px(7))*Width/std::max(1L,previewRect.right-previewRect.left);}
+    double hitTolerance() const {return double(px(7))*CanvasWidth/std::max(1L,previewRect.right-previewRect.left);}
     int annotationAt(InkPoint p) const {for(int i=int(annotations.size())-1;i>=0;--i)if(HitAnnotation(annotations[i],p,hitTolerance()))return i;return -1;}
     static bool isShape(AnnotationTool type) {return type>=AnnotationTool::Rectangle && type<=AnnotationTool::Arrow;}
     const std::wstring& drawingColor() const {return isShape(tool)?shapeColor:inkColor;}
@@ -369,8 +369,8 @@ struct App {
         DrawTextW(dc,a.text.c_str(),int(a.text.size()),&measured,DT_CALCRECT|DT_WORDBREAK|DT_NOPREFIX|DT_EDITCONTROL);
         SelectObject(dc,old);DeleteObject(textFont);ReleaseDC(window,dc);
         double h=std::max(a.font*1.3,double(measured.bottom)*1.25+4),w=std::max(120.0,double(measured.right));
-        if(h>Height || w>Width){MessageBoxW(window,L"This text is too large for the picture. Shorten it or choose a smaller size.",L"Text doesn't fit",MB_OK|MB_ICONINFORMATION);return false;}
-        a.box.w=w;a.box.h=h;a.box.x=std::clamp(a.box.x,0.0,Width-w);a.box.y=std::clamp(a.box.y,0.0,Height-h);return true;
+        if(h>CanvasHeight || w>CanvasWidth){MessageBoxW(window,L"This text is too large for the picture. Shorten it or choose a smaller size.",L"Text doesn't fit",MB_OK|MB_ICONINFORMATION);return false;}
+        a.box.w=w;a.box.h=h;a.box.x=std::clamp(a.box.x,0.0,CanvasWidth-w);a.box.y=std::clamp(a.box.y,0.0,CanvasHeight-h);return true;
     }
     bool commitText(std::wstring value,bool commit,double height) {
         if(!commit){editingAnnotationId=0;overlay.privatePreview(0);return true;}
@@ -379,7 +379,7 @@ struct App {
         if(empty){overlay.privatePreview(0);if(found!=annotations.end())eraseAnnotation(int(found-annotations.begin()));editingAnnotationId=0;return true;}
         Annotation a=editingTextDraft;
         if(found==annotations.end()){if(annotations.size()>=MaxAnnotations){MessageBoxW(window,L"There are too many annotations. Remove a few to continue.",L"Annotations",MB_OK);return false;}a.id=nextAnnotationId;}
-        if(!std::isfinite(height) || height<=0 || height>Height-a.box.y){MessageBoxW(window,L"This text runs past the bottom of the picture. Shorten it before finishing.",L"Text doesn't fit",MB_OK|MB_ICONINFORMATION);return false;}
+        if(!std::isfinite(height) || height<=0 || height>CanvasHeight-a.box.y){MessageBoxW(window,L"This text runs past the bottom of the picture. Shorten it before finishing.",L"Text doesn't fit",MB_OK|MB_ICONINFORMATION);return false;}
         a.text=std::move(value);a.box.h=height;
         bool created=found==annotations.end();uint64_t createdId=a.id;
         if(found!=annotations.end()){selectedAnnotation=int(found-annotations.begin());*found=std::move(a);}
@@ -398,10 +398,10 @@ struct App {
         editingAnnotationId=existing>=0?annotations[existing].id:0;
         overlay.privatePreview(editingAnnotationId);
         if(existing>=0)editingTextDraft=annotations[existing];
-        else {editingTextDraft=Annotation{};editingTextDraft.kind=AnnotationTool::Text;editingTextDraft.color=inkColor;editingTextDraft.size=inkSize;editingTextDraft.font=TextSizes[inkSize];editingTextDraft.box={std::clamp(p.x,0.0,Width-480.0),std::clamp(p.y,0.0,Height-editingTextDraft.font*1.2),480,editingTextDraft.font*1.2};}
+        else {editingTextDraft=Annotation{};editingTextDraft.kind=AnnotationTool::Text;editingTextDraft.color=inkColor;editingTextDraft.size=inkSize;editingTextDraft.font=TextSizes[inkSize];editingTextDraft.box={std::clamp(p.x,0.0,CanvasWidth-480.0),std::clamp(p.y,0.0,CanvasHeight-editingTextDraft.font*1.2),480,editingTextDraft.font*1.2};}
         selectedAnnotation=existing;
         selectedCard=-1;syncCards();syncAnnotationControls();
-        auto at=inkRect(editingTextDraft.box);double scale=double(previewRect.right-previewRect.left)/Width;
+        auto at=inkRect(editingTextDraft.box);double scale=double(previewRect.right-previewRect.left)/CanvasWidth;
         at.right=at.left+int(std::ceil(editingTextDraft.box.w*scale));at.bottom=previewRect.bottom;
         workspace->editText(overlay.renderer(),at,editingTextDraft.text,editingTextDraft.font,editingTextDraft.color,editingTextDraft.box.w,scale,editingTextDraft.box.h,existing>=0);
         InvalidateRect(window,nullptr,FALSE);
@@ -466,7 +466,7 @@ struct App {
             size_t count=0;for(const auto& a:annotations)count+=a.points.size();
             if(annotations.size()>=MaxAnnotations || count>=MaxInkPoints-2){MessageBoxW(window,L"There are too many annotations. Remove a few to continue.",L"Annotations",MB_OK);return;}
             Annotation a;a.id=nextAnnotationId++;a.kind=tool;a.color=drawingColor();a.size=inkSize;a.box={p.x,p.y,0,0};
-            if(tool==AnnotationTool::Pen || tool==AnnotationTool::Line || tool==AnnotationTool::Arrow)a.points={p,{std::min(double(Width),p.x+0.1),p.y}};
+            if(tool==AnnotationTool::Pen || tool==AnnotationTool::Line || tool==AnnotationTool::Arrow)a.points={p,{std::min(double(CanvasWidth),p.x+0.1),p.y}};
             annotations.push_back(std::move(a));selectedAnnotation=int(annotations.size())-1;selectedCard=-1;drawing=true;
         }else {
 #ifdef CALLAYERS_INTERACTIVE
@@ -540,15 +540,15 @@ i
                 const bool top=resizePart==CardPart::TopLeft||resizePart==CardPart::TopRight;
                 double dx=(p.x-dragStart.x)*(left?-1:1),dy=(p.y-dragStart.y)*(top?-1:1);
                 double factor=1+(dx*original.w+dy*original.h)/(original.w*original.w+original.h*original.h);
-                double maxW=left?original.x+original.w:Width-original.x,maxH=top?original.y+original.h:Height-original.y;
+                double maxW=left?original.x+original.w:CanvasWidth-original.x,maxH=top?original.y+original.h:CanvasHeight-original.y;
                 double maximum=std::min(maxW/original.w,maxH/original.h),minimum=std::min(maximum,std::max(180.0/original.w,100.0/original.h));
                 factor=std::clamp(factor,minimum,maximum);c.w=original.w*factor;c.h=original.h*factor;
                 c.x=left?original.x+original.w-c.w:original.x;c.y=top?original.y+original.h-c.h:original.y;
 #else
-                double factor=1+((p.x-dragStart.x)*original.w+(p.y-dragStart.y)*original.h)/(original.w*original.w+original.h*original.h);double maximum=std::min((Width-c.x)/original.w,(Height-c.y)/original.h),minimum=std::min(maximum,std::max(180.0/original.w,100.0/original.h));factor=std::clamp(factor,minimum,maximum);c.w=original.w*factor;c.h=original.h*factor;
+                double factor=1+((p.x-dragStart.x)*original.w+(p.y-dragStart.y)*original.h)/(original.w*original.w+original.h*original.h);double maximum=std::min((CanvasWidth-c.x)/original.w,(CanvasHeight-c.y)/original.h),minimum=std::min(maximum,std::max(180.0/original.w,100.0/original.h));factor=std::clamp(factor,minimum,maximum);c.w=original.w*factor;c.h=original.h*factor;
 #endif
             }
-            else {c.x=std::clamp(original.x+p.x-dragStart.x,0.0,Width-c.w);c.y=std::clamp(original.y+p.y-dragStart.y,0.0,Height-c.h);}
+            else {c.x=std::clamp(original.x+p.x-dragStart.x,0.0,CanvasWidth-c.w);c.y=std::clamp(original.y+p.y-dragStart.y,0.0,CanvasHeight-c.h);}
         }else return;
         changed();
     }

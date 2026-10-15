@@ -63,6 +63,7 @@ void Overlay::initialize(HINSTANCE instance){
             renderer_=ultralight::Renderer::Create();
         }
         ultralight::ViewConfig config;config.is_accelerated=false;config.is_transparent=true;
+        config.initial_device_scale=OutputScale;
 #ifdef CALLAYERS_GENERATION
         config.allow_universal_access_from_file_urls=false;
         config.clipboard_read_policy=ultralight::ClipboardReadPolicy::Deny;
@@ -128,6 +129,7 @@ std::shared_ptr<OverlayImage> Overlay::copy(std::array<std::shared_ptr<OverlayIm
     if(!*slot)*slot=std::make_shared<OverlayImage>();
     (*slot)->pixels.resize(PixelBytes);
     auto surface=view_->surface();if(!surface)return {};
+    if(surface->width()!=Width || surface->height()!=Height)throw std::runtime_error("Unexpected overlay surface size");
     auto pixels=static_cast<const uint8_t*>(surface->LockPixels());if(!pixels)return {};
     for(int y=0;y<Height;++y)memcpy((*slot)->pixels.data()+size_t(y)*Width*4,pixels+size_t(y)*surface->row_bytes(),Width*4);
     surface->UnlockPixels();(*slot)->tick=tick;
