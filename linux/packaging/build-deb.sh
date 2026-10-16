@@ -34,6 +34,7 @@ mkdir -p "$stage/DEBIAN" "$stage/etc/modprobe.d" "$stage/etc/modules-load.d" "$s
 cp "$here/callayers-modprobe.conf" "$stage/etc/modprobe.d/callayers.conf"
 cp "$here/modules-load.conf" "$stage/etc/modules-load.d/callayers.conf"
 cp "$here/postinst" "$stage/DEBIAN/postinst"
+install -m 0755 "$here/setup-camera.sh" "$stage/usr/lib/callayers/setup-camera.sh"
 chmod 755 "$stage/DEBIAN/postinst"
 printf '%s\n' /etc/modprobe.d/callayers.conf /etc/modules-load.d/callayers.conf > "$stage/DEBIAN/conffiles"
 # Derive minimum system-library versions from this build. A newer Ubuntu build

@@ -64,6 +64,8 @@ jobs:
         run: |
           python3 tests/linux-repository-test.py
           python3 tests/linux-installer-test.py
+          python3 tests/linux-installer-actions-test.py
+          python3 tests/linux-camera-hook-test.py
           node --test tests/linux-release-test.mjs tests/release-retention-test.mjs tests/release-version-test.mjs tests/linux-website-test.mjs
       - uses: actions/upload-artifact@v4
         with:
@@ -71,6 +73,74 @@ jobs:
           path: build/linux-artifact/
           if-no-files-found: error
           retention-days: 30
+  native:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+      - name: Install native packaging tools
+        run: sudo apt-get update && sudo apt-get install -y rpm libarchive-tools zstd
+      - uses: actions/download-artifact@v4
+        with:
+          name: callayers-ubuntu-lts-amd64
+          path: build/linux-artifact
+      - name: Wrap the exact tested baseline payload in native packages
+        run: |
+          set -euo pipefail
+          (cd build/linux-artifact && sha256sum --check SHA256SUMS)
+          packages=(build/linux-artifact/callayers_*_amd64.deb)
+          test "${#packages[@]}" -eq 1
+          python3 linux/packaging/build-native.py "${packages[0]}" build/linux-native --format rpm
+          python3 linux/packaging/build-native.py "${packages[0]}" build/linux-native --format arch
+          cd build/linux-native
+          sha256sum callayers-*.rpm callayers-*.pkg.tar.zst > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: callayers-native-amd64
+          path: build/linux-native/
+          if-no-files-found: error
+          retention-days: 30
+  native-compatibility:
+    needs: native
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: fedora:43
+            pattern: '*.rpm'
+          - image: fedora:44
+            pattern: '*.rpm'
+          - image: archlinux:base
+            pattern: '*.pkg.tar.zst'
+    container: ${{ matrix.image }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: callayers-native-amd64
+          path: build/linux-native
+      - name: Check native dependency resolution and production renderer
+        env:
+          PACKAGE_PATTERN: ${{ matrix.pattern }}
+        run: |
+          set -euo pipefail
+          (cd build/linux-native && sha256sum --check SHA256SUMS)
+          if command -v python3 >/dev/null; then
+            python3 -c 'from pathlib import Path; import uuid; p=Path("/etc/machine-id"); p.write_text(uuid.uuid4().hex+"\n") if not p.exists() or not p.read_text().strip() else None'
+          else
+            cat /proc/sys/kernel/random/uuid | tr -d '-' > /etc/machine-id
+          fi
+          packages=(build/linux-native/$PACKAGE_PATTERN)
+          test "${#packages[@]}" -eq 1
+          bash linux/packaging/check-native-dependencies.sh "${packages[0]}"
   compatibility:
     needs: build
     runs-on: ubuntu-24.04

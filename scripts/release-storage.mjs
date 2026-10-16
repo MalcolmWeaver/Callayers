@@ -37,9 +37,12 @@ async function uploadWithWrangler(key, bytes, contentType, cacheControl, {token,
 }
 
 export function isLinuxReleaseKey(key) {
-  return /^linux\/(install\.sh|callayers-archive-keyring\.gpg)$/.test(key)
+  return /^linux\/(install\.sh|callayers-archive-keyring\.gpg|callayers-archive-key\.asc)$/.test(key)
     || /^linux\/apt\/pool\/main\/c\/callayers\/callayers_(0|[1-9]\d{0,4})\.(0|[1-9]\d{0,4})\.(0|[1-9]\d{0,4})_amd64\.deb$/.test(key)
-    || /^linux\/apt\/dists\/stable\/(InRelease|Release|Release\.gpg|main\/binary-amd64\/(Packages(\.gz)?|by-hash\/SHA256\/[a-f0-9]{64}))$/.test(key);
+    || /^linux\/apt\/dists\/stable\/(InRelease|Release|Release\.gpg|main\/binary-amd64\/(Packages(\.gz)?|by-hash\/SHA256\/[a-f0-9]{64}))$/.test(key)
+    || /^linux\/rpm\/packages\/callayers-(0|[1-9]\d{0,4})\.(0|[1-9]\d{0,4})\.(0|[1-9]\d{0,4})-1\.x86_64\.rpm$/.test(key)
+    || /^linux\/rpm\/repodata\/(repomd\.xml(\.asc)?|[a-f0-9]{64}-[A-Za-z0-9][A-Za-z0-9._-]{0,128})$/.test(key)
+    || /^linux\/arch\/x86_64\/(callayers-(0|[1-9]\d{0,4})\.(0|[1-9]\d{0,4})\.(0|[1-9]\d{0,4})-1-x86_64\.pkg\.tar\.zst(\.sig)?|callayers\.(db|files)(\.tar\.gz)?(\.sig)?)$/.test(key);
 }
 
 export function createReleaseStore({token, account = process.env.CLOUDFLARE_ACCOUNT_ID, fetchImpl = fetch, uploadImpl = uploadWithWrangler, namespace = 'windows'}) {

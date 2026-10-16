@@ -2,7 +2,7 @@
 
 The Linux app is the same product as [APP.md](APP.md), on the same backend as [BACKEND.md](BACKEND.md). Cards, annotations, sign-in, allowances, and telemetry follow [AI.md](AI.md) and [DATA.md](DATA.md). Video follows [FRAMES.md](FRAMES.md) except for the differences in this document.
 
-Parity follows the accepted Windows functionality, interaction, and visual design. Linux-native window borders, menus, and file dialogs are allowed; identical pixels are not required. The public beta targets Ubuntu 22.04, 24.04, and 26.04 x64 on Wayland and X11. Debian 12/13 and compatible Ubuntu-based Mint/Pop!_OS releases have an explicit experimental installer option; their desktop and camera behavior is not advertised as verified. Public apt-repository and website publication are separate from a locally installable package.
+Parity follows the accepted Windows functionality, interaction, and visual design. Linux-native window borders, menus, and file dialogs are allowed; identical pixels are not required. The public beta targets Ubuntu 22.04, 24.04, and 26.04 x64 on Wayland and X11. Debian 12/13, compatible Ubuntu-based Mint/Pop!_OS releases, traditional Fedora 43/44, and Arch Linux have an explicit experimental installer option; their desktop and camera behavior is not advertised as verified. Public apt-repository and website publication are separate from a locally installable package.
 
 Development checks have measured 30 fps camera capture and working virtual output. Fresh production installation, real sign-in, calling-app behavior, and reboot are release acceptance checks; development results do not establish those.
 
@@ -13,14 +13,14 @@ The shell is Qt 6 Widgets. The real webcam and the Callayers camera are both V4L
 | Choice | Decision |
 | --- | --- |
 | Desktop | Ubuntu 22.04/24.04/26.04 x64, Wayland or X11, through Qt |
-| UI | Qt 6 Widgets, using Ubuntu's Qt 6 packages |
+| UI | Qt 6 Widgets, using each target distribution's Qt 6 packages |
 | Cards and annotations | Ultralight CPU, offscreen, bundled in the package |
 | Webcam | Open the chosen `/dev/video*` node with V4L2 |
 | Virtual camera | `v4l2loopback`, device `/dev/video42`, label `Callayers` |
 | Picture on that device | 1920×1080 YUYV at 30 fps, converted from the same composited frame as the preview |
 | After Callayers stops writing | The device keeps the last frame. No neutral-frame helper |
 | First calling app to prove | Zoom |
-| Install | One command from the website, which installs a signed apt repository and the package |
+| Install | One shared installer with signed APT, DNF/RPM, and pacman/Arch repository backends |
 | Backend | The existing service. No Linux-specific API |
 
 ## Workspace files
@@ -71,19 +71,19 @@ curl -fsSL https://downloads.callayers.com/linux/install.sh | sudo bash
 
 The script is `linux/packaging/install.sh`. It is the only install path. Do not also offer a downloaded `.deb` as a second, less reliable installer.
 
-Before it changes the machine, the script requires Ubuntu 22.04, 24.04, or 26.04 on x64. Debian 12/13 and Mint/Pop!_OS with a jammy/noble/resolute Ubuntu base require `--allow-experimental` and show a warning. Other releases remain blocked. Headers are installed for the running kernel only. If Secure Boot is enabled, it stops with one message: the Callayers camera needs the `v4l2loopback` module, and Secure Boot is blocking it. It does not enroll a machine-owner key and it does not leave the app installed without a camera.
+Before changing the machine, the script checks the exact distribution and x64 architecture. Ubuntu 22.04/24.04/26.04 is the beta target. Debian 12/13, compatible Mint/Pop!_OS, traditional Fedora 43/44, and Arch Linux require `--allow-experimental`. Fedora Atomic/OSTree editions, other Fedora releases, Arch derivatives, other distributions, and ARM remain excluded. Secure Boot must be off; the installer does not enroll a machine-owner key.
 
-On a supported machine it then:
+The shared installer chooses its native backend from `/etc/os-release`:
 
-1. Installs the header package for the running kernel, `linux-headers-$(uname -r)`, so the camera module can build. It also installs `linux-headers-generic` when that metapackage exists, so a later generic kernel update can rebuild the module.
-2. Installs the Callayers signing key and adds `https://downloads.callayers.com/linux/apt`.
-3. Runs `apt install callayers`. That package depends on Ubuntu's `v4l2loopback-dkms` and Qt 6, installs the app and desktop entry, writes the `/dev/video42` module configuration, and loads the module.
+- **APT:** install the running kernel's `linux-headers-$(uname -r)`, add the signed Callayers APT repository, and install the `.deb` with the distro's `v4l2loopback-dkms` and Qt 6 dependencies.
+- **DNF:** require RPM Fusion Free, matching `kernel-devel-$(uname -r)`, and `akmod-v4l2loopback`. If RPM Fusion is missing, stop before package changes unless `--enable-rpmfusion` was supplied explicitly. That flag enables only RPM Fusion Free, explains the community repository, validates its pinned public-key fingerprint, and verifies the release RPM signature. Build the matching driver through akmods before installing Callayers from the signed RPM repository.
+- **pacman:** perform a full system upgrade with the kernel's matching headers and `v4l2loopback-dkms`, then run DKMS for the running kernel. If the upgrade removed matching headers, stop before installing Callayers and ask for reboot/rerun. Register Callayers' package key and require signatures for packages and its repository database. Standard `linux`, `linux-lts`, `linux-zen`, and `linux-hardened` kernel package names are recognized; another kernel must already have matching headers installed.
 
-A reboot is not part of a successful install. A later logout is required only if the user was just added to the `video` group. Later versions come from `apt upgrade`. There is no separate updater process.
+All formats include the same `/usr/lib/callayers/setup-camera.sh` package hook. It checks ownership of `/dev/video42`, refuses to unload another virtual-camera setup, and loads the Callayers device. Packages include boot-load configuration. A logout may be required after adding the user to the `video` group. Subsequent updates use the native package manager; no app updater process is added.
 
-`install.sh --deb callayers_<version>_amd64.deb` installs a locally built package with the same checks and kernel-header step. That is how a build is installed before the public repository is published. `dpkg -i` alone does not install the camera module.
+For local acceptance before publication, use `install.sh --package <file>` with `.deb`, `.rpm`, or `.pkg.tar.zst`; `--deb` remains a compatible alias. Local test mode does not add the Callayers update repository. Experimental and Fedora RPM Fusion consent flags still apply. A direct package-manager install alone is not the public onboarding path because matching headers and driver setup must happen first.
 
-APT verifies the archive-key signature on repository metadata, which authenticates the package through its SHA-256 hash. The first local `.deb` used before that repository exists may be unsigned, matching the current Windows tester release.
+The website reads published capabilities from the signed APT `InRelease` availability metadata. Fedora/Arch commands remain unavailable until `X-Callayers-Native: fedora arch` and the Fedora version marker are published. Fedora's repository opt-in is a separate, unchecked checkbox that adds `--enable-rpmfusion` to the command only when selected.
 
 ## Build
 
@@ -115,7 +115,7 @@ For development without opening either camera, use the development build with `-
 ctest --test-dir build/linux-camera -R 'linux_html_renderer|linux_preview_interactions|linux_development_workspace|linux_sign_in_gate' --output-on-failure
 ```
 
-The package derives its minimum system-library requirements from the build host. Release builds use Ubuntu 22.04 and Qt 6.2 as the minimum baseline. CI tests the exact package on Ubuntu 24.04/26.04 and Debian 12/13 without rebuilding or running the camera post-install script. Newer build hosts can produce newer dependency requirements and must not be used to create the multi-version release candidate. Package extraction and `callayers --self-check` check bundled renderer loading without opening a camera, accessing saved work, or signing in. They do not establish desktop or calling-app acceptance. `CALLAYERS_BUILD_JOBS` controls package-build parallelism and `CALLAYERS_CMAKE` can select a CMake binary.
+The baseline `.deb` derives its minimum system-library requirements from the build host. Release builds use Ubuntu 22.04 and Qt 6.2 as the minimum baseline. CI tests the exact package on Ubuntu 24.04/26.04 and Debian 12/13 without rebuilding or running the camera post-install script. Native RPM and Arch archives wrap that same baseline payload; their dependency/runtime checks run on Fedora 43/44 and Arch containers. Newer build hosts can produce newer dependency requirements and must not be used to create the multi-version release candidate. Package extraction and `callayers --self-check` check bundled renderer loading without opening a camera, accessing saved work, or signing in. They do not establish desktop or calling-app acceptance. `CALLAYERS_BUILD_JOBS` controls package-build parallelism and `CALLAYERS_CMAKE` can select a CMake binary.
 
 Workspace and preference saves use atomic replacement. Existing Linux workspaces remain readable and gain card state/revision metadata when saved. A malformed existing workspace is retained rather than overwritten. Local session, content-created, and preview-card telemetry are bounded and best effort; consumer identity remains best effort.
 
@@ -125,8 +125,8 @@ Use the existing Google desktop client, loopback listener, and Firebase exchange
 
 ## What this does not add
 
-No PipeWire or portal implementation, no camera helper, no second distro package, no Flatpak, and no change to the backend, card format, or Windows app.
+No PipeWire or portal implementation, no long-running camera helper, no Flatpak, and no change to the backend, card format, or Windows app.
 
 ## Linux beta releases
 
-See [release operations](../release/README.md#linux-beta) for the Ubuntu build artifact, signing setup, and manual promotion of the exact installed/tested package. Linux publication is independent of Windows releases.
+See [release operations](../release/README.md#linux-beta) for baseline/native artifacts, signing setup, and the single publish-from-main workflow. Linux publication is independent of Windows releases.

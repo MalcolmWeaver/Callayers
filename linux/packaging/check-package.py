@@ -18,6 +18,7 @@ with tempfile.TemporaryDirectory(prefix="callayers-package-") as directory:
     subprocess.run(["dpkg-deb", "-x", str(package), directory], check=True)
     executable = root / "usr/bin/callayers"
     for relative in ("usr/share/callayers/web/overlay.html", "usr/share/callayers/resources/icudt67l.dat",
+                     "usr/lib/callayers/setup-camera.sh",
                      "usr/lib/callayers/libUltralight.so", "usr/share/applications/callayers.desktop",
                      "etc/modprobe.d/callayers.conf", "etc/modules-load.d/callayers.conf"):
         assert (root / relative).is_file(), f"Missing package resource: {relative}"
