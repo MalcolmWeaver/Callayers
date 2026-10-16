@@ -7,6 +7,13 @@ version="${1:-}"
 if [ $# -gt 1 ] || { [ -n "$version" ] && ! [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; }; then
   echo "Usage: build-deb.sh [major.minor.patch]" >&2; exit 2
 fi
+# The public archive uses one package across Ubuntu LTS versions. Building on
+# a newer host would silently raise its Qt/glibc requirements.
+. /etc/os-release
+if [ "${ID:-}" != ubuntu ] || [ "${VERSION_ID:-}" != 22.04 ] || [ "$(uname -m)" != x86_64 ]; then
+  echo "Build release packages inside Ubuntu 22.04 x64 to preserve the Ubuntu LTS compatibility baseline. Use the Linux build workflow or a Ubuntu 22.04 build environment." >&2
+  exit 1
+fi
 version_args=()
 if [ -n "$version" ]; then version_args=("-DCALLAYERS_RELEASE_VERSION=$version"); fi
 cmake_bin="${CALLAYERS_CMAKE:-cmake}"

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Produce a signed, static APT repository for the Ubuntu 26.04 beta."""
+"""Produce a signed, static APT repository for the Ubuntu LTS beta."""
 import argparse
 from datetime import datetime, timezone
 from email.utils import format_datetime
@@ -35,7 +35,8 @@ def build(package, output, fingerprint):
     release = ("Origin: Callayers\nLabel: Callayers Ubuntu beta\nSuite: stable\nCodename: stable\n"
                "Architectures: amd64\nComponents: main\nAcquire-By-Hash: yes\n"
                f"Date: {format_datetime(datetime.now(timezone.utc), usegmt=True)}\n"
-               f"X-Callayers-Version: {version}\nDescription: Callayers for Ubuntu 26.04 x64\nSHA256:\n")
+               f"X-Callayers-Version: {version}\nX-Callayers-Ubuntu: 22.04 24.04 26.04\n"
+               "Description: Callayers for Ubuntu LTS x64\nSHA256:\n")
     for name, data in indices.items():
         write("linux/apt/dists/stable/" + name, data)
         write("linux/apt/dists/stable/main/binary-amd64/by-hash/SHA256/" + digest(data), data)

@@ -1,17 +1,19 @@
 #!/bin/bash
-# Install Callayers on Ubuntu and load the Callayers camera.
+# Install Callayers on Ubuntu LTS and load the Callayers camera.
 set -euo pipefail
 
 key_url="https://downloads.callayers.com/linux/callayers-archive-keyring.gpg"
 repo_line="deb [signed-by=/usr/share/keyrings/callayers-archive-keyring.gpg] https://downloads.callayers.com/linux/apt stable main"
 check_only=0
 deb=""
+allow_experimental=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --check) check_only=1 ;;
+    --allow-experimental) allow_experimental=1 ;;
     --deb) [ $# -ge 2 ] && [ -f "$2" ] || { echo "--deb requires an existing package" >&2; exit 2; }; deb="$(realpath "$2")"; shift ;;
-    *) echo "Usage: install.sh [--check] [--deb package.deb]" >&2; exit 2 ;;
+    *) echo "Usage: install.sh [--check] [--deb package.deb] [--allow-experimental]" >&2; exit 2 ;;
   esac
   shift
 done
@@ -20,15 +22,33 @@ if [ -r /etc/os-release ]; then
   # shellcheck disable=SC1091
   . /etc/os-release
 else
-  echo "Callayers for Linux requires Ubuntu 26.04 on x64." >&2
+  echo "Callayers requires Ubuntu 22.04, 24.04, or 26.04 on x64." >&2
   exit 1
 fi
 
 version_id="${VERSION_ID:-}"
 arch="$(uname -m)"
-if [ "${ID:-}" != "ubuntu" ] || [ "$version_id" != "26.04" ] || [ "$arch" != "x86_64" ]; then
-  echo "Callayers for Linux requires Ubuntu 26.04 on x64." >&2
+if [ "$arch" != "x86_64" ]; then
+  echo "Callayers requires an Intel/AMD x64 computer." >&2
   exit 1
+fi
+experimental=0
+case "${ID:-}:$version_id" in
+  ubuntu:22.04|ubuntu:24.04|ubuntu:26.04) ;;
+  debian:12|debian:13) experimental=1 ;;
+  linuxmint:*|pop:*)
+    case "${UBUNTU_CODENAME:-}" in
+      jammy|noble|resolute) experimental=1 ;;
+      *) echo "This system needs an Ubuntu 22.04, 24.04, or 26.04 base for Callayers." >&2; exit 1 ;;
+    esac ;;
+  *) echo "Callayers requires Ubuntu 22.04, 24.04, or 26.04 on x64. Debian 12/13 and compatible Mint/Pop!_OS releases have an experimental installation option." >&2; exit 1 ;;
+esac
+if [ "$experimental" = 1 ]; then
+  if [ "$allow_experimental" != 1 ]; then
+    echo "${PRETTY_NAME:-${ID}} has not been verified with Callayers. To try this experimental installation, rerun with --allow-experimental." >&2
+    exit 1
+  fi
+  echo "WARNING: Experimental installation on ${PRETTY_NAME:-${ID}}. Desktop, sign-in, and camera-driver behavior have not been verified on this distribution." >&2
 fi
 
 secure_boot=0
@@ -45,7 +65,7 @@ fi
 
 if [ "$check_only" = "1" ]; then
   echo "Callayers Linux install check"
-  echo "Ubuntu ${version_id} ${arch}"
+  echo "${PRETTY_NAME:-${ID} ${version_id}} ${arch}"
   if [ "$secure_known" = "1" ]; then
     echo "Secure Boot: $([ "$secure_boot" = 1 ] && echo on || echo off)"
   else
@@ -69,9 +89,6 @@ fi
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y "linux-headers-$(uname -r)"
-if apt-cache show linux-headers-generic >/dev/null 2>&1; then
-  apt-get install -y linux-headers-generic
-fi
 
 if [ -n "$deb" ]; then
   apt-get install -y "$deb"
