@@ -83,7 +83,7 @@ export async function publishLinux({directory, store, fetchImpl = fetch}) {
   const response = await fetchImpl(`${RELEASE_BASE_URL}/${root}InRelease`, {cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(30000)});
   if (!response.ok || sha256(Buffer.from(await response.arrayBuffer())) !== sha256(files.get(`${root}InRelease`)))
     throw Error('Release uploaded but public InRelease verification failed; inspect publishing before announcing.');
-  console.log(`Published Callayers Linux ${manifest.version} for Ubuntu 26.04 x64.`);
+  console.log(`Published Callayers Linux ${manifest.version} for Ubuntu 22.04, 24.04, and 26.04 x64.`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

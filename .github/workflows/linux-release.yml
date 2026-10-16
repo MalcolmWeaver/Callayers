@@ -7,7 +7,7 @@ on:
         required: true
         type: string
       installation_verified:
-        description: 'I verified fresh installation, real sign-in, camera/card in a calling app, and reboot on Ubuntu 26.04'
+        description: 'I verified this exact artifact: installation, real sign-in, camera/card in a calling app, and reboot on Ubuntu 22.04, 24.04, and 26.04'
         required: true
         default: false
         type: boolean
@@ -44,7 +44,7 @@ jobs:
           node-version: '22'
       - uses: actions/download-artifact@v4
         with:
-          name: callayers-ubuntu-26.04-amd64
+          name: callayers-ubuntu-lts-amd64
           run-id: ${{ inputs.build_run_id }}
           github-token: ${{ github.token }}
           path: build/linux-artifact

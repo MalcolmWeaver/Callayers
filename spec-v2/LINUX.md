@@ -2,7 +2,7 @@
 
 The Linux app is the same product as [APP.md](APP.md), on the same backend as [BACKEND.md](BACKEND.md). Cards, annotations, sign-in, allowances, and telemetry follow [AI.md](AI.md) and [DATA.md](DATA.md). Video follows [FRAMES.md](FRAMES.md) except for the differences in this document.
 
-Parity follows the accepted Windows functionality, interaction, and visual design. Linux-native window borders, menus, and file dialogs are allowed; identical pixels are not required. The first public beta targets Ubuntu 26.04 x64 on Wayland and X11; other distributions and Ubuntu 24.04 are not advertised as supported. Public apt-repository and website publication are separate from a locally installable package.
+Parity follows the accepted Windows functionality, interaction, and visual design. Linux-native window borders, menus, and file dialogs are allowed; identical pixels are not required. The public beta targets Ubuntu 22.04, 24.04, and 26.04 x64 on Wayland and X11. Debian 12/13 and compatible Ubuntu-based Mint/Pop!_OS releases have an explicit experimental installer option; their desktop and camera behavior is not advertised as verified. Public apt-repository and website publication are separate from a locally installable package.
 
 Development checks have measured 30 fps camera capture and working virtual output. Fresh production installation, real sign-in, calling-app behavior, and reboot are release acceptance checks; development results do not establish those.
 
@@ -12,7 +12,7 @@ The shell is Qt 6 Widgets. The real webcam and the Callayers camera are both V4L
 
 | Choice | Decision |
 | --- | --- |
-| Desktop | Ubuntu 26.04 x64, Wayland or X11, through Qt |
+| Desktop | Ubuntu 22.04/24.04/26.04 x64, Wayland or X11, through Qt |
 | UI | Qt 6 Widgets, using Ubuntu's Qt 6 packages |
 | Cards and annotations | Ultralight CPU, offscreen, bundled in the package |
 | Webcam | Open the chosen `/dev/video*` node with V4L2 |
@@ -71,7 +71,7 @@ curl -fsSL https://downloads.callayers.com/linux/install.sh | sudo bash
 
 The script is `linux/packaging/install.sh`. It is the only install path. Do not also offer a downloaded `.deb` as a second, less reliable installer.
 
-Before it changes the machine, the script requires Ubuntu 26.04 on x64. If Secure Boot is enabled, it stops with one message: the Callayers camera needs the `v4l2loopback` module, and Secure Boot is blocking it. It does not enroll a machine-owner key and it does not leave the app installed without a camera.
+Before it changes the machine, the script requires Ubuntu 22.04, 24.04, or 26.04 on x64. Debian 12/13 and Mint/Pop!_OS with a jammy/noble/resolute Ubuntu base require `--allow-experimental` and show a warning. Other releases remain blocked. Headers are installed for the running kernel only. If Secure Boot is enabled, it stops with one message: the Callayers camera needs the `v4l2loopback` module, and Secure Boot is blocking it. It does not enroll a machine-owner key and it does not leave the app installed without a camera.
 
 On a supported machine it then:
 
@@ -115,7 +115,7 @@ For development without opening either camera, use the development build with `-
 ctest --test-dir build/linux-camera -R 'linux_html_renderer|linux_preview_interactions|linux_development_workspace|linux_sign_in_gate' --output-on-failure
 ```
 
-The package derives its minimum system-library requirements from the build host. Release builds use Ubuntu 26.04; this package is not advertised as compatible with 24.04. Package extraction and `callayers --self-check` check bundled renderer loading without opening a camera, accessing saved work, or signing in. They do not establish desktop or calling-app acceptance. `CALLAYERS_BUILD_JOBS` controls package-build parallelism and `CALLAYERS_CMAKE` can select a CMake binary.
+The package derives its minimum system-library requirements from the build host. Release builds use Ubuntu 22.04 and Qt 6.2 as the minimum baseline. CI tests the exact package on Ubuntu 24.04/26.04 and Debian 12/13 without rebuilding or running the camera post-install script. Newer build hosts can produce newer dependency requirements and must not be used to create the multi-version release candidate. Package extraction and `callayers --self-check` check bundled renderer loading without opening a camera, accessing saved work, or signing in. They do not establish desktop or calling-app acceptance. `CALLAYERS_BUILD_JOBS` controls package-build parallelism and `CALLAYERS_CMAKE` can select a CMake binary.
 
 Workspace and preference saves use atomic replacement. Existing Linux workspaces remain readable and gain card state/revision metadata when saved. A malformed existing workspace is retained rather than overwritten. Local session, content-created, and preview-card telemetry are bounded and best effort; consumer identity remains best effort.
 

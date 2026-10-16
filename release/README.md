@@ -68,13 +68,13 @@ Website/release credentials, R2 bucket/domain/CORS activation, and GitHub variab
 
 ## Linux beta
 
-The first Linux beta supports **Ubuntu 26.04 x64 with Secure Boot off**. The application package includes the pinned renderer, uses the existing production backend, and rejects development-only flags. Camera setup uses the host's `v4l2loopback-dkms`; the app is not a portable driver bundle. Windows releases and signing keys remain separate.
+The Linux beta targets **Ubuntu 22.04, 24.04, and 26.04 x64 with Secure Boot off**. Installation and camera acceptance on each desktop must precede advertising it as verified. The application package includes the pinned renderer, uses the existing production backend, and rejects development-only flags. Camera setup uses the host's `v4l2loopback-dkms`; the app is not a portable driver bundle. Windows releases and signing keys remain separate.
 
-**Linux app — Build and test** runs for relevant pull requests, main updates, and manual runs. It builds inside Ubuntu 26.04 on a GitHub Ubuntu runner, tests development interactions and the production sign-in gate, packages the production executable, and checks it after extraction without development library paths. Repository tests use a disposable signing key and real APT signature checks. No kernel module is loaded in hosted CI, so CI does not prove camera installation or reboot behavior.
+**Linux app — Build and test** runs for relevant pull requests, main updates, and manual runs. It builds the release package inside Ubuntu 22.04 on a GitHub Ubuntu runner, tests development interactions and the production sign-in gate, packages the production executable, and checks it after extraction without development library paths. Repository tests use a disposable signing key and real APT signature checks. The exact package is also checked for dependency resolution and renderer loading in Ubuntu 24.04/26.04 and Debian 12/13 containers. These checks use the baseline package rather than rebuilding on each distribution. No kernel module is loaded in hosted CI, so CI does not prove camera installation or reboot behavior.
 
-The artifact `callayers-ubuntu-26.04-amd64` contains the `.deb`, `install.sh`, and `SHA256SUMS`. On a clean Ubuntu 26.04 x64 desktop, extract the artifact, verify `sha256sum --check SHA256SUMS`, then run `sudo bash ./install.sh --deb ./callayers_0.3.2_amd64.deb` (substitute the artifact version). This is the same installer path used for public installation. Use a physical webcam or USB passthrough for a VM. Runtime acceptance is recorded in the conversation, not a separate checklist file.
+The artifact `callayers-ubuntu-lts-amd64` contains the `.deb`, `install.sh`, and `SHA256SUMS`. On each clean Ubuntu 22.04/24.04/26.04 x64 desktop, extract the artifact, verify `sha256sum --check SHA256SUMS`, then run `sudo bash ./install.sh --deb ./callayers_0.3.3_amd64.deb` (substitute the artifact version). This is the same installer path used for public installation. Use a physical webcam or USB passthrough for a VM. Runtime acceptance is recorded in the conversation, not a separate checklist file.
 
-For a local candidate, run `bash linux/packaging/build-deb.sh 0.3.2`. The output is `build/linux/callayers_0.3.2_amd64.deb`. Bump `CALLAYERS_RELEASE_VERSION` in `linux/CMakeLists.txt` before building the next CI candidate; never reuse a version for different bytes.
+Build release candidates on Ubuntu 22.04 to retain the older Qt/glibc baseline; building on a newer host derives newer dependency requirements and does not produce the multi-version candidate. For a local candidate, run `bash linux/packaging/build-deb.sh 0.3.3`. The output is `build/linux/callayers_0.3.3_amd64.deb`. Bump `CALLAYERS_RELEASE_VERSION` in `linux/CMakeLists.txt` before building the next CI candidate; never reuse a version for different bytes.
 
 ### One-time repository setup
 
@@ -84,10 +84,16 @@ Reuse repository secret `CLOUDFLARE_R2_API_TOKEN` and variable `CLOUDFLARE_ACCOU
 
 ### Publish the tested artifact
 
-After verifying installation, real sign-in, card/camera output in a calling app, and reboot, run **Linux app — Publish tested version** on `main`. Supply the successful Linux build run ID and acknowledge the installation verification. The workflow checks the run belongs to the Linux build workflow on this repository's `main`, downloads that exact artifact, verifies its checksums, and checks out its source commit. It does not rebuild the executable.
+After verifying the exact artifact on Ubuntu 22.04, 24.04, and 26.04 (installation, real sign-in, card/camera output in a calling app, and reboot), run **Linux app — Publish tested version** on `main`. Supply the successful Linux build run ID and acknowledge the installation verification. The workflow checks the run belongs to the Linux build workflow on this repository's `main`, downloads that exact artifact, verifies its checksums, and checks out its source commit. It does not rebuild the executable.
 
 The publisher signs APT metadata, uploads immutable versioned packages and content-addressed indices, verifies their public download bytes, then updates `InRelease` as the publication point. Old packages and indices remain available; failed uploads before publication leave the prior signed index in place. Downgrades and replacing an existing package version with different bytes are refused. A corrective release must use a higher version. No Linux retention/deletion automation is enabled for this beta.
 
 The website exposes the Ubuntu installation command only after the published Linux metadata is reachable. Website changes still require the existing website deployment workflow. Customers install through `https://downloads.callayers.com/linux/install.sh`; subsequent updates use the normal APT package manager. Callayers has no separate in-app updater; system update policy controls when APT upgrades run. Users should close Callayers and their calling app before upgrading.
 
 These workflows must be committed and pushed before they appear in GitHub Actions. Local tests do not imply an Actions run or a public release has occurred.
+
+### Experimental Debian, Mint, and Pop!_OS installation
+
+Debian 12/13 and Mint/Pop!_OS releases declaring an Ubuntu jammy, noble, or resolute base can opt in with `--allow-experimental`. This is a compatibility trial, not verified desktop or camera support. Older bases, other distributions, ARM, and Secure Boot remain outside this installer. Linux Mint Debian Edition is not covered by the Ubuntu-base detection.
+
+For a downloaded candidate use `sudo bash ./install.sh --allow-experimental --deb ./callayers_0.3.3_amd64.deb`. Once a release is published, use `curl -fsSL https://downloads.callayers.com/linux/install.sh | sudo bash -s -- --allow-experimental`. The script warns before changing the machine. APT must resolve every dependency, and headers for the running kernel must be available for the camera driver. It installs only the running kernel's headers, avoiding an unrelated Ubuntu kernel metapackage on derivatives or Debian.

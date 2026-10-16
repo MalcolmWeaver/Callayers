@@ -18,4 +18,8 @@ test('Ubuntu installer appears only after Linux repository publication', async (
   const page = await show('-----BEGIN PGP SIGNED MESSAGE-----\nX-Callayers-Version: 0.3.2\nDescription: Callayers for Ubuntu 26.04 x64\n');
   assert.equal(page.download.hidden, false);
   assert.equal(page.label.textContent, 'Linux beta 0.3.2 · Ubuntu 26.04 x64');
+  const lts = await show('-----BEGIN PGP SIGNED MESSAGE-----\nX-Callayers-Version: 0.3.3\nX-Callayers-Ubuntu: 22.04 24.04 26.04\nDescription: Callayers for Ubuntu LTS x64\n');
+  assert.equal(lts.download.hidden, false);
+  assert.equal(lts.label.textContent, 'Linux beta 0.3.3 · Ubuntu 22.04 / 24.04 / 26.04 x64');
+  assert.equal((await show('-----BEGIN PGP SIGNED MESSAGE-----\nX-Callayers-Version: 0.3.3\nDescription: Callayers for Ubuntu LTS x64\n')).download.hidden, true);
 });

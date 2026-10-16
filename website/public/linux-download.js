@@ -8,12 +8,14 @@ async function showLinuxRelease() {
     if (!response.ok) return;
     const release = await response.text();
     const version = release.match(/^X-Callayers-Version: ((?:0|[1-9]\d{0,4})\.(?:0|[1-9]\d{0,4})\.(?:0|[1-9]\d{0,4}))$/m)?.[1];
-    if (!release.startsWith('-----BEGIN PGP SIGNED MESSAGE-----') || !version ||
-        !release.includes('Description: Callayers for Ubuntu 26.04 x64')) return;
+    const ubuntu = release.includes('X-Callayers-Ubuntu: 22.04 24.04 26.04\n') &&
+      release.includes('Description: Callayers for Ubuntu LTS x64\n') ? '22.04 / 24.04 / 26.04' :
+      release.includes('Description: Callayers for Ubuntu 26.04 x64\n') ? '26.04' : null;
+    if (!release.startsWith('-----BEGIN PGP SIGNED MESSAGE-----') || !version || !ubuntu) return;
     // Availability only: APT verifies the signed metadata and package hashes
     // when installing. The website never supplies a package URL from this text.
     download.hidden = false;
-    status.textContent = `Linux beta ${version} · Ubuntu 26.04 x64`;
+    status.textContent = `Linux beta ${version} · Ubuntu ${ubuntu} x64`;
   } catch { /* Leave the installation command hidden until publication is reachable. */ }
 }
 showLinuxRelease();
