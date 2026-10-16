@@ -30,20 +30,36 @@ h2 { font-size: 25px; line-height: 1.25; font-weight: 650; letter-spacing: -.8px
 .intro { font-size: 20px; color: var(--muted); max-width: 590px; margin: 28px 0 32px; }
 .button { display: inline-flex; gap: 40px; align-items: center; padding: 14px 24px; background: var(--accent); color: #201d33; font-weight: 650; border: 1px solid transparent; border-radius: 8px; text-decoration: none; }
 .button:hover { background: #bbb4ff; }
+button, select { font: inherit; }
+button { cursor: pointer; }
 .download-icon { display: block; flex: none; }
-.button:focus-visible, a:focus-visible { outline: 3px solid var(--brand); outline-offset: 5px; }
+.button:focus-visible, a:focus-visible, button:focus-visible, select:focus-visible, pre:focus-visible, summary:focus-visible { outline: 3px solid var(--brand); outline-offset: 4px; }
 .button[hidden] { display: none; }
 .fine { font-size: 12px; color: var(--muted); line-height: 1.7; }
 .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 45px; padding: 44px 0 56px; border-top: 1px solid var(--line); }
 .features p { color: var(--muted); font-size: 14px; }
 .features h2 { font-size: 21px; }
-.download { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 40px; margin-bottom: 64px; display: grid; grid-template-columns: 1fr 1fr; align-items: center; gap: 64px; }
+.download { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 40px; margin-bottom: 64px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: center; gap: 64px; }
+.download > div { min-width: 0; }
 .download h2 { font-size: 36px; }
 .download p { color: var(--muted); max-width: 470px; }
 .download .eyebrow { color: var(--accent); }
-.download-action .fine { max-width: 360px; }
-.install-command { margin: 14px 0; padding: 12px 14px; overflow-x: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; color: var(--text); font: 13px/1.5 ui-monospace, monospace; }
-.copy-command { margin-bottom: 8px; }
+.download-action .fine { max-width: none; font-size: 13px; }
+#release-status, #linux-release-status { font-size: 14px; color: var(--text); }
+.platform-picker { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; }
+.platform-picker button { padding: 10px 12px; background: transparent; border: 0; border-radius: 6px; color: var(--muted); font-size: 14px; font-weight: 650; }
+.platform-picker button[aria-pressed="true"] { background: var(--accent); color: #201d33; }
+.beta-label { margin-left: 5px; font-size: 10px; text-transform: uppercase; letter-spacing: .7px; }
+#platform-hint { margin: 10px 0 22px; }
+.distro-label { display: block; margin: 18px 0 7px; font-size: 14px; font-weight: 650; }
+#linux-distro { width: 100%; padding: 12px; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 8px; }
+#linux-distro-note { margin: 10px 0 20px; }
+.command-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+.support-badge { padding: 2px 8px; background: #36303f; color: #e5c497; border-radius: 20px; font-size: 11px; }
+.install-command { margin: 8px 0 12px; padding: 14px; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; color: var(--text); font: 13px/1.7 ui-monospace, monospace; }
+.copy-command { width: 100%; justify-content: center; }
+.install-details { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 14px; }
+.install-details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 footer { border-top: 1px solid var(--line); padding: 28px 0 40px; display: flex; align-items: center; justify-content: space-between; gap: 20px; font-size: 12px; color: var(--muted); }
 footer a { color: var(--muted); }
 .prose { max-width: 720px; padding: 50px 0 90px; }

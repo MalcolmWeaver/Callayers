@@ -22,7 +22,7 @@ void Telemetry::account() {
 void Telemetry::record(const QString& event,QJsonObject properties) {
     if(session_.isEmpty()||pending_.size()>=128)return;
     pending_.append(QJsonObject{{"id",Id()},{"sessionId",session_},{"timestamp",QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)},
-        {"appVersion",QCoreApplication::applicationVersion().isEmpty()?"0.3.0":QCoreApplication::applicationVersion()},{"event",event},{"properties",properties}});
+        {"appVersion",QCoreApplication::applicationVersion().isEmpty()?"0.3.0":QCoreApplication::applicationVersion()},{"platform","linux"},{"event",event},{"properties",properties}});
 }
 void Telemetry::content(const QString& kind,const QString& id) {
     if(kind=="annotation")record("content_created",{{"kind",kind}});

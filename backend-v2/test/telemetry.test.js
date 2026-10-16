@@ -35,6 +35,22 @@ test('content, identity spoofing, unknown fields/events and malformed times are 
     assert.throws(()=>validateEvents({events:[{...sample,...patch}]},now));
   assert.throws(()=>validateEvents({events:[sample,sample]},now));assert.throws(()=>validateEvents({events:[],account:'forged'},now));
 });
+test('platform is optional for older clients and strictly validated for new clients',()=>{
+  assert.deepEqual(validateEvents({events:[sample]},now),[sample]);
+  const linux={...sample,platform:'linux'};
+  assert.deepEqual(validateEvents({events:[linux]},now),[linux]);
+  for(const platform of ['unknown','Linux',null,{},'linux;PRIVATE'])
+    assert.throws(()=>validateEvents({events:[{...sample,platform}]},now));
+  assert.throws(()=>validateEvents({events:[{...linux,properties:{platform:'windows'}}]},now));
+  assert.throws(()=>validateEvents({events:[{...linux,distinct_id:'callayers:someone_else'}]},now));
+});
+test('Linux session and card events reach the provider under the verified account identity',async t=>{
+  const events=[{...sample,platform:'linux'},
+    {...sample,id:'22345678-1234-4123-8123-123456789abc',platform:'linux',event:'content_created',properties:{kind:'ai_create',card_id:'new-card'}}];
+  const result=await request(t,{body:{events}});
+  assert.equal(result.status,200);
+  assert.deepEqual(result.captures,[{uid:identity.uid,events}]);
+});
 test('events require verified permitted account and do not consume AI allowance',async t=>{
   assert.equal((await request(t,{authorization:null})).status,401);
   assert.equal((await request(t,{enabled:false})).status,403);
@@ -57,6 +73,12 @@ test('forwarder preserves deduplication tuple and sends only approved data with 
   const event=calls[0].body.batch[0];assert.equal(event.uuid,sample.id);assert.equal(event.timestamp,sample.timestamp);assert.equal(event.distinct_id,'callayers:owner_A');
   assert.equal(calls[2].body.batch[0].distinct_id,'callayers:owner_B');assert.equal(event.properties.$geoip_disable,true);assert.equal(event.properties.$process_person_profile,true);
   assert.equal(event.properties.source,'callayers_desktop');assert.equal(calls[0].request.redirect,'error');assert.ok(calls[0].request.signal);
+  assert.equal(event.properties.platform,'unknown');
+  await send('owner_A',[{...sample,platform:'linux',appVersion:'0.3.4'}]);
+  const linux=calls[3].body.batch[0];
+  assert.equal(linux.distinct_id,'callayers:owner_A');
+  assert.equal(linux.properties.platform,'linux');
+  assert.equal(linux.properties.app_version,'0.3.4');
   assert.deepEqual(Object.keys(event).sort(),['distinct_id','event','properties','timestamp','uuid']);
 });
 test('provider failure is generic and event limiter resets without persistent records',async()=>{
