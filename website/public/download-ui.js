@@ -2,6 +2,8 @@
  const byId=id=>document.getElementById(id);
  const windows=byId('choose-windows'),linux=byId('choose-linux'),distro=byId('linux-distro');
  if(!windows||!linux||!distro)return;
+ // Browsers expose Linux, but cannot reliably identify its distribution or release.
+ if(!distro.value)distro.value='ubuntu';
  const nav=typeof navigator==='undefined'?{}:navigator;
  const agent=nav.userAgent??'',platform=nav.userAgentData?.platform??nav.platform??'';
  const mobile=nav.userAgentData?.mobile||/Android|iPhone|iPad|iPod|CrOS/i.test(agent)||(/Mac/i.test(platform)&&nav.maxTouchPoints>1);
