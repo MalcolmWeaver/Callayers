@@ -37,6 +37,8 @@ test('campaign pageviews and explicit download events work without recording or 
  assert.equal(page.options.disable_session_recording,true);assert.equal(page.options.autocapture,false);
  page.listeners.click({target:{closest:()=>({id:'installer-link',dataset:{version:'0.3.0'}})}});
  assert.equal(page.events[1].event,'installer_download_clicked');assert.equal(page.events[1].properties.version,'0.3.0');
+ page.listeners.click({target:{closest:()=>({id:'',dataset:{version:'0.3.9',downloadPlatform:'windows'},closest:()=>null})}});
+ assert.equal(page.events[2].event,'installer_download_clicked');assert.equal(page.events[2].properties.button_location,'hero');
  const filtered=page.options.before_send({properties:{$referrer:'https://example.com/?code=PRIVATE#secret',
   $set_once:{$initial_current_url:'https://callayers.com/?secret=PRIVATE&utm_source=test#ticket=PRIVATE'}}});
  assert.equal(filtered.properties.$referrer,'https://example.com/');

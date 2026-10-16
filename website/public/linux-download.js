@@ -21,7 +21,10 @@ async function showLinuxRelease() {
     // when installing. The website never supplies a package URL from this text.
     download.hidden = false;
     download.dataset.version = version;
-    status.textContent = `Linux: ${version} · Beta · Ubuntu ${ubuntu} x64`;
+    download.dataset.ubuntu = ubuntu;
+    download.dataset.experimental = String(ubuntu !== '26.04');
+    status.textContent = `Linux: ${version} · Beta · x64`;
   } catch { unavailable(); }
+  finally { if(typeof window!=='undefined')window.callayersDownloads?.refresh(); }
 }
 showLinuxRelease();

@@ -20,17 +20,6 @@ async function showRelease(){
   if(link.dataset)link.dataset.version=release.version;
   status.textContent=`Windows: ${release.version} · x64 · Tester release`;
  }catch{unavailable('lookup_failed'); /* The page remains useful while offline. */ }
+ finally{if(typeof window!=='undefined')window.callayersDownloads?.refresh();}
 }
-const copy=document.getElementById('copy-linux'),command=document.getElementById('linux-command'),copyStatus=document.getElementById('copy-linux-status');
-if(copy&&command)copy.addEventListener('click',async()=>{
- const linuxDownload=document.getElementById('linux-download');
- if(!linuxDownload||linuxDownload.hidden||!linuxDownload.dataset.version)return;
- const text=command.textContent.trim(),version=linuxDownload.dataset.version;
- try{
-  await navigator.clipboard.writeText(text);
-  if(copyStatus)copyStatus.textContent='Copied. Paste it into a terminal.';
- }
- catch{if(copyStatus)copyStatus.textContent='Select the command and copy it.';return;}
- try{window.callayersTrack?.('linux_install_command_copied',{platform:'linux',app_version:version,button_location:'download'});}catch{}
-});
 showRelease();

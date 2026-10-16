@@ -71,6 +71,8 @@ node website/serve.mjs
 
 Open `http://127.0.0.1:4173`. Website source stays in `website/public`; build output is ignored. The source contains a home/download page and a tester privacy page. Its download control follows the published tester feed; it never creates an installer release.
 
+The download panel selects Windows or Linux using best-effort browser platform hints, with a manual platform switch for unsupported/unknown browsers and downloads for another computer. Header and hero buttons link directly to the published Windows installer when Windows is selected; Linux opens/focuses its distribution picker. Linux commands appear only after a distribution is selected: Ubuntu uses the standard installer, and Debian/Mint/Pop!_OS include `--allow-experimental` with distribution-specific requirements. Other distributions expose no install command. Browser detection does not establish Linux distribution, supported release, CPU compatibility, or Secure Boot state; the installer performs the actual machine checks. Successful Linux copies include the selected `distribution` in analytics; direct Windows hero/navigation downloads retain the existing download event with the corresponding button location.
+
 Website/release credentials, R2 bucket/domain/CORS activation, and GitHub variable/secret activation are required before hosted delivery can be verified. Prepared builds are not runtime acceptance; step 10 remains open until the user accepts installed behavior and hosted delivery.
 
 
