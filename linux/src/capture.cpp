@@ -32,7 +32,7 @@ struct Device {
 };
 
 QImage FromYuyv(const uint8_t* src, int width, int height, int stride) {
-    QImage image(width, height, QImage::Format_ARGB32);
+    QImage image(width, height, QImage::Format_RGB32);
     for (int y = 0; y < height; ++y) {
         auto input = src + size_t(y) * stride;
         auto row = reinterpret_cast<QRgb*>(image.scanLine(y));
@@ -212,7 +212,9 @@ void Capture::run(QString identity) {
         }
         if (!image.isNull()) {
             lastFrame = std::chrono::steady_clock::now();
-            image = image.convertToFormat(QImage::Format_ARGB32);
+            // Webcam pixels are opaque. Preserve that information so scaling
+            // does not take Qt's more expensive alpha-processing path.
+            image = image.convertToFormat(QImage::Format_RGB32);
             std::lock_guard lock(mutex_);
             latest_ = image;
             error_ = CaptureError::None;

@@ -82,7 +82,8 @@ void Output::run() {
             if (fresh_) { frame = pending_; fresh_ = false; }
         }
         if (frame.isNull()) { usleep(10000); continue; }
-        QImage bgra = frame.convertToFormat(QImage::Format_ARGB32);
+        // RGB32 retains the BGRA byte layout and avoids copying opaque frames.
+        QImage bgra = frame.convertToFormat(QImage::Format_RGB32);
         BgraToYuyv(bgra.constBits(), bgra.width(), bgra.height(), yuyv);
         const uint8_t* data = yuyv.data();
         size_t remaining = yuyv.size();

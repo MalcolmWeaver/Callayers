@@ -11,7 +11,8 @@
 #include <unistd.h>
 
 QImage ComposeFrame(const QImage& webcam, const QImage& overlay) {
-    QImage frame(OutputWidth,OutputHeight,QImage::Format_ARGB32);
+    // The finished picture is opaque; only the overlay needs an alpha channel.
+    QImage frame(OutputWidth,OutputHeight,QImage::Format_RGB32);
     frame.fill(Qt::black);
     QPainter painter(&frame);
     painter.setRenderHint(QPainter::SmoothPixmapTransform);
