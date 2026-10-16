@@ -37,11 +37,13 @@ h2 { font-size: 25px; line-height: 1.25; font-weight: 650; letter-spacing: -.8px
 .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 45px; padding: 44px 0 56px; border-top: 1px solid var(--line); }
 .features p { color: var(--muted); font-size: 14px; }
 .features h2 { font-size: 21px; }
-.download { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 40px; margin-bottom: 64px; display: grid; grid-template-columns: 1fr 1fr; align-items: center; gap: 64px; }
+.download { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 40px; margin-bottom: 64px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: center; gap: 64px; }
+.download > div { min-width: 0; }
 .download h2 { font-size: 36px; }
 .download p { color: var(--muted); max-width: 470px; }
 .download .eyebrow { color: var(--accent); }
 .download-action .fine { max-width: 360px; }
+#release-status, #linux-release-status { font-size: 14px; color: var(--text); }
 .install-command { margin: 14px 0; padding: 12px 14px; overflow-x: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; color: var(--text); font: 13px/1.5 ui-monospace, monospace; }
 .copy-command { margin-bottom: 8px; }
 footer { border-top: 1px solid var(--line); padding: 28px 0 40px; display: flex; align-items: center; justify-content: space-between; gap: 20px; font-size: 12px; color: var(--muted); }

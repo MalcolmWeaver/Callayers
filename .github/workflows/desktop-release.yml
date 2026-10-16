@@ -2,10 +2,12 @@ name: Windows app — Publish new version
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: 'New numeric version, e.g. 0.3.0 (never reuse a published version)'
+      increment:
+        description: 'Increase the latest published Windows version (current and next versions appear in the run summary)'
         required: true
-        type: string
+        default: patch
+        type: choice
+        options: [patch, minor, major]
 permissions:
   contents: read
 concurrency:
@@ -15,13 +17,16 @@ jobs:
   release:
     if: github.ref == 'refs/heads/main'
     runs-on: windows-2022
-    env:
-      VERSION: ${{ inputs.version }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Select next version from the published Windows feed
+        id: version
+        env:
+          RELEASE_INCREMENT: ${{ inputs.increment }}
+        run: node scripts/release-version.mjs select windows $env:RELEASE_INCREMENT
       - name: Validate version and build
         shell: pwsh
         run: ./scripts/build.ps1 -ReleaseBuild -Version $env:VERSION -ServiceUrl 'https://callayers-v2-api-3fj7uh2a7a-uc.a.run.app'
@@ -33,6 +38,8 @@ jobs:
           ./tests/release-update-test.ps1
           node --test tests/release-retention-test.mjs
           if($LASTEXITCODE -ne 0){throw 'Release retention tests failed.'}
+          node --test tests/release-version-test.mjs
+          if($LASTEXITCODE -ne 0){throw 'Release version tests failed.'}
       - name: Package and authenticate release
         shell: pwsh
         env:
@@ -56,8 +63,8 @@ jobs:
       - name: Keep installer as workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: callayers-${{ inputs.version }}-x64
-          path: build/installers/${{ inputs.version }}/
+          name: callayers-${{ steps.version.outputs.version }}-x64
+          path: build/installers/${{ steps.version.outputs.version }}/
       - name: Upload installer to R2, then publish update feed
         shell: pwsh
         env:

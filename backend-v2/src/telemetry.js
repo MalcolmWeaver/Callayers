@@ -9,7 +9,9 @@ export function validateEvents(body, now = new Date()) {
   if (!Array.isArray(body.events) || body.events.length < 1 || body.events.length > 32) invalid();
   const seen = new Set();
   return body.events.map(e => {
-    exact(e, ['id','sessionId','timestamp','appVersion','event','properties']);
+    const hasPlatform = object(e) && Object.hasOwn(e, 'platform');
+    exact(e, ['id','sessionId','timestamp','appVersion','event','properties', ...(hasPlatform ? ['platform'] : [])]);
+    if (hasPlatform && !['linux','windows','macos'].includes(e.platform)) invalid();
     if (!uuid.test(e.id) || !uuid.test(e.sessionId) || seen.has(e.id) ||
         typeof e.appVersion !== 'string' || !/^[A-Za-z0-9_.-]{1,64}$/.test(e.appVersion) ||
         typeof e.timestamp !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(e.timestamp)) invalid();
@@ -36,7 +38,8 @@ export function validateEvents(body, now = new Date()) {
     default: invalid();
     }
     // Rebuild from approved fields; never forward headers, tokens or request bodies.
-    return { id:e.id, sessionId:e.sessionId, timestamp:e.timestamp, appVersion:e.appVersion, event:e.event, properties:{...p} };
+    return { id:e.id, sessionId:e.sessionId, timestamp:e.timestamp, appVersion:e.appVersion,
+      ...(hasPlatform ? {platform:e.platform} : {}), event:e.event, properties:{...p} };
   });
 }
 export async function readEvents(req, now) {
@@ -49,7 +52,7 @@ export async function readEvents(req, now) {
 export function telemetryProvider(config, fetcher = fetch) {
   return async (uid, events) => {
     const batch = events.map(e => ({ uuid:e.id, event:e.event, distinct_id:`callayers:${uid}`, timestamp:e.timestamp,
-      properties:{ ...e.properties, session_id:e.sessionId, app_version:e.appVersion, source:'callayers_desktop',
+      properties:{ ...e.properties, session_id:e.sessionId, app_version:e.appVersion, platform:e.platform ?? 'unknown', source:'callayers_desktop',
         $geoip_disable:true, $process_person_profile:true } }));
     // A retry preserves UUID, timestamp, event and owner for eventual deduplication.
     const response = await fetcher(`${config.posthogHost}/batch/`, { method:'POST', redirect:'error',

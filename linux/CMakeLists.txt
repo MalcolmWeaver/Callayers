@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-set(CALLAYERS_RELEASE_VERSION "0.3.3" CACHE STRING "Numeric Linux release version")
+set(CALLAYERS_RELEASE_VERSION "0.3.4" CACHE STRING "Numeric Linux release version")
 if(NOT CALLAYERS_RELEASE_VERSION MATCHES "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$")
   message(FATAL_ERROR "Release version must be major.minor.patch")
 endif()

@@ -1,17 +1,29 @@
 name: Linux app — Build and test
 on:
   pull_request:
-    paths: ['linux/**', 'web/**', 'scripts/*linux*', 'scripts/release-storage.mjs', 'tests/linux-*', '.github/workflows/linux*.yml']
+    paths: ['linux/**', 'web/**', 'scripts/*linux*', 'scripts/release-storage.mjs', 'scripts/release-retention.mjs', 'scripts/release-version.mjs', 'tests/linux-*', 'tests/release-version-test.mjs', '.github/workflows/linux*.yml']
   push:
     branches: [main]
-    paths: ['linux/**', 'web/**', 'scripts/*linux*', 'scripts/release-storage.mjs', 'tests/linux-*', '.github/workflows/linux*.yml']
+    paths: ['linux/**', 'web/**', 'scripts/*linux*', 'scripts/release-storage.mjs', 'scripts/release-retention.mjs', 'scripts/release-version.mjs', 'tests/linux-*', 'tests/release-version-test.mjs', '.github/workflows/linux*.yml']
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      release_version:
+        description: 'Version selected by the Linux publish workflow'
+        required: true
+        type: string
+      source_sha:
+        description: 'Exact main commit selected by the Linux publish workflow'
+        required: true
+        type: string
 permissions:
   contents: read
 jobs:
   build:
     runs-on: ubuntu-24.04
     container: ubuntu:22.04
+    env:
+      VERSION: ${{ inputs.release_version }}
     defaults:
       run:
         shell: bash
@@ -27,18 +39,20 @@ jobs:
           # integration requires one even for offscreen renderer checks.
           python3 -c 'from pathlib import Path; import uuid; p = Path("/etc/machine-id"); p.write_text(uuid.uuid4().hex + "\n") if not p.exists() or not p.read_text().strip() else None'
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
       - name: Build and test development interactions
         run: |
           python3 linux/packaging/acquire-renderer.py
-          cmake -S linux -B build/linux-ci -DCMAKE_BUILD_TYPE=Release -DCALLAYERS_DEVELOPMENT=ON
+          cmake -S linux -B build/linux-ci -DCMAKE_BUILD_TYPE=Release -DCALLAYERS_DEVELOPMENT=ON ${VERSION:+"-DCALLAYERS_RELEASE_VERSION=$VERSION"}
           cmake --build build/linux-ci --parallel 2
           ctest --test-dir build/linux-ci --output-on-failure
       - name: Build and check production package
         run: |
-          bash linux/packaging/build-deb.sh
+          bash linux/packaging/build-deb.sh ${VERSION:+"$VERSION"}
           version=$(sed -n 's/^CMAKE_PROJECT_VERSION:STATIC=//p' build/linux/CMakeCache.txt)
           package="build/linux/callayers_${version}_amd64.deb"
           python3 linux/packaging/check-package.py "$package"
@@ -50,7 +64,7 @@ jobs:
         run: |
           python3 tests/linux-repository-test.py
           python3 tests/linux-installer-test.py
-          node --test tests/linux-release-test.mjs tests/release-retention-test.mjs tests/linux-website-test.mjs
+          node --test tests/linux-release-test.mjs tests/release-retention-test.mjs tests/release-version-test.mjs tests/linux-website-test.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: callayers-ubuntu-lts-amd64
@@ -75,6 +89,8 @@ jobs:
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates python3 binutils
           python3 -c 'from pathlib import Path; import uuid; p = Path("/etc/machine-id"); p.write_text(uuid.uuid4().hex + "\n") if not p.exists() or not p.read_text().strip() else None'
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
       - uses: actions/download-artifact@v4
         with:
           name: callayers-ubuntu-lts-amd64
