@@ -15,7 +15,8 @@ fi
 
 if [ ! -e /dev/video42 ]; then
   if lsmod | awk '{print $1}' | grep -qx v4l2loopback; then
-    modprobe -r v4l2loopback || { echo "The Callayers camera number is unavailable." >&2; exit 1; }
+    echo "Another virtual-camera setup is already loaded. Restart, then run sudo dpkg --configure callayers." >&2
+    exit 1
   fi
   modprobe v4l2loopback
 fi

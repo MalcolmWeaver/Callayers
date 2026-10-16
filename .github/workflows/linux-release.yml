@@ -1,0 +1,72 @@
+name: Linux app — Publish tested version
+on:
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: 'Successful Linux build run on main containing the package you tested'
+        required: true
+        type: string
+      installation_verified:
+        description: 'I verified fresh installation, real sign-in, camera/card in a calling app, and reboot on Ubuntu 26.04'
+        required: true
+        default: false
+        type: boolean
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: linux-beta-release
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main' && inputs.installation_verified
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Validate selected build
+        id: build
+        uses: actions/github-script@v7
+        env:
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+        with:
+          script: |
+            if (!/^[1-9]\d*$/.test(process.env.BUILD_RUN_ID)) throw Error('Invalid build run ID');
+            const {data: run} = await github.rest.actions.getWorkflowRun({...context.repo, run_id: Number(process.env.BUILD_RUN_ID)});
+            const {data: workflow} = await github.rest.actions.getWorkflow({...context.repo, workflow_id: 'linux.yml'});
+            if (run.workflow_id !== workflow.id || run.conclusion !== 'success' || run.head_branch !== 'main' ||
+                !['push', 'workflow_dispatch'].includes(run.event) || run.head_repository.full_name !== `${context.repo.owner}/${context.repo.repo}`)
+              throw Error('Choose a successful Linux build from main in this repository');
+            core.setOutput('sha', run.head_sha);
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.build.outputs.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@v4
+        with:
+          name: callayers-ubuntu-26.04-amd64
+          run-id: ${{ inputs.build_run_id }}
+          github-token: ${{ github.token }}
+          path: build/linux-artifact
+      - name: Verify package and prepare signed repository
+        env:
+          APT_SIGNING_KEY: ${{ secrets.LINUX_APT_SIGNING_KEY }}
+          APT_SIGNING_FINGERPRINT: ${{ vars.LINUX_APT_SIGNING_FINGERPRINT }}
+        run: |
+          set -euo pipefail
+          test -n "$APT_SIGNING_KEY" && test -n "$APT_SIGNING_FINGERPRINT"
+          (cd build/linux-artifact && sha256sum --check SHA256SUMS)
+          cmp build/linux-artifact/install.sh linux/packaging/install.sh
+          export GNUPGHOME
+          GNUPGHOME=$(mktemp -d)
+          trap 'gpgconf --kill gpg-agent || true; rm -rf "$GNUPGHOME"' EXIT
+          printf '%s' "$APT_SIGNING_KEY" | gpg --batch --import
+          unset APT_SIGNING_KEY
+          packages=(build/linux-artifact/callayers_*_amd64.deb)
+          test "${#packages[@]}" -eq 1
+          python3 linux/packaging/build-repository.py "${packages[0]}" build/linux-repository --fingerprint "$APT_SIGNING_FINGERPRINT"
+      - name: Publish exact tested package, then signed APT metadata
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_R2_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: node scripts/publish-linux.mjs build/linux-repository

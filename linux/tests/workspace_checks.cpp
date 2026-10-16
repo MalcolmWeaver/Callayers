@@ -117,7 +117,11 @@ int main(int argc, char** argv) {
         auto retry = window.findChild<QPushButton*>("retryCamera");
         auto status = window.findChild<QLabel*>("cameraStatus");
         auto preview = window.findChild<Preview*>();
-        if (!app.arguments().contains("--skip-sign-in")) {
+        bool expectsBypass = false;
+#ifdef CALLAYERS_DEVELOPMENT
+        expectsBypass = app.arguments().contains("--skip-sign-in");
+#endif
+        if (!expectsBypass) {
             Check(stack && stack->currentIndex() == 0, "Default development startup bypassed sign-in");
             QPushButton* signIn = nullptr;
             for (auto button : window.findChildren<QPushButton*>())

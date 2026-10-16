@@ -10,7 +10,7 @@ deb=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --check) check_only=1 ;;
-    --deb) deb="${2:-}"; shift ;;
+    --deb) [ $# -ge 2 ] && [ -f "$2" ] || { echo "--deb requires an existing package" >&2; exit 2; }; deb="$(realpath "$2")"; shift ;;
     *) echo "Usage: install.sh [--check] [--deb package.deb]" >&2; exit 2 ;;
   esac
   shift
@@ -20,14 +20,14 @@ if [ -r /etc/os-release ]; then
   # shellcheck disable=SC1091
   . /etc/os-release
 else
-  echo "Callayers for Linux requires Ubuntu 24.04 or 26.04 on x64." >&2
+  echo "Callayers for Linux requires Ubuntu 26.04 on x64." >&2
   exit 1
 fi
 
 version_id="${VERSION_ID:-}"
 arch="$(uname -m)"
-if [ "${ID:-}" != "ubuntu" ] || { [ "$version_id" != "24.04" ] && [ "$version_id" != "26.04" ]; } || [ "$arch" != "x86_64" ]; then
-  echo "Callayers for Linux requires Ubuntu 24.04 or 26.04 on x64." >&2
+if [ "${ID:-}" != "ubuntu" ] || [ "$version_id" != "26.04" ] || [ "$arch" != "x86_64" ]; then
+  echo "Callayers for Linux requires Ubuntu 26.04 on x64." >&2
   exit 1
 fi
 

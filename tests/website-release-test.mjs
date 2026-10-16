@@ -7,7 +7,7 @@ const script = await readFile(new URL('../website/public/download.js', import.me
 
 async function show(url, published = true) {
   const link = {hidden: true}, status = {textContent: 'No release yet'}, requests = [];
-  await runInNewContext(script, {document: {getElementById: id => id === 'installer-link' ? link : status},
+  await runInNewContext(script, {document: {getElementById: id => ({'installer-link': link, 'release-status': status})[id] ?? null},
     Uint8Array, TextDecoder, AbortSignal, atob,
     fetch: async address => {
       requests.push(address);

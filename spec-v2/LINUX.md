@@ -2,9 +2,9 @@
 
 The Linux app is the same product as [APP.md](APP.md), on the same backend as [BACKEND.md](BACKEND.md). Cards, annotations, sign-in, allowances, and telemetry follow [AI.md](AI.md) and [DATA.md](DATA.md). Video follows [FRAMES.md](FRAMES.md) except for the differences in this document.
 
-Parity follows the accepted Windows functionality, interaction, and visual design. Linux-native window borders, menus, and file dialogs are allowed; identical pixels are not required. Ubuntu 24.04/26.04 x64 on Wayland and X11 remain the target. Public apt-repository and website publication are separate from a locally installable package.
+Parity follows the accepted Windows functionality, interaction, and visual design. Linux-native window borders, menus, and file dialogs are allowed; identical pixels are not required. The first public beta targets Ubuntu 26.04 x64 on Wayland and X11; other distributions and Ubuntu 24.04 are not advertised as supported. Public apt-repository and website publication are separate from a locally installable package.
 
-For the current implementation pass, virtual-camera changes and verification are explicitly deferred by the user. Do not treat that portion as accepted.
+Development checks have measured 30 fps camera capture and working virtual output. Fresh production installation, real sign-in, calling-app behavior, and reboot are release acceptance checks; development results do not establish those.
 
 The shell is Qt 6 Widgets. The real webcam and the Callayers camera are both V4L2 devices. The app does not implement a PipeWire node, a portal, or a camera helper process.
 
@@ -12,7 +12,7 @@ The shell is Qt 6 Widgets. The real webcam and the Callayers camera are both V4L
 
 | Choice | Decision |
 | --- | --- |
-| Desktop | Ubuntu 24.04 or 26.04 x64, Wayland or X11, through Qt |
+| Desktop | Ubuntu 26.04 x64, Wayland or X11, through Qt |
 | UI | Qt 6 Widgets, using Ubuntu's Qt 6 packages |
 | Cards and annotations | Ultralight CPU, offscreen, bundled in the package |
 | Webcam | Open the chosen `/dev/video*` node with V4L2 |
@@ -71,7 +71,7 @@ curl -fsSL https://downloads.callayers.com/linux/install.sh | sudo bash
 
 The script is `linux/packaging/install.sh`. It is the only install path. Do not also offer a downloaded `.deb` as a second, less reliable installer.
 
-Before it changes the machine, the script requires Ubuntu 24.04 or 26.04 on x64. If Secure Boot is enabled, it stops with one message: the Callayers camera needs the `v4l2loopback` module, and Secure Boot is blocking it. It does not enroll a machine-owner key and it does not leave the app installed without a camera.
+Before it changes the machine, the script requires Ubuntu 26.04 on x64. If Secure Boot is enabled, it stops with one message: the Callayers camera needs the `v4l2loopback` module, and Secure Boot is blocking it. It does not enroll a machine-owner key and it does not leave the app installed without a camera.
 
 On a supported machine it then:
 
@@ -83,7 +83,7 @@ A reboot is not part of a successful install. A later logout is required only if
 
 `install.sh --deb callayers_<version>_amd64.deb` installs a locally built package with the same checks and kernel-header step. That is how a build is installed before the public repository is published. `dpkg -i` alone does not install the camera module.
 
-The package installed from the repository is signed by the archive key. The first local `.deb` used before that repository exists may be unsigned, matching the current Windows tester release.
+APT verifies the archive-key signature on repository metadata, which authenticates the package through its SHA-256 hash. The first local `.deb` used before that repository exists may be unsigned, matching the current Windows tester release.
 
 ## Build
 
@@ -115,9 +115,9 @@ For development without opening either camera, use the development build with `-
 ctest --test-dir build/linux-camera -R 'linux_html_renderer|linux_preview_interactions|linux_development_workspace|linux_sign_in_gate' --output-on-failure
 ```
 
-The package derives its minimum system-library requirements from the build host. Build on Ubuntu 24.04 for a package intended for that release; a 26.04 build is not automatically compatible with 24.04. Package extraction and `callayers --self-check` check bundled renderer loading without opening a camera, accessing saved work, or signing in. They do not establish desktop or calling-app acceptance. `CALLAYERS_BUILD_JOBS` controls package-build parallelism and `CALLAYERS_CMAKE` can select a CMake binary.
+The package derives its minimum system-library requirements from the build host. Release builds use Ubuntu 26.04; this package is not advertised as compatible with 24.04. Package extraction and `callayers --self-check` check bundled renderer loading without opening a camera, accessing saved work, or signing in. They do not establish desktop or calling-app acceptance. `CALLAYERS_BUILD_JOBS` controls package-build parallelism and `CALLAYERS_CMAKE` can select a CMake binary.
 
-Workspace and preference saves use atomic replacement. Existing Linux workspaces remain readable and gain card state/revision metadata when saved. A malformed existing workspace is retained rather than overwritten. Local session, content-created, and preview-card telemetry are bounded and best effort; virtual-camera/output telemetry remains part of the deferred virtual-camera work.
+Workspace and preference saves use atomic replacement. Existing Linux workspaces remain readable and gain card state/revision metadata when saved. A malformed existing workspace is retained rather than overwritten. Local session, content-created, and preview-card telemetry are bounded and best effort; consumer identity remains best effort.
 
 ## Sign-in
 
@@ -126,3 +126,7 @@ Use the existing Google desktop client, loopback listener, and Firebase exchange
 ## What this does not add
 
 No PipeWire or portal implementation, no camera helper, no second distro package, no Flatpak, and no change to the backend, card format, or Windows app.
+
+## Linux beta releases
+
+See [release operations](../release/README.md#linux-beta) for the Ubuntu build artifact, signing setup, and manual promotion of the exact installed/tested package. Linux publication is independent of Windows releases.

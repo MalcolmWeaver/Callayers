@@ -50,15 +50,20 @@ window.CallayersCard={snapshot:()=>({count}),restore:s=>{count=s.count||0;add.te
     renderer.suspend(cards); Check(Paint(renderer,cards),"Resume failed");
     Check(renderer.evaluate("add.textContent","card-0")=="2","Suspend discarded state");
     Annotation text;text.id=123;text.kind=Tool::Text;text.text="Completed text";text.box={20,600,500,90};text.font=50;
+    // The restored HTML card above may still be painting. Compare the text
+    // region below it so asynchronous card painting cannot mask or mimic an
+    // annotation regression.
+    const QRect textRegion(0, 900, 1920, 180);
     QElapsedTimer paint;paint.start();
     bool privateReady=false;
     while(paint.elapsed()<5000) {
-        if(renderer.render(cards,{text},123) && renderer.previewImage()!=renderer.image()) {privateReady=true;break;}
+        if(renderer.render(cards,{text},123) && renderer.previewImage().copy(textRegion)!=renderer.image().copy(textRegion)) {privateReady=true;break;}
         QApplication::processEvents();QThread::msleep(10);
     }
     Check(privateReady,"Private preview did not hide completed text");
-    const auto completed=renderer.image();
+    const auto completed=renderer.image().copy(textRegion);
     Check(renderer.render(cards,{text},0),"Text restore failed");
-    Check(renderer.image()==completed,"Editing changed the completed scene");
+    Check(renderer.image().copy(textRegion)==completed,"Editing changed completed text in the output");
+    Check(renderer.previewImage().copy(textRegion)==completed,"Completed text did not return to the preview");
     std::cout << "HTML painting, scaled input, state, hide/show, suspend and sandbox checks passed\n";
 }
