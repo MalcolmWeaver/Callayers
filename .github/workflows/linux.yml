@@ -1,0 +1,55 @@
+name: Linux app — Build and test
+on:
+  pull_request:
+    paths: ['linux/**', 'web/**', 'scripts/*linux*', 'scripts/release-storage.mjs', 'tests/linux-*', '.github/workflows/linux*.yml']
+  push:
+    branches: [main]
+    paths: ['linux/**', 'web/**', 'scripts/*linux*', 'scripts/release-storage.mjs', 'tests/linux-*', '.github/workflows/linux*.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    container: ubuntu:26.04
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            ca-certificates curl git build-essential cmake python3 libarchive13t64 \
+            qt6-base-dev qt6-qpa-plugins qt6-wayland libgl1-mesa-dev \
+            libfontconfig1 libxcb-present0 fonts-dejavu-core dpkg-dev gnupg binutils
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build and test development interactions
+        run: |
+          python3 linux/packaging/acquire-renderer.py
+          cmake -S linux -B build/linux-ci -DCMAKE_BUILD_TYPE=Release -DCALLAYERS_DEVELOPMENT=ON
+          cmake --build build/linux-ci --parallel 2
+          ctest --test-dir build/linux-ci --output-on-failure
+      - name: Build and check production package
+        run: |
+          bash linux/packaging/build-deb.sh
+          version=$(sed -n 's/^CMAKE_PROJECT_VERSION:STATIC=//p' build/linux/CMakeCache.txt)
+          package="build/linux/callayers_${version}_amd64.deb"
+          python3 linux/packaging/check-package.py "$package"
+          mkdir -p build/linux-artifact
+          cp "$package" linux/packaging/install.sh build/linux-artifact/
+          cd build/linux-artifact
+          sha256sum callayers_*_amd64.deb install.sh > SHA256SUMS
+      - name: Test repository signatures and publication ordering
+        run: |
+          python3 tests/linux-repository-test.py
+          node --test tests/linux-release-test.mjs tests/release-retention-test.mjs tests/linux-website-test.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: callayers-ubuntu-26.04-amd64
+          path: build/linux-artifact/
+          if-no-files-found: error
+          retention-days: 30

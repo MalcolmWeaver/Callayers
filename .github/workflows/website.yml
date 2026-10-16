@@ -20,7 +20,7 @@ jobs:
         with:
           node-version: '22'
       - run: node website/build.mjs
-      - run: node --test tests/website-release-test.mjs tests/website-analytics-test.mjs
+      - run: node --test tests/website-release-test.mjs tests/website-analytics-test.mjs tests/linux-website-test.mjs
       - name: Check Cloudflare publishing configuration
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         env:

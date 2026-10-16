@@ -1,0 +1,27 @@
+#!/bin/bash
+set -euo pipefail
+if [ "${1:-}" != "configure" ]; then
+  exit 0
+fi
+
+camera_name() {
+  tr -d '\0\n' < /sys/class/video4linux/video42/name 2>/dev/null || true
+}
+
+if [ -e /dev/video42 ] && [ "$(camera_name)" != "Callayers" ]; then
+  echo "The Callayers camera number is unavailable." >&2
+  exit 1
+fi
+
+if [ ! -e /dev/video42 ]; then
+  if lsmod | awk '{print $1}' | grep -qx v4l2loopback; then
+    echo "Another virtual-camera setup is already loaded. Restart, then run sudo dpkg --configure callayers." >&2
+    exit 1
+  fi
+  modprobe v4l2loopback
+fi
+
+if [ ! -e /dev/video42 ] || [ "$(camera_name)" != "Callayers" ]; then
+  echo "The Callayers camera needs the v4l2loopback module, and it did not load." >&2
+  exit 1
+fi
