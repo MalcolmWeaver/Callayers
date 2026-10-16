@@ -19,9 +19,12 @@ class Platforms(unittest.TestCase):
             commands = root / "bin"
             commands.mkdir()
             for name, body in {
-                "uname": f'echo "{arch}"',
+                "uname": f'if [ "$1" = -m ]; then echo "{arch}"; else echo 6.17.0-test; fi',
                 "mokutil": "echo 'SecureBoot disabled'",
                 "apt-get": "echo 'ERROR: package manager was invoked'; exit 99",
+                "dnf": "echo 'ERROR: package manager was invoked'; exit 99",
+                "pacman": "echo 'ERROR: package manager was invoked'; exit 99",
+                "pacman-key": "echo 'ERROR: signing trust was changed'; exit 99",
                 "usermod": "echo 'ERROR: account was changed'; exit 99",
             }.items():
                 command = commands / name
@@ -47,6 +50,9 @@ class Platforms(unittest.TestCase):
             'ID=linuxmint\nVERSION_ID="22"\nUBUNTU_CODENAME=noble\n',
             'ID=pop\nVERSION_ID="22.04"\nUBUNTU_CODENAME=jammy\n',
             'ID=pop\nVERSION_ID="24.04"\nUBUNTU_CODENAME=noble\n',
+            'ID=fedora\nVERSION_ID="43"\nVARIANT_ID=workstation\n',
+            'ID=fedora\nVERSION_ID="44"\n',
+            'ID=arch\n',
         ):
             with self.subTest(release=release):
                 rejected = self.check_platform(release)
@@ -64,7 +70,9 @@ class Platforms(unittest.TestCase):
             'ID=debian\nVERSION_ID="11"\n',
             'ID=linuxmint\nVERSION_ID="20"\nUBUNTU_CODENAME=focal\n',
             'ID=pop\nVERSION_ID="22.04"\n',
-            'ID=fedora\nVERSION_ID="44"\nID_LIKE="debian ubuntu"\n',
+            'ID=fedora\nVERSION_ID="42"\nID_LIKE="debian ubuntu"\n',
+            'ID=fedora\nVERSION_ID="44"\nVARIANT_ID=silverblue\n',
+            'ID=manjaro\nID_LIKE=arch\n',
         ):
             with self.subTest(release=release):
                 self.assertNotEqual(self.check_platform(release, "--allow-experimental").returncode, 0)
@@ -73,6 +81,20 @@ class Platforms(unittest.TestCase):
         result = self.check_platform('ID=ubuntu\nVERSION_ID="22.04"\n', arch="aarch64")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Intel/AMD x64", result.stderr)
+
+    def test_backend_plans_and_fedora_repository_opt_in(self):
+        fedora = self.check_platform('ID=fedora\nVERSION_ID=44\n', '--allow-experimental')
+        self.assertIn('Package manager: dnf', fedora.stdout)
+        self.assertIn('kernel-devel-6.17.0-test', fedora.stdout)
+        self.assertIn('Requires RPM Fusion Free already installed', fedora.stdout)
+        opted = self.check_platform('ID=fedora\nVERSION_ID=44\n', '--allow-experimental', '--enable-rpmfusion')
+        self.assertIn('Would enable RPM Fusion Free', opted.stdout)
+        arch = self.check_platform('ID=arch\n', '--allow-experimental')
+        self.assertIn('Package manager: pacman', arch.stdout)
+        self.assertIn('full Arch upgrade', arch.stdout)
+        rejected = self.check_platform('ID=ubuntu\nVERSION_ID=24.04\n', '--enable-rpmfusion')
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn('only valid for Fedora', rejected.stderr)
 
 
 if __name__ == "__main__":

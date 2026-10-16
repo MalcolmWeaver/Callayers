@@ -23,6 +23,7 @@ async function showLinuxRelease() {
     download.dataset.version = version;
     download.dataset.ubuntu = ubuntu;
     download.dataset.experimental = String(ubuntu !== '26.04');
+    download.dataset.native = String(release.includes('X-Callayers-Native: fedora arch\n') && release.includes('X-Callayers-Fedora: 43 44\n'));
     status.textContent = `Linux: ${version} · Beta · x64`;
   } catch { unavailable(); }
   finally { if(typeof window!=='undefined')window.callayersDownloads?.refresh(); }

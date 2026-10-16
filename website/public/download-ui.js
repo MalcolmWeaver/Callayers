@@ -2,6 +2,8 @@
  const byId=id=>document.getElementById(id);
  const windows=byId('choose-windows'),linux=byId('choose-linux'),distro=byId('linux-distro');
  if(!windows||!linux||!distro)return;
+ // Browsers expose Linux, but cannot reliably identify its distribution or release.
+ if(!distro.value)distro.value='ubuntu';
  const nav=typeof navigator==='undefined'?{}:navigator;
  const agent=nav.userAgent??'',platform=nav.userAgentData?.platform??nav.platform??'';
  const mobile=nav.userAgentData?.mobile||/Android|iPhone|iPad|iPod|CrOS/i.test(agent)||(/Mac/i.test(platform)&&nav.maxTouchPoints>1);
@@ -9,25 +11,30 @@
  let selected=detected;
  const topLinks=[...document.querySelectorAll('[data-download-cta]')];
  const install='curl -fsSL https://downloads.callayers.com/linux/install.sh | sudo bash';
- const experimental=new Set(['debian','mint','pop']);
+ const experimental=new Set(['debian','mint','pop','fedora','arch']);
+ const native=new Set(['fedora','arch']);
+ const fusion=byId('enable-rpmfusion');
 
  function updateCommand() {
   const release=byId('linux-download'),choice=distro.value;
   const command=byId('linux-command'),panel=byId('linux-command-panel'),note=byId('linux-distro-note');
-  const allowed=['ubuntu',...experimental].includes(choice)&&(!experimental.has(choice)||release.dataset.experimental==='true');
+  const allowed=['ubuntu',...experimental].includes(choice)&&(!experimental.has(choice)||release.dataset.experimental==='true')&&(!native.has(choice)||release.dataset.native==='true');
+  byId('fedora-repository').hidden=choice!=='fedora'||!allowed;
   panel.hidden=!allowed||release.hidden;
   command.textContent='';
   byId('copy-linux-status').textContent='Paste it into Terminal and enter your password when asked.';
   if(!choice){note.textContent='Choose your distribution to see its install command.';return;}
-  if(choice==='other'){note.textContent='An installer is not available for this distribution yet. Fedora, Arch, and other distributions are not currently supported.';return;}
+  if(choice==='other'){note.textContent='An installer is not available for this distribution yet. Other Linux distributions are not currently supported.';return;}
   if(!allowed){note.textContent='Experimental installation for this distribution is not available in the published release.';return;}
   const versions=release.dataset.ubuntu??'22.04 / 24.04 / 26.04';
   const notes={ubuntu:`Ubuntu ${versions}.`,debian:'Debian 12 or 13. Experimental: desktop and camera setup have not been verified.',
    mint:`Linux Mint with an Ubuntu ${versions} base. Experimental; Linux Mint Debian Edition is not supported.`,
-   pop:`Pop!_OS with an Ubuntu ${versions} base. Experimental: desktop and camera setup have not been verified.`};
+   pop:`Pop!_OS with an Ubuntu ${versions} base. Experimental: desktop and camera setup have not been verified.`,
+   fedora:'Fedora 43 or 44 on a traditional desktop. Experimental; Fedora Atomic editions are not supported. The camera requires RPM Fusion Free.',
+   arch:'Arch Linux (rolling). Experimental. Installation performs a full system upgrade; a kernel update may require a reboot and rerunning the installer.'};
   note.textContent=notes[choice];
   byId('linux-support-badge').textContent=experimental.has(choice)?'Experimental':'Ubuntu beta';
-  command.textContent=install+(experimental.has(choice)?' -s -- --allow-experimental':'');
+  command.textContent=install+(experimental.has(choice)?' -s -- --allow-experimental':'')+(choice==='fedora'&&fusion.checked?' --enable-rpmfusion':'');
  }
  function refresh() {
   windows.setAttribute('aria-pressed',String(selected==='windows'));
@@ -47,6 +54,7 @@
  }
  for(const [button,value]of [[windows,'windows'],[linux,'linux']])button.addEventListener('click',()=>{selected=value;refresh();});
  distro.addEventListener('change',updateCommand);
+ fusion.addEventListener('change',updateCommand);
  for(const link of topLinks)link.addEventListener('click',event=>{
   if(link.dataset.downloadPlatform==='windows')return;
   event.preventDefault();

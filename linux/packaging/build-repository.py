@@ -10,7 +10,7 @@ from pathlib import Path
 import re
 import subprocess
 
-def build(package, output, fingerprint):
+def build(package, output, fingerprint, native=None):
     if not re.fullmatch(r"[A-Fa-f0-9]{40}", fingerprint):
         raise ValueError("An explicit signing-key fingerprint is required")
     def field(name):
@@ -21,6 +21,9 @@ def build(package, output, fingerprint):
     if field("Package") != "callayers" or field("Architecture") != "amd64":
         raise ValueError("Expected Callayers amd64 package")
     output.mkdir(parents=True, exist_ok=False)
+    if native:
+        import runpy
+        runpy.run_path(str(Path(__file__).with_name("native-repositories.py")))["build_native"](native, output, version, fingerprint)
     def write(key, data):
         target = output / key
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -36,7 +39,8 @@ def build(package, output, fingerprint):
                "Architectures: amd64\nComponents: main\nAcquire-By-Hash: yes\n"
                f"Date: {format_datetime(datetime.now(timezone.utc), usegmt=True)}\n"
                f"X-Callayers-Version: {version}\nX-Callayers-Ubuntu: 22.04 24.04 26.04\n"
-               "Description: Callayers for Ubuntu LTS x64\nSHA256:\n")
+               "Description: Callayers for Ubuntu LTS x64\n" +
+               ("X-Callayers-Native: fedora arch\nX-Callayers-Fedora: 43 44\n" if native else "") + "SHA256:\n")
     for name, data in indices.items():
         write("linux/apt/dists/stable/" + name, data)
         write("linux/apt/dists/stable/main/binary-amd64/by-hash/SHA256/" + digest(data), data)
@@ -61,5 +65,6 @@ if __name__ == "__main__":
     parser.add_argument("package", type=Path)
     parser.add_argument("output", type=Path)
     parser.add_argument("--fingerprint", required=True)
+    parser.add_argument("--native", type=Path)
     args = parser.parse_args()
-    build(args.package.resolve(), args.output.resolve(), args.fingerprint)
+    build(args.package.resolve(), args.output.resolve(), args.fingerprint, args.native.resolve() if args.native else None)

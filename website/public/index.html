@@ -28,14 +28,19 @@
       <div id="linux-download" hidden>
         <label class="distro-label" for="linux-distro">Your Linux distribution</label>
         <select id="linux-distro">
-          <option value="">Choose your distribution</option>
-          <option value="ubuntu">Ubuntu</option>
+          <option value="ubuntu" selected>Ubuntu (default)</option>
           <option value="debian">Debian</option>
           <option value="mint">Linux Mint</option>
           <option value="pop">Pop!_OS</option>
+          <option value="fedora">Fedora</option>
+          <option value="arch">Arch Linux</option>
           <option value="other">Another distribution</option>
         </select>
         <p id="linux-distro-note" class="fine" role="status">Choose your distribution to see its install command.</p>
+        <div id="fedora-repository" class="fine" hidden>
+          <label><input type="checkbox" id="enable-rpmfusion"> Enable RPM Fusion Free if needed</label>
+          <p>RPM Fusion Free is a community software repository that provides the virtual-camera driver. Leave this off if you have already set it up yourself.</p>
+        </div>
         <div id="linux-command-panel" hidden>
           <div class="command-heading"><span>Run in Terminal</span><span id="linux-support-badge" class="support-badge"></span></div>
           <pre class="install-command" tabindex="0" aria-label="Linux install command"><code id="linux-command"></code></pre>

@@ -10,6 +10,8 @@ const versionPattern = /^(0|[1-9]\d{0,4})\.(0|[1-9]\d{0,4})\.(0|[1-9]\d{0,4})$/;
 const root = 'linux/apt/dists/stable/';
 const keyring = 'linux/callayers-archive-keyring.gpg';
 const sha256 = data => createHash('sha256').update(data).digest('hex');
+const immutableKey = key => key === keyring || key === 'linux/callayers-archive-key.asc' || key.includes('/pool/') || key.includes('/by-hash/') ||
+  key.startsWith('linux/rpm/packages/') || /\/repodata\/[a-f0-9]{64}-/.test(key) || /\.pkg\.tar\.zst(\.sig)?$/.test(key);
 const releaseVersion = bytes => bytes?.toString().match(/^X-Callayers-Version: (\d+\.\d+\.\d+)$/m)?.[1];
 const compare = (a, b) => {
   const left = a.split('.').map(Number), right = b.split('.').map(Number);
@@ -50,6 +52,19 @@ export async function publishLinux({directory, store, fetchImpl = fetch}) {
     const verified = spawnSync('gpgv', ['--homedir', verifyHome, '--keyring', path.join(directory, keyring),
       '--output', '-', path.join(directory, `${root}InRelease`)], {maxBuffer: 1024 * 1024});
     if (verified.status !== 0 || !verified.stdout.equals(files.get(`${root}Release`))) throw Error('APT signature rejected.');
+    const native = files.get(`${root}Release`).toString().includes('X-Callayers-Native: fedora arch\n');
+    const hasNative = [...files.keys()].some(key => key.startsWith('linux/rpm/') || key.startsWith('linux/arch/'));
+    if (native !== hasNative) throw Error('Native repositories and signed capability metadata must agree.');
+    if (native) {
+      const rpm = `linux/rpm/packages/callayers-${manifest.version}-1.x86_64.rpm`;
+      const arch = `linux/arch/x86_64/callayers-${manifest.version}-1-x86_64.pkg.tar.zst`;
+      for (const required of [rpm, arch, `${arch}.sig`, 'linux/callayers-archive-key.asc',
+        'linux/rpm/repodata/repomd.xml', 'linux/rpm/repodata/repomd.xml.asc',
+        'linux/arch/x86_64/callayers.db', 'linux/arch/x86_64/callayers.db.sig'])
+        if (!files.has(required)) throw Error(`Missing native repository file: ${required}`);
+      const indices = spawnSync('python3', [new URL('../linux/packaging/verify-native-repositories.py', import.meta.url).pathname, directory, manifest.version]);
+      if (indices.error || indices.status !== 0) throw Error('Native repository index/signature verification failed.');
+    }
   } finally { await rm(verifyHome, {recursive: true, force: true}); }
   const oldRelease = await store.readBytes(`${root}InRelease`);
   const oldVersion = releaseVersion(oldRelease);
@@ -61,15 +76,20 @@ export async function publishLinux({directory, store, fetchImpl = fetch}) {
   // Preflight every immutable object before uploading anything.
   for (const [key, bytes] of files) {
     if (!previous.has(key)) previous.set(key, await store.readBytes(key));
-    const immutable = key === keyring || key.includes('/pool/') || key.includes('/by-hash/');
+    const immutable = immutableKey(key);
     if (immutable && previous.get(key) && !previous.get(key).equals(bytes)) throw Error('Published versions and indices are immutable.');
   }
   // By-hash indices and packages are retained. Existing clients can finish an
   // update against the previous InRelease while the next version is uploaded.
-  const keys = [...files.keys()].filter(key => key !== `${root}InRelease`);
+  // Upload package/content-hash objects first, then native signatures/heads.
+  // Each native manager has its own signed publication head. InRelease goes
+  // last and enables the website's Fedora/Arch options only after all succeed.
+  const nativeHead = key => /^linux\/rpm\/repodata\/repomd\.xml(\.asc)?$/.test(key) || /^linux\/arch\/x86_64\/callayers\.(db|files)(\.tar\.gz)?(\.sig)?$/.test(key);
+  const candidates = [...files.keys()].filter(key => key !== `${root}InRelease`);
+  const keys = [...candidates.filter(key => !nativeHead(key)), ...candidates.filter(nativeHead).sort((a,b) => Number(!a.endsWith('.sig') && !a.endsWith('.asc')) - Number(!b.endsWith('.sig') && !b.endsWith('.asc')))];
   for (const key of keys) {
     const bytes = files.get(key);
-    const immutable = key === keyring || key.includes('/pool/') || key.includes('/by-hash/');
+    const immutable = immutableKey(key);
     if (!previous.get(key)?.equals(bytes)) {
       const contentType = key.endsWith('.deb') ? 'application/vnd.debian.binary-package' : 'application/octet-stream';
       await store.writeObject(key, bytes, contentType, immutable ? 'public,max-age=31536000,immutable' : 'no-store',
@@ -83,7 +103,7 @@ export async function publishLinux({directory, store, fetchImpl = fetch}) {
   const response = await fetchImpl(`${RELEASE_BASE_URL}/${root}InRelease`, {cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(30000)});
   if (!response.ok || sha256(Buffer.from(await response.arrayBuffer())) !== sha256(files.get(`${root}InRelease`)))
     throw Error('Release uploaded but public InRelease verification failed; inspect publishing before announcing.');
-  console.log(`Published Callayers Linux ${manifest.version} for Ubuntu 22.04, 24.04, and 26.04 x64.`);
+  console.log(`Published Callayers Linux ${manifest.version}${files.has('linux/rpm/repodata/repomd.xml') ? ' with APT, RPM, and Arch repositories' : ' for Ubuntu 22.04, 24.04, and 26.04 x64'}.`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
