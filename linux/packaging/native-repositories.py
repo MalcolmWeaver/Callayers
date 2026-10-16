@@ -10,6 +10,11 @@ def build_native(native, output, version, fingerprint):
     arch = native / f"callayers-{version}-1-x86_64.pkg.tar.zst"
     if not rpm.is_file() or not arch.is_file():
         raise ValueError("Both native packages must match the baseline version")
+    # repo-add hides bsdtar failures behind a misleading "not a package file".
+    # Check the tool and archive before signing or creating repository metadata.
+    if shutil.which("bsdtar") is None:
+        raise RuntimeError("Arch repository creation requires bsdtar; install libarchive-tools")
+    subprocess.run(["bsdtar", "-tqf", str(arch), ".PKGINFO"], check=True, stdout=subprocess.DEVNULL)
     def run(*args):
         subprocess.run(list(map(str, args)), check=True)
     def sign(file, armor=False):

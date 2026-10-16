@@ -77,7 +77,12 @@ jobs:
           name: callayers-native-amd64
           path: build/linux-native
       - name: Install repository signing tools
-        run: sudo apt-get update && sudo apt-get install -y rpm createrepo-c pacman-package-manager makepkg
+        run: sudo apt-get update && sudo apt-get install -y rpm createrepo-c pacman-package-manager makepkg libarchive-tools
+      - name: Check Arch repository tools before importing the signing key
+        run: |
+          packages=(build/linux-native/callayers-*-1-x86_64.pkg.tar.zst)
+          test "${#packages[@]}" -eq 1
+          python3 tests/linux-native-repository-tools-test.py "${packages[0]}"
       - name: Verify the built version and prepare signed repositories
         env:
           EXPECTED_VERSION: ${{ needs.version.outputs.version }}
