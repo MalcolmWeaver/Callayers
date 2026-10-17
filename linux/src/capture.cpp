@@ -5,6 +5,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QRegularExpression>
 #include <QScopeGuard>
@@ -61,14 +62,24 @@ QVector<CameraChoice> EnumerateCameras() {
         if (name.mid(5).toInt() == OutputNumber) continue;
         QString path = "/dev/" + name;
         int fd = ::open(path.toUtf8().constData(), O_RDWR | O_NONBLOCK);
-        if (fd < 0) continue;
+        if (fd < 0) {
+            // Keep a blocked/busy primary video node selectable so opening it
+            // can report the actual error instead of claiming no webcam exists.
+            if (errno != EACCES && errno != EPERM && errno != EBUSY) continue;
+            QFile index("/sys/class/video4linux/" + name + "/index");
+            if (!index.open(QIODevice::ReadOnly) || index.readAll().trimmed() != "0") continue;
+        }
         v4l2_capability cap{};
-        bool capture = ioctl(fd, VIDIOC_QUERYCAP, &cap) == 0;
-        ::close(fd);
+        bool capture = fd < 0 || ioctl(fd, VIDIOC_QUERYCAP, &cap) == 0;
+        if (fd >= 0) ::close(fd);
         if (!capture) continue;
         uint32_t caps = cap.device_caps ? cap.device_caps : cap.capabilities;
-        if (!(caps & V4L2_CAP_VIDEO_CAPTURE)) continue;
+        if (fd >= 0 && !(caps & V4L2_CAP_VIDEO_CAPTURE)) continue;
         QString card = QString::fromUtf8(reinterpret_cast<const char*>(cap.card)).trimmed();
+        if (fd < 0) {
+            QFile label("/sys/class/video4linux/" + name + "/name");
+            if (label.open(QIODevice::ReadOnly)) card = QString::fromUtf8(label.readAll()).trimmed();
+        }
         if (card == "Callayers") continue;
         QString identity = QFileInfo("/sys/class/video4linux/" + name + "/device").canonicalFilePath();
         if (identity.isEmpty()) identity = path;
@@ -102,6 +113,7 @@ void Capture::stop() {
 
 QImage Capture::latest() const {
     std::lock_guard lock(mutex_);
+    if (std::chrono::steady_clock::now() - latestAt_ > std::chrono::milliseconds(1500)) return {};
     return latest_;
 }
 
@@ -184,7 +196,7 @@ void Capture::run(QString identity) {
     auto lastFrame = std::chrono::steady_clock::now();
     while (!stop_) {
         if (std::chrono::steady_clock::now() - lastFrame > std::chrono::seconds(3)) {
-            error_ = CaptureError::Unreadable;
+            error_ = CaptureError::NoFrames;
             break;
         }
         fd_set ready;
@@ -217,6 +229,7 @@ void Capture::run(QString identity) {
             image = image.convertToFormat(QImage::Format_RGB32);
             std::lock_guard lock(mutex_);
             latest_ = image;
+            latestAt_ = lastFrame;
             error_ = CaptureError::None;
         }
         if (ioctl(device.fd, VIDIOC_QBUF, &buffer) != 0) { error_ = DeviceError(errno); break; }

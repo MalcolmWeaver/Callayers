@@ -8,6 +8,7 @@
 #include "telemetry.h"
 #include "prompt_editor.h"
 #include <QButtonGroup>
+#include <QApplication>
 #include <QKeyEvent>
 #include <QPainter>
 #include <QPainterPath>
@@ -83,6 +84,7 @@ MainWindow::MainWindow() : store_(), auth_(this) {
     setCentralWidget(stack_);
     buildSignIn();
     buildWorkspace();
+    buildCameraRecovery();
     timer_ = new QTimer(this);
     connect(timer_, &QTimer::timeout, this, &MainWindow::tick);
     timer_->start(1000 / OutputFps);
@@ -96,8 +98,12 @@ MainWindow::MainWindow() : store_(), auth_(this) {
     if (!store_.problem().isEmpty()) operationStatus_->setText(store_.problem());
 }
 
-bool MainWindow::workspaceAllowed() const {
+bool MainWindow::sessionAllowed() const {
     return skipSignIn_ || auth_.allowed();
+}
+
+bool MainWindow::workspaceAllowed() const {
+    return sessionAllowed() && (offlinePreview_ || (cameraReady_ && capture_.error() == CaptureError::None && !capture_.latest().isNull()));
 }
 
 void MainWindow::signOut() { finishText(true); cancelGeneration(); renderer_.suspend(cards_); save(); auth_.signOut(); output_.stop(); capture_.stop(); outputWanted_ = false; }
@@ -124,6 +130,7 @@ void MainWindow::buildSignIn() {
 
 void MainWindow::buildWorkspace() {
     auto page = new QWidget;
+    workspacePage_ = page;
     auto column = new QVBoxLayout(page);
     column->setContentsMargins(16, 12, 16, 16);
     column->setSpacing(14);
@@ -143,6 +150,7 @@ void MainWindow::buildWorkspace() {
     status_ = new QLabel("In your calling app, choose Callayers");
     status_->setObjectName("cameraStatus");
     auto annotate = new QPushButton("Annotate");
+    annotateButton_ = annotate;
     header->addWidget(mark);
     header->addStretch();
     header->addWidget(annotate);
@@ -206,6 +214,7 @@ void MainWindow::buildWorkspace() {
     sidebar->addWidget(retrySave_);
     sidebar->addWidget(status_);
     auto side = new QWidget;
+    libraryPanel_ = side;
     side->setLayout(sidebar);
     side->setFixedWidth(292);
     side->setObjectName("libraryPanel");
@@ -239,6 +248,7 @@ void MainWindow::buildWorkspace() {
     sizes->setObjectName("annotationSize"); sizes->setAccessibleName("Annotation size");
     sizes->addItems({"Small", "Medium", "Large"}); sizes->setCurrentIndex(size_);
     connect(sizes, &QComboBox::activated, this, [this](int value) {
+        if (!workspaceAllowed()) return;
         finishText(true); size_ = value;
         if (selectedAnnotation_ >= 0 && selectedAnnotation_ < annotations_.size()) {
             auto& mark = annotations_[selectedAnnotation_];
@@ -256,6 +266,7 @@ void MainWindow::buildWorkspace() {
         button->setChecked(color_ == swatch);
         button->setStyleSheet(QString("QPushButton {background:%1; border:2px solid #55535e; border-radius:11px; padding:0;} QPushButton:checked {border:3px solid #a39bfa;}").arg(swatch));
         connect(button, &QPushButton::clicked, this, [this, swatch] {
+            if (!workspaceAllowed()) return;
             finishText(true); color_ = swatch;
             if (selectedAnnotation_ >= 0 && selectedAnnotation_ < annotations_.size()) { annotations_[selectedAnnotation_].color = color_; save(); }
         });
@@ -266,7 +277,10 @@ void MainWindow::buildWorkspace() {
     tools->addWidget(clear);
     auto previewColumn = new QVBoxLayout;
     previewColumn->addWidget(annotateBar_);
-    previewColumn->addWidget(preview_, 1);
+    previewStack_ = new QStackedWidget;
+    previewStack_->setObjectName("previewArea");
+    previewStack_->addWidget(preview_);
+    previewColumn->addWidget(previewStack_, 1);
     annotateBar_->setVisible(store_.preferences().annotateOpen);
     annotate->setCheckable(true);
     annotate->setChecked(store_.preferences().annotateOpen);
@@ -274,6 +288,7 @@ void MainWindow::buildWorkspace() {
     body->addLayout(previewColumn, 1);
     column->addLayout(body, 1);
     connect(annotate, &QPushButton::clicked, this, [this] {
+        if (!workspaceAllowed()) return;
         finishText(true);
         annotateBar_->setVisible(!annotateBar_->isVisible());
         if (!annotateBar_->isVisible()) selectTool(Tool::Select);
@@ -284,12 +299,13 @@ void MainWindow::buildWorkspace() {
     // Activation also permits retrying the currently selected camera.
     connect(camerasBox_, &QComboBox::activated, this, &MainWindow::chooseCamera);
     connect(retryCamera_, &QPushButton::clicked, this, &MainWindow::refresh);
-    connect(create, &QPushButton::clicked, this, [this] { selected_ = -1; library_->clearSelection(); chatHeading_->setText("New card"); prompt_->setFocus(); });
+    connect(create, &QPushButton::clicked, this, [this] { if (!workspaceAllowed()) return; selected_ = -1; library_->clearSelection(); chatHeading_->setText("New card"); prompt_->setFocus(); });
     connect(import, &QPushButton::clicked, this, &MainWindow::importImage);
-    connect(hide, &QPushButton::clicked, this, [this] { for (auto& card : cards_) card.visible = false; save(); refreshCards(); });
+    connect(hide, &QPushButton::clicked, this, [this] { if (!workspaceAllowed()) return; for (auto& card : cards_) card.visible = false; save(); refreshCards(); });
     connect(send, &QPushButton::clicked, this, &MainWindow::generate);
     connect(search_, &QLineEdit::textChanged, this, &MainWindow::refreshCards);
     connect(library_, &QListWidget::itemChanged, this, [this](QListWidgetItem* item) {
+        if (!workspaceAllowed()) return;
         int index = item->data(Qt::UserRole).toInt();
         if (index < 0 || index >= cards_.size()) return;
         cards_[index].visible = item->checkState() == Qt::Checked;
@@ -307,16 +323,19 @@ void MainWindow::buildWorkspace() {
     });
     library_->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(library_, &QListWidget::customContextMenuRequested, this, [this](QPoint position) {
+        if (!workspaceAllowed()) return;
         auto item = library_->itemAt(position);
         if (!item || !item->data(Qt::UserRole).isValid()) return;
         const QString id=cards_.value(item->data(Qt::UserRole).toInt()).id;
         auto resolve=[this,id] { for(int i=0;i<cards_.size();++i)if(cards_[i].id==id)return i;return -1; };
         QMenu menu;
         menu.addAction("Rename",this,[this,resolve] {
+            if (!workspaceAllowed()) return;
             int index=resolve();if(index<0)return;
             for(int row=0;row<library_->count();++row)if(library_->item(row)->data(Qt::UserRole).toInt()==index) { library_->editItem(library_->item(row));break; }
         });
         auto reorder=[this,resolve](int direction) {
+            if (!workspaceAllowed()) return;
             int index=resolve();if(index<0)return;
             QVector<int> order;for(int i=0;i<cards_.size();++i)order.append(i);
             std::stable_sort(order.begin(),order.end(),[this](int a,int b){return cards_[a].layer<cards_[b].layer;});
@@ -328,6 +347,7 @@ void MainWindow::buildWorkspace() {
         menu.addAction("Bring forward",this,[reorder]{reorder(1);});
         menu.addAction("Send backward",this,[reorder]{reorder(-1);});
         if(resolve()>=0 && cards_[resolve()].hasPrevious)menu.addAction("Restore previous version",this,[this,resolve] {
+            if (!workspaceAllowed()) return;
             int index=resolve();if(index<0 || !cards_[index].hasPrevious)return;
             auto& card=cards_[index];card.name=card.previousName;card.html=card.previousHtml;
             card.contentW=card.previousW;card.contentH=card.previousH;
@@ -335,14 +355,18 @@ void MainWindow::buildWorkspace() {
             save();refreshCards();
         });
         menu.addAction("Delete",this,[this,resolve] {
+            if (!workspaceAllowed()) return;
             if(QMessageBox::question(this,"Callayers","Delete this card?")!=QMessageBox::Yes)return;
+            if (!workspaceAllowed()) return;
             int index=resolve();if(index<0)return;
             cards_.removeAt(index);selected_=-1;save();refreshCards();
         });
         menu.exec(library_->mapToGlobal(position));
     });
     connect(clear, &QPushButton::clicked, this, [this] {
+        if (!workspaceAllowed()) return;
         if (annotations_.isEmpty() || QMessageBox::question(this, "Callayers", "Clear all annotations?") != QMessageBox::Yes) return;
+        if (!workspaceAllowed()) return;
         finishText(false);
         annotations_.clear(); selectedAnnotation_ = -1;
         save();
@@ -360,36 +384,130 @@ void MainWindow::buildWorkspace() {
         positionTextEditor();
     });
     connect(preview_, &Preview::wheeled, this, [this](QPointF point, int delta) {
-        if (tool_ == Tool::Select && cardAt(point) >= 0) renderer_.scroll(point, delta);
+        if (workspaceAllowed() && tool_ == Tool::Select && cardAt(point) >= 0) renderer_.scroll(point, delta);
     });
     stack_->addWidget(page);
 }
 
+void MainWindow::buildCameraRecovery() {
+    recoveryPage_ = new QWidget;
+    recoveryPage_->setObjectName("cameraRecovery");
+    recoveryPage_->setStyleSheet("QWidget#cameraRecovery {background:#141417; border-radius:8px;}");
+    auto layout = new QVBoxLayout(recoveryPage_);
+    layout->setContentsMargins(40, 40, 40, 40);
+    layout->addStretch();
+    auto panel = new QWidget;
+    panel->setObjectName("cameraRecoveryPanel");
+    panel->setStyleSheet("QWidget#cameraRecoveryPanel {background:transparent;}");
+    panel->setFixedWidth(560);
+    auto content = new QVBoxLayout(panel);
+    content->setSpacing(18);
+    recoveryTitle_ = new QLabel;
+    recoveryTitle_->setObjectName("cameraRecoveryTitle");
+    recoveryTitle_->setWordWrap(true);
+    recoveryTitle_->setMinimumHeight(76);
+    recoveryTitle_->setStyleSheet("font-size:28px; font-weight:650;");
+    recoveryMessage_ = new QLabel;
+    recoveryMessage_->setObjectName("cameraRecoveryMessage");
+    recoveryMessage_->setWordWrap(true);
+    recoveryMessage_->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Minimum);
+    recoveryMessage_->setStyleSheet("font-size:15px; color:#bbb8c9;");
+    auto label = new QLabel("Your webcam");
+    recoveryCameras_ = new QComboBox;
+    recoveryCameras_->setObjectName("recoveryCameraSelector");
+    recoveryCameras_->setAccessibleName("Your webcam");
+    recoveryCameras_->setMinimumHeight(42);
+    label->setBuddy(recoveryCameras_);
+    recoveryRetry_ = new QPushButton("Check again");
+    recoveryRetry_->setObjectName("recoveryRetry");
+    recoveryRetry_->setMinimumHeight(48);
+    recoveryRetry_->setStyleSheet("background:#a39bfa; color:#211c35; font-weight:600; padding:12px;");
+    content->addWidget(recoveryTitle_);
+    content->addWidget(recoveryMessage_);
+    content->addWidget(label);
+    content->addWidget(recoveryCameras_);
+    content->addWidget(recoveryRetry_);
+    auto help = new QLabel("Your cards and annotations will be available when your webcam is working.");
+    help->setWordWrap(true);
+    help->setStyleSheet("color:#aaa8b6; font-size:12px;");
+    content->addWidget(help);
+    layout->addWidget(panel, 0, Qt::AlignHCenter);
+    layout->addStretch();
+    connect(recoveryCameras_, &QComboBox::activated, this, &MainWindow::chooseCamera);
+    connect(recoveryRetry_, &QPushButton::clicked, this, &MainWindow::refresh);
+    previewStack_->addWidget(recoveryPage_);
+}
+
+void MainWindow::setCameraReady(bool ready) {
+    if (!ready && cameraReady_) {
+        if (auto popup = QApplication::activePopupWidget()) popup->close();
+        // Finish the gesture and text draft already in progress before locking
+        // controls. Suspension checkpoints card values without clearing them.
+        finishText(true);
+        pointerUp();
+        cancelGeneration();
+        renderer_.blur(); cardInput_ = false;
+        renderer_.suspend(cards_); save();
+    }
+    cameraReady_ = ready;
+    libraryPanel_->setEnabled(ready);
+    annotateButton_->setEnabled(ready);
+    annotateBar_->setEnabled(ready);
+    if (!ready) {
+        output_.stop();
+        preview_->setMessage({}, {});
+        preview_->setSelection({}, false);
+        telemetry_->preview(cards_, false);
+    }
+    previewStack_->setCurrentWidget(ready ? static_cast<QWidget*>(preview_) : recoveryPage_);
+    stack_->setCurrentWidget(sessionAllowed() ? workspacePage_ : stack_->widget(0));
+}
+
+void MainWindow::showCameraRecovery(const QString& title, const QString& body) {
+    setCameraReady(false);
+    recoveryTitle_->setText(title);
+    recoveryMessage_->setText(body);
+    // An aligned panel inside QStackedWidget does not consistently propagate
+    // QLabel's height-for-width on Qt 6.2. Reserve the full wrapped message.
+    recoveryMessage_->ensurePolished();
+    const auto margins = recoveryMessage_->parentWidget()->layout()->contentsMargins();
+    const int width = recoveryMessage_->parentWidget()->width() - margins.left() - margins.right();
+    const auto text = recoveryMessage_->fontMetrics().boundingRect(QRect(0, 0, width, 1000), Qt::TextWordWrap, body);
+    recoveryMessage_->setMinimumHeight(text.height() + 6);
+}
+
 QString MainWindow::cameraMessage(CaptureError error) const {
-    if (error == CaptureError::Busy) return "Camera in use.\nYour webcam is being used by another app. Close that app's camera preview or stop its video, then Retry.";
-    if (error == CaptureError::Denied) return "Camera access blocked.\nAllow this user to open the webcam, then Retry.";
-    if (error == CaptureError::Missing) return "Your saved webcam isn't connected.\nReconnect it and Retry, or choose another camera.";
-    return "Camera not readable.\nClose other apps using your webcam, then Retry.";
+    if (error == CaptureError::Busy) return "Your webcam is being used by another app. Stop its video or close its camera preview, then choose Retry.";
+    if (error == CaptureError::Denied) return "Callayers couldn't get permission to open this webcam. Check your system's camera permissions. If you just installed Callayers, log out and back in, then choose Retry.";
+    if (error == CaptureError::Missing) return "Reconnect your webcam and choose Retry, or choose another webcam below.";
+    if (error == CaptureError::NoFrames) return "Your webcam isn't sending a picture. Choose Retry, or choose another webcam below.";
+    return "Callayers couldn't read your webcam. Close other apps using it, then choose Retry or another webcam.";
 }
 
 void MainWindow::refresh() {
-    stack_->setCurrentIndex(workspaceAllowed() ? 1 : 0);
     if (authMessage_) authMessage_->setText(auth_.message().isEmpty() ? "Sign in to use Callayers." : auth_.message());
-    if (!workspaceAllowed()) { finishText(false); cancelGeneration(); renderer_.suspend(cards_); capture_.stop(); output_.stop(); outputWanted_ = false; capturePaused_ = false; return; }
-    if (offlinePreview_) { camerasBox_->setPlaceholderText("Preview only"); camerasBox_->setEnabled(false); retryCamera_->setEnabled(false); status_->setText("Preview only"); refreshCards(); return; }
+    if (!sessionAllowed()) { setCameraReady(false); finishText(false); cancelGeneration(); renderer_.suspend(cards_); capture_.stop(); outputWanted_ = false; capturePaused_ = false; return; }
+    if (offlinePreview_) { setCameraReady(true); camerasBox_->setPlaceholderText("Preview only"); camerasBox_->setEnabled(false); retryCamera_->setEnabled(false); status_->setText("Preview only"); refreshCards(); return; }
     cameras_ = EnumerateCameras();
     auto preferences = store_.preferences();
-    int match = PopulateCameraSelector(*camerasBox_, cameras_, preferences.cameraIdentity, preferences.cameraName);
-    retryCamera_->setText(preferences.cameraIdentity.isEmpty() ? "Refresh cameras" : "Retry");
+    const auto identity = wantedCamera_.identity.isEmpty() ? preferences.cameraIdentity : wantedCamera_.identity;
+    const auto name = wantedCamera_.identity.isEmpty() ? preferences.cameraName : wantedCamera_.name;
+    int match = PopulateCameraSelector(*camerasBox_, cameras_, identity, name);
+    PopulateCameraSelector(*recoveryCameras_, cameras_, identity, name);
+    recoveryCameras_->setEnabled(!cameras_.isEmpty());
+    retryCamera_->setText(identity.isEmpty() ? "Refresh cameras" : "Retry");
+    recoveryRetry_->setText(identity.isEmpty() ? "Check again" : "Retry");
     refreshCards();
     if (match >= 0) chooseCamera(match);
     else {
         capture_.stop();
+        cameraOpening_.invalidate();
         outputWanted_ = false;
         capturePaused_ = false;
         status_->setText("Choose a webcam to start video");
-        if (!preferences.cameraIdentity.isEmpty()) preview_->setMessage("Your saved webcam isn't connected.", "Reconnect it and Retry, or choose another camera.");
-        else preview_->setMessage("Choose your webcam", cameras_.isEmpty() ? "Connect a webcam, then click Refresh cameras." : "Your camera and cards will appear here");
+        if (!identity.isEmpty()) showCameraRecovery("Webcam not connected", cameraMessage(CaptureError::Missing));
+        else if (cameras_.isEmpty()) showCameraRecovery("We couldn't find your webcam", "Connect your webcam, check its cable or privacy switch, then choose Check again.");
+        else showCameraRecovery("Choose your webcam", "Select a webcam below. Your workspace will open when its live picture is ready.");
     }
 }
 
@@ -420,19 +538,21 @@ void MainWindow::refreshCards() {
 }
 
 void MainWindow::chooseCamera(int index) {
-    if (!workspaceAllowed() || index < 0 || index >= cameras_.size()) return;
-    auto preferences = store_.preferences();
-    preferences.cameraIdentity = cameras_[index].identity;
-    preferences.cameraName = cameras_[index].name;
-    store_.setPreferences(preferences);
+    if (!sessionAllowed() || index < 0 || index >= cameras_.size()) return;
+    wantedCamera_ = cameras_[index];
+    PopulateCameraSelector(*camerasBox_, cameras_, wantedCamera_.identity, wantedCamera_.name);
+    PopulateCameraSelector(*recoveryCameras_, cameras_, wantedCamera_.identity, wantedCamera_.name);
+    recoveryCameras_->setEnabled(true);
+    showCameraRecovery("Opening your webcam…", wantedCamera_.name);
+    cameraOpening_.start();
     capturePaused_ = false;
     preview_->setSelection({}, false);
     preview_->setMessage("Opening your webcam…", cameras_[index].name);
     status_->setText("Opening your webcam…");
     retryCamera_->setText("Retry");
+    recoveryRetry_->setText("Retry");
     capture_.start(cameras_[index].identity);
     outputWanted_ = true;
-    if (!output_.active()) output_.start();
 }
 
 void MainWindow::save() {
@@ -445,7 +565,7 @@ void MainWindow::save() {
 }
 
 void MainWindow::tick() {
-    if (!workspaceAllowed()) return;
+    if (!sessionAllowed()) return;
     bool minimized = windowState().testFlag(Qt::WindowMinimized);
     // Scanning process descriptors can take longer than a video frame. Poll
     // in the background, allowing only one query at a time. Closing the app
@@ -466,21 +586,37 @@ void MainWindow::tick() {
         return;
     } else if (outputWanted_ && capturePaused_) {
         capturePaused_ = false;
+        cameraOpening_.start();
+        showCameraRecovery("Opening your webcam…", store_.preferences().cameraName);
         capture_.start(store_.preferences().cameraIdentity);
     }
     rendererPaused_ = false;
     auto error = capture_.error();
     auto webcam = capture_.latest();
     if (error != CaptureError::None) {
-        telemetry_->preview(cards_, false);
-        preview_->setSelection({}, false);
-        preview_->setMessage(error == CaptureError::Missing ? "Your saved webcam isn't connected." : "Camera", cameraMessage(error));
+        const auto title = error == CaptureError::Missing ? "Webcam not connected" :
+            error == CaptureError::Busy ? "Camera in use" :
+            error == CaptureError::Denied ? "Camera access blocked" :
+            error == CaptureError::NoFrames ? "No picture from your webcam" : "Camera not readable";
+        showCameraRecovery(title, cameraMessage(error));
         status_->setText("Camera unavailable — Retry or choose another webcam");
         return;
     }
-    // Report output setup failures even before the first webcam frame arrives.
+    if (webcam.isNull() && !offlinePreview_) {
+        if (cameraReady_ || (cameraOpening_.isValid() && cameraOpening_.elapsed() >= 5000))
+            showCameraRecovery("No picture from your webcam", cameraMessage(CaptureError::NoFrames));
+        return;
+    }
+    if (!cameraReady_) {
+        setCameraReady(true);
+        // Remember a choice only once it has actually delivered live video.
+        auto preferences = store_.preferences();
+        preferences.cameraIdentity = wantedCamera_.identity;
+        preferences.cameraName = wantedCamera_.name;
+        store_.setPreferences(preferences);
+        if (outputWanted_) output_.start();
+    }
     if (outputWanted_ && !output_.problem().isEmpty()) status_->setText(output_.problem());
-    if (webcam.isNull() && !offlinePreview_) return;
     if (!renderer_.render(cards_, annotations_, editingNew_ ? 0 : editingText_)) {
         if (!renderer_.problem().isEmpty()) operationStatus_->setText(renderer_.problem());
         return;
@@ -517,6 +653,7 @@ int MainWindow::annotationAt(QPointF logical) const {
 }
 
 void MainWindow::selectTool(Tool tool) {
+    if (!workspaceAllowed()) return;
     finishText(true); renderer_.blur(); cardInput_ = false; tool_ = tool;
     if (tool != Tool::Select) { selected_ = -1; selectedAnnotation_ = -1; refreshCards(); }
     auto select = findChild<QPushButton*>("toolSelect");
@@ -525,6 +662,7 @@ void MainWindow::selectTool(Tool tool) {
 }
 
 void MainWindow::pointerDown(QPointF logical) {
+    if (!workspaceAllowed()) return;
     finishText(true); lastPointer_ = logical; dragOrigin_ = logical;
     dragging_ = resizing_ = drawing_ = false; resizeCorner_ = -1;
     if (tool_ != Tool::Select) { cardInput_ = false; renderer_.blur(); }
@@ -576,6 +714,7 @@ void MainWindow::pointerDown(QPointF logical) {
 }
 
 void MainWindow::pointerMove(QPointF logical) {
+    if (!workspaceAllowed()) return;
     lastPointer_ = logical;
     if (tool_ == Tool::Eraser) {
         int hit = annotationAt(logical);
@@ -617,6 +756,7 @@ void MainWindow::pointerUp() {
 }
 
 void MainWindow::beginText(QPointF logical, int existing) {
+    if (!workspaceAllowed()) return;
     finishText(true); renderer_.blur(); cardInput_=false;
     editingNew_=existing<0;
     if (editingNew_) {
@@ -661,6 +801,9 @@ void MainWindow::finishText(bool commit) {
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
+    if (!workspaceAllowed() && (event->type() == QEvent::KeyPress || event->type() == QEvent::KeyRelease ||
+        event->type() == QEvent::MouseButtonPress || event->type() == QEvent::MouseButtonRelease ||
+        event->type() == QEvent::MouseButtonDblClick || event->type() == QEvent::Wheel)) return true;
     if (library_ && watched==library_->viewport() && event->type()==QEvent::MouseButtonRelease) {
         auto mouse=static_cast<QMouseEvent*>(event);
         if(mouse->button()==Qt::LeftButton && mouse->position().x()>library_->viewport()->width()-26) {
@@ -684,7 +827,9 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
 }
 
 void MainWindow::importImage() {
+    if (!workspaceAllowed()) return;
     auto path = QFileDialog::getOpenFileName(this, "Import image", {}, "Images (*.png *.jpg *.jpeg *.bmp)");
+    if (!workspaceAllowed()) return;
     if (path.isEmpty()) return;
     if (cards_.size() >= 16) { operationStatus_->setText("Your library has 16 cards. Delete one before importing another."); return; }
     QImage image(path);
@@ -731,6 +876,7 @@ void MainWindow::cancelGeneration() {
 }
 
 void MainWindow::generate() {
+    if (!workspaceAllowed()) return;
     if (skipSignIn_) {
         operationStatus_->setText("AI generation requires sign-in. Relaunch without --skip-sign-in.");
         return;

@@ -20,6 +20,8 @@ QPushButton:pressed, QPushButton:checked { background:#51467e; border-color:#a39
 QPushButton:disabled { color:#78757f; background:#29282e; }
 QPushButton#primaryAction { background:#a39bfa; color:#211c35; border:0; font-weight:600; }
 QPushButton#primaryAction:hover { background:#b7b0ff; }
+QPushButton#primaryAction:disabled { background:#35333f; color:#78757f; }
+QLineEdit:disabled, QPlainTextEdit:disabled, QListWidget:disabled { color:#78757f; background:#222126; }
 QMenuBar, QMenu { background:#242428; }
 QMenu::item { padding:7px 20px; }
 QMenu::item:selected { background:#51467e; }

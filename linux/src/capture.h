@@ -6,8 +6,9 @@
 #include <atomic>
 #include <mutex>
 #include <thread>
+#include <chrono>
 
-enum class CaptureError { None, Busy, Denied, Unreadable, Missing };
+enum class CaptureError { None, Busy, Denied, Unreadable, Missing, NoFrames };
 
 struct CameraChoice { QString name, identity, path; };
 
@@ -22,9 +23,11 @@ public:
     CaptureError error() const { return error_.load(); }
     bool running() const { return running_.load(); }
 private:
+    friend struct CameraRecoveryChecks;
     void run(QString identity);
     mutable std::mutex mutex_;
     QImage latest_;
+    std::chrono::steady_clock::time_point latestAt_{};
     std::thread thread_;
     std::atomic<bool> stop_{false};
     std::atomic<bool> running_{false};

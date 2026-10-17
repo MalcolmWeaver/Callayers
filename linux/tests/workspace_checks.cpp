@@ -133,18 +133,23 @@ int main(int argc, char** argv) {
             return 0;
         }
 
-        Check(stack && stack->currentIndex() == 1, "Explicit test flag did not bypass sign-in");
+        Check(stack && stack->currentIndex() == 1, "Signed-in startup must show the workspace shell");
         Check(selector && retry && status && preview, "Workspace controls are missing");
         Check(selector->currentIndex() == -1, "Fresh workspace silently selected a camera");
+        auto recoverySelector = window.findChild<QComboBox*>("recoveryCameraSelector");
+        auto recoveryRetry = window.findChild<QPushButton*>("recoveryRetry");
+        Check(recoverySelector && recoveryRetry && recoveryRetry->isVisible(), "Camera recovery controls are missing");
+        Check(selector->isVisible() && !window.findChild<QListWidget*>()->isEnabled(), "Camera selection should remain usable while cards are disabled");
+        Check(!preview->isVisible(), "Recovery should replace only the preview");
         Screenshot(window, screenshots, "01-workspace-without-login.png");
-        retry->click();
+        recoveryRetry->click();
         QApplication::processEvents();
-        Check(stack->currentIndex() == 1 && selector->currentIndex() == -1,
-              "Refresh locked the workspace or silently selected a camera");
+        Check(stack->currentIndex() == 1 && selector->currentIndex() == -1 && !preview->isVisible(),
+              "Refresh bypassed the webcam gate or silently selected a camera");
         if (hardware) {
             Check(selector->count() > 0, "No hardware camera was enumerated");
             QKeyEvent choose(QEvent::KeyPress, Qt::Key_Down, Qt::NoModifier);
-            QApplication::sendEvent(selector, &choose);
+            QApplication::sendEvent(recoverySelector, &choose);
             if (!WaitForFrame(preview)) {
                 std::cerr << "Camera status: " << status->text().toStdString() << '\n';
                 return 1;
