@@ -82,11 +82,16 @@ final class CameraCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         }
     }
     func latest() -> (CGImage?, String) {
+        let frame = latestFrame()
+        return (frame.0, frame.2)
+    }
+    // Arrival time distinguishes a fresh capture from repeated reads of the mailbox.
+    func latestFrame() -> (CGImage?, TimeInterval, String) {
         lock.lock(); defer { lock.unlock() }
         if image != nil && ProcessInfo.processInfo.systemUptime - imageTime > 2 {
-            return (nil, "No new webcam frames. Reconnect the camera and choose Retry camera.")
+            return (nil, imageTime, "No new webcam frames. Reconnect the camera and choose Retry camera.")
         }
-        return (image, problem)
+        return (image, imageTime, problem)
     }
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         guard currentID != nil, let pixels = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }

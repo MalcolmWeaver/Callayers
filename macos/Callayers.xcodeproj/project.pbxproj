@@ -5,6 +5,16 @@
 	};
 	"objectVersion" = "56";
 	"objects" = {
+        "CA1100000000000000000003" = {
+            "isa" = "PBXFileReference";
+            "lastKnownFileType" = "sourcecode.swift";
+            "path" = "Tests/WebcamTestProducer.swift";
+            "sourceTree" = "<group>";
+        };
+        "CA1100000000000000000004" = {
+            "isa" = "PBXBuildFile";
+            "fileRef" = "CA1100000000000000000003";
+        };
         "CA1100000000000000000001" = {
             "isa" = "PBXFileReference";
             "lastKnownFileType" = "sourcecode.cpp.objcpp";
@@ -226,6 +236,7 @@
 				"E903E6DF21D449E68367B526",
 				"CF1DC78F716AAB0FA9F9EBE9",
                 "CA1100000000000000000001",
+                "CA1100000000000000000003",
 			);
 			"name" = "Tests";
 			"sourceTree" = "<group>";
@@ -311,6 +322,7 @@
 				"67414B6F07DE692747E8CD72",
 				"5C57AB940FC0983384CE2D37",
                 "CA1100000000000000000002",
+                "CA1100000000000000000004",
 			);
 			"runOnlyForDeploymentPostprocessing" = "0";
 		};

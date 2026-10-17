@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import AVFoundation
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -38,16 +39,38 @@ struct CallayersRendererPreviewApp: App {
     init() {
         #if DEBUG
         let arguments = ProcessInfo.processInfo.arguments
-        if let index = arguments.firstIndex(of: "--check-camera-transport") {
-            // Exit before SwiftUI instantiates the workspace or opens a webcam.
-            guard arguments.count == index + 4,
+        if let index = arguments.firstIndex(where: { $0 == "--check-camera-transport" || $0 == "--check-webcam-transport" }) {
+            // Exit before SwiftUI instantiates the normal workspace and its camera pipeline.
+            guard arguments.count == index + 5,
+                  let owner = Int32(arguments[index + 4]), owner > 1,
                   let duration = Double(arguments[index + 1]), duration.isFinite,
                   duration >= 5, duration <= 86400 else { exit(2) }
             // Independent of the main run loop, so a stalled camera API cannot
             // leave this isolated test producer alive indefinitely.
             DispatchQueue.global().asyncAfter(deadline: .now() + duration + 45) { _exit(124) }
+            let ownerWatch = DispatchSource.makeTimerSource(queue: .global())
+            ownerWatch.schedule(deadline: .now(), repeating: 1)
+            ownerWatch.setEventHandler { if kill(owner, 0) != 0 && errno == ESRCH { _exit(125) } }
+            ownerWatch.resume()
             let reportURL = URL(fileURLWithPath: arguments[index + 2])
-            var report = CLRunCameraTransportChecks(duration) as! [String: Any]
+            var report: [String: Any]
+            if arguments[index] == "--check-webcam-transport" {
+                do {
+                    guard AVCaptureDevice.authorizationStatus(for: .video) == .authorized else {
+                        throw FrameComposer.error("Grant camera permission in Callayers before testing", -1)
+                    }
+                    let cameras = CameraCapture.devices()
+                    let saved = UserDefaults.standard.string(forKey: "selectedWebcamID") ?? ""
+                    guard let device = cameras.first(where: { $0.uniqueID == saved }) ?? (saved.isEmpty && cameras.count == 1 ? cameras.first : nil) else {
+                        throw FrameComposer.error("Select a connected webcam in Callayers before testing", -1)
+                    }
+                    let producer = try WebcamTestProducer(cameraID: device.uniqueID)
+                    report = CLRunCameraTransportChecks(duration, producer) as! [String: Any]
+                    producer.stop()
+                    report["webcam"] = device.localizedName
+                } catch { report = ["passed": false, "error": error.localizedDescription] }
+            } else { report = CLRunCameraTransportChecks(duration, nil) as! [String: Any] }
+            ownerWatch.cancel()
             report["runID"] = arguments[index + 3]
             do {
                 let data = try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])

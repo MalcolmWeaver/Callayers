@@ -5,16 +5,46 @@
 #include <atomic>
 #include <algorithm>
 #include <vector>
+#include <deque>
+#include <mutex>
+
+// In-memory fingerprint of the encoded overlay and a grid across the webcam.
+// No pixels or fingerprints are persisted in reports.
+static uint64_t FrameFingerprint(CVPixelBufferRef image) {
+    const auto base = (const uint8_t *)CVPixelBufferGetBaseAddress(image);
+    const size_t stride = CVPixelBufferGetBytesPerRow(image);
+    uint64_t hash = 14695981039346656037ULL;
+    auto add = [&](uint8_t value) { hash = (hash ^ value) * 1099511628211ULL; };
+    for (size_t x = 0; x < 60 * 4; ++x) add(base[x]);
+    for (size_t y = 90; y < 1080; y += 90)
+        for (size_t x = 120; x < 1920; x += 120)
+            for (size_t c = 0; c < 4; ++c) add(base[y * stride + x * 4 + c]);
+    return hash;
+}
 
 @interface CameraMarkerReader : NSObject <AVCaptureVideoDataOutputSampleBufferDelegate>
 @property(nonatomic, readonly) unsigned changes;
 @property(nonatomic, readonly) unsigned fallbackFrames;
+@property(nonatomic) BOOL verifyContent;
+- (void)expectSample:(CMSampleBufferRef)sample;
 @end
 @implementation CameraMarkerReader {
     std::atomic<unsigned> _changes, _fallbackFrames;
     int _previous;
+    std::mutex _expectedLock;
+    std::deque<uint64_t> _expected;
+    uint64_t _previousHash;
 }
 - (instancetype)init { if ((self = [super init])) _previous = -1; return self; }
+- (void)expectSample:(CMSampleBufferRef)sample {
+    CVPixelBufferRef image = CMSampleBufferGetImageBuffer(sample);
+    CVPixelBufferLockBaseAddress(image, kCVPixelBufferLock_ReadOnly);
+    uint64_t hash = FrameFingerprint(image);
+    CVPixelBufferUnlockBaseAddress(image, kCVPixelBufferLock_ReadOnly);
+    std::lock_guard<std::mutex> lock(_expectedLock);
+    _expected.push_back(hash);
+    if (_expected.size() > 128) _expected.pop_front();
+}
 - (unsigned)changes { return _changes.load(); }
 - (unsigned)fallbackFrames { return _fallbackFrames.load(); }
 - (void)captureOutput:(AVCaptureOutput *)output didOutputSampleBuffer:(CMSampleBufferRef)sample
@@ -25,7 +55,14 @@
     CVPixelBufferLockBaseAddress(image, kCVPixelBufferLock_ReadOnly);
     const auto p = (const uint8_t *)CVPixelBufferGetBaseAddress(image);
     if (p && p[0] == 31 && p[1] == 173 && p[2] >= 220 && p[2] <= 223 && p[3] == 255) {
-        if (_previous != p[2]) ++_changes;
+        if (self.verifyContent) {
+            uint64_t hash = FrameFingerprint(image);
+            std::lock_guard<std::mutex> lock(_expectedLock);
+            if (hash != _previousHash && std::find(_expected.begin(), _expected.end(), hash) != _expected.end()) {
+                ++_changes;
+                _previousHash = hash;
+            }
+        } else if (_previous != p[2]) ++_changes;
         _previous = p[2];
     // DeviceRGB conversion varies; accept the slate navy, excluding black and markers.
     } else if (p && p[0] >= 20 && p[0] <= 50 && p[1] >= 10 && p[1] <= 30 && p[2] <= 20 && p[3] == 255) {
@@ -36,7 +73,7 @@
 }
 @end
 
-NSDictionary *CLRunCameraTransportChecks(double duration) {
+NSDictionary *CLRunCameraTransportChecks(double duration, id<CLCameraTestProducer> producer) {
     @autoreleasepool {
         auto failure = ^NSDictionary *(NSString *message) { return @{@"passed": @NO, @"error": message}; };
         if ([AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeVideo] != AVAuthorizationStatusAuthorized)
@@ -55,6 +92,7 @@ NSDictionary *CLRunCameraTransportChecks(double duration) {
         if (!input || ![session canAddInput:input]) return failure(error.localizedDescription ?: @"Callayers camera is not installed.");
         [session addInput:input];
         CameraMarkerReader *reader = [CameraMarkerReader new];
+        reader.verifyContent = producer != nil;
         AVCaptureVideoDataOutput *output = [AVCaptureVideoDataOutput new];
         output.videoSettings = @{(id)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32BGRA)};
         output.alwaysDiscardsLateVideoFrames = YES;
@@ -101,7 +139,15 @@ NSDictionary *CLRunCameraTransportChecks(double duration) {
                     double now = CMTimeGetSeconds(CMClockGetTime(CMClockGetHostTimeClock()));
                     if (now - start >= seconds) break;
                     [client refresh];
-                    if (sending) {
+                    if (sending && producer) {
+                        if ([producer prepareFrame:sequence++]) {
+                            CMSampleBufferRef sample = producer.sample;
+                            if (sample) {
+                                [reader expectSample:sample];
+                                if ([client sendSample:sample]) ++sent;
+                            }
+                        }
+                    } else if (sending) {
                         CMSampleTimingInfo timing = {CMTimeMake(1,30), CMClockGetTime(CMClockGetHostTimeClock()), kCMTimeInvalid};
                         CMSampleBufferRef sample = nullptr;
                         if (!CMSampleBufferCreateReadyWithImageBuffer(nullptr, buffers[sequence++ % 4], format, &timing, &sample)) {
@@ -121,22 +167,24 @@ NSDictionary *CLRunCameraTransportChecks(double duration) {
                 @"observed": @(received), @"maximumGapSeconds": @(maxGap), @"transport": client.status}];
         };
         [session startRunning];
-        run(@"changing synthetic frames", duration, true);
+        run(producer ? @"fresh webcam and overlay round trip" : @"changing synthetic frames", duration, true);
         run(@"stale input becomes fallback", 4, false);
         [client stop];
-        run(@"producer reconnect", 6, true);
+        if (producer) [producer restart];
+        run(producer ? @"webcam and producer restart" : @"producer reconnect", 6, true);
         [client stop];
         [session stopRunning];
         [session startRunning];
         run(@"consumer restart", 6, true);
         [client stop];
         [session stopRunning];
+        if (producer) [producer stop];
         [output setSampleBufferDelegate:nil queue:nullptr];
         dispatch_sync(captureQueue, ^{});
         CFRelease(format);
         for (auto buffer : buffers) CFRelease(buffer);
         BOOL passed = YES;
         for (NSDictionary *check in checks) passed = passed && [check[@"passed"] boolValue];
-        return @{@"passed": @(passed), @"checks": checks, @"physicalCameraOpened": @NO};
+        return @{@"passed": @(passed), @"checks": checks, @"physicalCameraOpened": @(producer != nil), @"captureStatus": producer.status ?: @"synthetic"};
     }
 }
