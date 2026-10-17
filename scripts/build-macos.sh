@@ -35,6 +35,12 @@ command -v python3 >/dev/null || { printf 'Python 3 is required to acquire the r
 sdk="$(python3 "$root/scripts/acquire-macos-renderer.py" --arch "$arch")"
 build="$root/build/macos-$arch"
 mkdir -p "$build"
+xcrun --sdk macosx swiftc -swift-version 5 -parse-as-library -target "$arch-apple-macos12.3" \
+    "$root/macos/App/WorkspaceModels.swift" "$root/macos/App/WorkspaceStore.swift" \
+    "$root/macos/Tests/WorkspaceChecks.swift" -o "$build/WorkspaceChecks"
+if [[ "$arch" == "$host_arch" ]]; then
+    "$build/WorkspaceChecks" 2>&1 | tee "$build/workspace-checks.log"
+fi
 xcodebuild -project "$root/macos/Callayers.xcodeproj" \
     -scheme Callayers -configuration Debug -destination 'generic/platform=macOS' \
     -derivedDataPath "$build" ARCHS="$arch" ONLY_ACTIVE_ARCH=YES \

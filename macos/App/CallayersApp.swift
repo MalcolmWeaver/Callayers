@@ -1,23 +1,48 @@
 import SwiftUI
 import AppKit
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    weak var model: WorkspaceModel?
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let model = model else { return .terminateNow }
+        sender.keyWindow?.makeFirstResponder(nil)
+        // Reply on the next run-loop turn even if an empty workspace saves
+        // synchronously, after AppKit has received terminateLater.
+        DispatchQueue.main.async {
+            model.saveBeforeQuit { saved in
+                if saved { sender.reply(toApplicationShouldTerminate: true); return }
+                let alert = NSAlert()
+                alert.messageText = "Your workspace could not be saved"
+                alert.informativeText = "Cancel quitting to retry Save now. Quitting without saving may lose recent changes."
+                alert.addButton(withTitle: "Cancel quit")
+                alert.addButton(withTitle: "Quit without saving")
+                sender.reply(toApplicationShouldTerminate: alert.runModal() == .alertSecondButtonReturn)
+            }
+        }
+        return .terminateLater
+    }
 }
 
 @main
 @MainActor
 struct CallayersRendererPreviewApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
-    @StateObject private var model = PreviewModel()
+    @StateObject private var model = WorkspaceModel()
 
     var body: some Scene {
-        WindowGroup("Callayers — Renderer Preview") {
+        WindowGroup("Callayers — Workspace Preview") {
             WorkspaceView(model: model)
-                .frame(minWidth: 900, idealWidth: 1180, minHeight: 580, idealHeight: 740)
+                .frame(minWidth: 1000, idealWidth: 1280, minHeight: 640, idealHeight: 800)
+                .onAppear { delegate.model = model }
         }
         .commands {
             CommandGroup(replacing: .newItem) {}
+            CommandGroup(after: .newItem) {
+                Button("Save Workspace") { model.save() }.keyboardShortcut("s")
+                    .disabled(!model.editable)
+            }
         }
     }
 }

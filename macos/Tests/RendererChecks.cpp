@@ -116,6 +116,16 @@ int main(int argc, char** argv) {
         renderer.loadCard(card, "{}");
         Until(renderer, [&] { return renderer.ready(); }, "Renderer did not recover after invalid state");
         std::cout << "PASS isolated cards, blocked requests and state validation\n";
+        Renderer second(resources.string());
+        renderer.loadCard(card, "{\"count\":3,\"note\":\"first\"}");
+        second.loadCard(card, "{\"count\":9,\"note\":\"second\"}");
+        Until(renderer, [&] { second.tick(); return renderer.ready() && second.ready(); }, "Two cards did not become ready");
+        Click(second, 235, 345);
+        Require(Snapshot(second).find("\"count\":10") != std::string::npos, "Second card did not receive input");
+        Require(Snapshot(renderer).find("\"count\":3") != std::string::npos, "Input leaked into another card");
+        second.clear(); Pump(second, 80);
+        Require(Snapshot(renderer).find("\"note\":\"first\"") != std::string::npos, "Unloading a card changed another card's state");
+        std::cout << "PASS multiple renderer instances retain independent values and input\n";
         std::cout << "Ultralight " << Renderer::sdkVersion() << " renderer checks passed\n";
         return 0;
     } catch (const std::exception& error) {
