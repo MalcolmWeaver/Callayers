@@ -166,3 +166,7 @@
 ## Completion criteria
 
 The installed native app matches the main GitHub workspace, implements real backend authentication and creation/revision, imports images, supports completed/private annotations, autosaves/restores content and values, and retains the existing camera pipeline. All relevant automated checks pass. User runtime observations establish actual sign-in, generation and camera behavior separately. Paid-team signing, system approval, and calling-app output remain explicit external requirements until verified; local build success is not a claim of a public distribution release.
+
+## Local delivery outcome
+
+Implemented and locally committed on `build/macos-apple-silicon`. The native arm64 0.4.0/build 9 package passes the full build, renderer isolation observer, all Mac feature/regression checks, 36 backend tests, signature checks and ZIP integrity. Independent whole-branch review and targeted fix rechecks found no remaining blocker among the reported findings. Installed at `/Applications/Callayers.app` and opened. The previous 0.1.0 app is preserved under `build/backups/Callayers-0.1.0-installed.app`. Real-account/visual/calling-app runtime acceptance remains with the user; paid developer signing is still required for camera extension activation. No shared branch push or public release was requested.
