@@ -45,10 +45,15 @@ button { cursor: pointer; }
 .download .button { max-width: 100%; gap: 16px; }
 .download .eyebrow { color: var(--accent); }
 .setup-action .button { justify-content: center; }
-.self-service { grid-column: 1 / -1; border-top: 1px solid var(--line); padding-top: 20px; }
-.self-service summary { color: var(--muted); font-size: 14px; cursor: pointer; }
-.self-service summary:hover, .self-service[open] > summary { color: var(--text); }
-.self-service summary span { font-size: 13px; }
+.self-service { grid-column: 1 / -1; }
+.self-service > summary { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 18px 20px; background: var(--bg); border: 1px solid #575263; border-radius: 8px; cursor: pointer; list-style: none; }
+.self-service > summary::-webkit-details-marker { display: none; }
+.self-service > summary::marker { content: ''; }
+.self-service > summary::after { content: ''; flex: 0 0 10px; height: 10px; margin: -5px 3px 0 0; border-right: 2px solid var(--accent); border-bottom: 2px solid var(--accent); transform: rotate(45deg); }
+.self-service[open] > summary::after { margin-top: 5px; transform: rotate(225deg); }
+.self-service > summary:hover, .self-service[open] > summary { border-color: var(--accent); }
+.self-service-copy strong { display: block; color: var(--text); font-size: 16px; font-weight: 600; }
+.self-service-copy > span { display: block; margin-top: 4px; color: var(--muted); font-size: 14px; }
 .self-service .download-action { margin-top: 24px; max-width: 560px; }
 .download-action .fine { max-width: none; font-size: 13px; }
 #release-status, #linux-release-status { font-size: 14px; color: var(--text); }

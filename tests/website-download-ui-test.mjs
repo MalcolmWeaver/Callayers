@@ -167,7 +167,8 @@ test('self-service starts collapsed and the Windows signing note comes before it
  const disclosure=/<details\b[^>]*\bid="self-service-downloads"[^>]*>/.exec(html);
  assert(disclosure);
  assert.doesNotMatch(disclosure[0],/\bopen(?:\s|=|>)/);
- assert.match(html,/<summary>Prefer to install it yourself\? <span>View downloads and setup instructions\.<\/span><\/summary>/);
+ const summary=/<summary>([\s\S]*?)<\/summary>/.exec(html.slice(disclosure.index))[1];
+ assert.equal(summary.replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim(),'Prefer to install it yourself? View downloads and setup instructions.');
  const warning=html.indexOf('id="windows-install-note"'),download=html.indexOf('id="installer-link"');
  assert(warning>0&&warning<download);
  assert.match(html,/<a id="installer-link"[^>]*aria-describedby="windows-install-note"/);
