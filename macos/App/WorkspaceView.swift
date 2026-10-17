@@ -4,7 +4,7 @@ import SwiftUI
 struct WorkspaceView: View {
     @ObservedObject var model: WorkspaceModel
     @State private var search = ""
-    @State private var renaming: UUID?
+    @State private var renaming: WorkspaceCard?
     @State private var name = ""
     @FocusState private var renameFocused: Bool
     @State private var deleting: WorkspaceCard?
@@ -78,6 +78,26 @@ struct WorkspaceView: View {
                 }
             }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .sheet(item: $renaming, onDismiss: { model.editingName = false }) { card in
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Rename card").font(.title2.weight(.semibold))
+                TextField("Card name", text: $name)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($renameFocused)
+                    .onSubmit { if validName { finishRename() } }
+                Text("Use 1–120 characters.").font(.caption).foregroundColor(.secondary)
+                HStack {
+                    Spacer()
+                    Button("Cancel") { renaming = nil }
+                        .keyboardShortcut(.cancelAction)
+                    Button("Save") { finishRename() }
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(!validName)
+                }
+            }
+            .padding(24).frame(width: 360)
+            .onAppear { renameFocused = true }
+        }
         .alert("Delete card?", isPresented: $showDelete, presenting: deleting) { card in
             Button("Cancel", role: .cancel) { model.editingName = false }
             Button("Delete", role: .destructive) { model.editingName = false; model.delete(card.id) }
@@ -98,35 +118,40 @@ struct WorkspaceView: View {
     private func startRename(_ card: WorkspaceCard) {
         guard model.editable else { return }
         model.editingName = true
-        renaming = card.id; name = card.name; renameFocused = true
+        model.select(card.id)
+        name = card.name; renaming = card
+    }
+    private var validName: Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.isEmpty && trimmed.utf16.count <= 120
     }
     private func finishRename() {
-        guard let id = renaming else { return }
-        renaming = nil; model.editingName = false; model.rename(id, to: name)
+        guard let card = renaming, validName else { return }
+        model.editingName = false
+        model.rename(card.id, to: name)
+        renaming = nil
     }
     private func row(_ card: WorkspaceCard) -> some View {
         HStack(spacing: 8) {
             Toggle("Show \(card.name)", isOn: Binding(get: { card.visible }, set: { model.setVisible(card.id, $0) }))
                 .labelsHidden().toggleStyle(.checkbox).disabled(!model.editable)
-            if renaming == card.id {
-                TextField("Card name", text: $name)
-                    .focused($renameFocused)
-                    .onSubmit { finishRename() }
-                    .onChange(of: renameFocused) { focused in if !focused { finishRename() } }
-                    .onExitCommand { renaming = nil; model.editingName = false }
-            } else {
-                Text(card.name).lineLimit(1).help(card.name)
-                    .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-                    .onTapGesture(count: 2) { startRename(card) }
-                    .onTapGesture { model.select(card.id) }
-            }
+            Text(card.name).lineLimit(1).help("Double-click to rename " + card.name)
+                .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                .onTapGesture(count: 2) { startRename(card) }
+                .onTapGesture { model.select(card.id) }
             Menu {
                 Button("Rename") { startRename(card) }
                 Button("Delete…") {
                     guard model.editable else { return }
                     model.editingName = true; deleting = card; showDelete = true
                 }
-            } label: { Image(systemName: "ellipsis") }.menuStyle(.borderlessButton).frame(width: 20)
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 15, weight: .semibold))
+                    .frame(width: 28, height: 24).contentShape(Rectangle())
+            }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                .help("Card actions").accessibilityLabel("Actions for " + card.name)
                 .disabled(!model.editable)
         }.padding(8)
             .background(model.document.selectedID == card.id ? Color.accentColor.opacity(0.18) : Color.clear)
