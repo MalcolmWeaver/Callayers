@@ -82,7 +82,19 @@ Reuse current safeguards against late responses overwriting newer work. Separate
 
 Bundle architecture-matched renderer libraries, resources, web assets, license notices, and the camera extension. Produce separately signed and notarized Silicon and Intel downloads. Verify installation, sign-in, real calling-app output, minimized behavior, quit/reopen, and camera recovery on physical Macs. Keep verification instructions in chat, grouped by each small improvement.
 
-An initial downloadable build is the release target. Automatic updates and public website publication are separate follow-ups. No cross-architecture performance or compatibility claim follows from an Intel-only runtime check.
+Prepare versioned release artifacts and hosting for the automatic-update feed and public downloads in the next two milestones. No cross-architecture performance or compatibility claim follows from an Intel-only runtime check.
+
+### 6. Automatic updates
+
+Check for updates automatically and select the correct Intel or Apple Silicon download. Verify release authenticity before installation, preserve saved work, and apply updates at a safe exit/start when camera output is idle. Handle camera-extension updates, required system approval or restart, and failed-update recovery without interrupting an active call.
+
+Verify an actual upgrade from one installed build to the next on both architectures, including saved-work preservation and camera availability after the update.
+
+### 7. Public Mac launch
+
+Add Mac downloads and installation instructions to the existing Callayers website. Publish the signed and notarized Intel and Apple Silicon builds and their update feed, making each versioned artifact available before publishing the feed that references it.
+
+Verify the complete path from website download through installation, sign-in, and camera use. The release target is a publicly downloadable Mac app with working automatic updates; both milestones are part of this plan.
 
 ## Planned files
 
