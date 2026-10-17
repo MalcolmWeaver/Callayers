@@ -1,6 +1,6 @@
 import http from 'node:http';
 import {readFile} from 'node:fs/promises';
-const files=new Set(['index.html','styles.css','download-ui.js','download.js','linux-download.js','analytics.js','signed-in.html','download-config.json','privacy.html','terms.html','callayers-mark.svg','callayers-zoom-windows.png']);
+const files=new Set(['index.html','styles.css','download-ui.js','download.js','linux-download.js','macos-download.js','analytics.js','signed-in.html','download-config.json','privacy.html','terms.html','callayers-mark.svg','callayers-zoom-windows.png']);
 const types={html:'text/html; charset=utf-8',css:'text/css; charset=utf-8',js:'text/javascript; charset=utf-8',json:'application/json',svg:'image/svg+xml',png:'image/png'};
 const server=http.createServer(async(req,res)=>{
  const pathname=new URL(req.url,'http://localhost').pathname;

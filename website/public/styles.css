@@ -46,7 +46,7 @@ button { cursor: pointer; }
 .download .eyebrow { color: var(--accent); }
 .download-action .fine { max-width: none; font-size: 13px; }
 #release-status, #linux-release-status { font-size: 14px; color: var(--text); }
-.platform-picker { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; }
+.platform-picker { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 4px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; }
 .platform-picker button { padding: 10px 12px; background: transparent; border: 0; border-radius: 6px; color: var(--muted); font-size: 14px; font-weight: 650; }
 .platform-picker button[aria-pressed="true"] { background: var(--accent); color: #201d33; }
 .beta-label { margin-left: 5px; font-size: 10px; text-transform: uppercase; letter-spacing: .7px; }

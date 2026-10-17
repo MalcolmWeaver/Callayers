@@ -155,3 +155,15 @@ test('Fedora and Arch commands require published native repositories, and Fedora
  p.choose('ubuntu');
  assert.equal(p.elements['linux-command'].textContent,standard);
 });
+
+test('Mac browsers select Mac without guessing Intel versus Apple silicon',async()=>{
+ const p=await page({platform:'MacIntel'});
+ assert.equal(p.elements['macos-panel'].hidden,false);
+ assert.equal(p.elements['choose-macos'].attributes['aria-pressed'],'true');
+ assert.equal(p.links[0].label.textContent,'Download for Mac');
+ assert.equal(p.links[0].href,'#download');
+ p.elements['choose-linux'].listeners.click();
+ assert.equal(p.elements['macos-panel'].hidden,true);
+ p.elements['choose-macos'].listeners.click();
+ assert.equal(p.elements['linux-panel'].hidden,true);
+});
