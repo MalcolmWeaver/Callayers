@@ -23,8 +23,8 @@ final class VideoModel: ObservableObject {
     private var feedbackTime = Date.distantPast
     private var feedback: DeliveryFeedback?
     private var ledger = DeliveryLedger()
-    private let capture = CameraCapture()
     private let output = CLVirtualCameraClient()
+    private let capture = CameraCapture()
     private var composer: FrameComposer?
     private var retainedSample: CMSampleBuffer?
     private var requestedID: String?
@@ -35,7 +35,9 @@ final class VideoModel: ObservableObject {
     private var permissionPending = false
     private static let preference = "selectedWebcamID"
 
-    init() {
+    private let previewDemand: (() -> Bool)?
+    init(previewDemand: (() -> Bool)? = nil) {
+        self.previewDemand = previewDemand
         selectedID = UserDefaults.standard.string(forKey: Self.preference) ?? ""
         do { composer = try FrameComposer() }
         catch { cameraStatus = error.localizedDescription }
@@ -63,7 +65,7 @@ final class VideoModel: ObservableObject {
         refreshTime = Date().addingTimeInterval(1)
         cameras = CameraCapture.devices().map { WebcamChoice(id: $0.uniqueID, name: $0.localizedName) }
         output.refresh(); outputStatus = output.status
-        let visible = previewWindow.map { $0.isVisible && !$0.isMiniaturized && $0.occlusionState.contains(.visible) } ?? (NSApp?.windows.contains { $0.isVisible && !$0.isMiniaturized && $0.occlusionState.contains(.visible) } ?? true)
+        let visible = previewDemand?() ?? previewWindow.map { $0.isVisible && !$0.isMiniaturized && $0.occlusionState.contains(.visible) } ?? (NSApp?.windows.contains { $0.isVisible && !$0.isMiniaturized && $0.occlusionState.contains(.visible) } ?? true)
         previewVisible = visible
         wantsFrames = visible || output.consumerCount > 0
         reportTelemetry()
@@ -139,7 +141,7 @@ final class VideoModel: ObservableObject {
     }
     func shutdown() {
         authorized = false; ledger.clear(); previewTime = .distantPast; reportTelemetry()
-        terminated = true; output.stop(); capture.configure(id: nil, retry: true)
+        terminated = true; output.disconnect(); capture.configure(id: nil, retry: true)
         retainedSample = nil; preview = nil
     }
 }

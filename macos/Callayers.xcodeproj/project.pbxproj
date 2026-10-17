@@ -5,6 +5,16 @@
 	};
 	"objectVersion" = "56";
 	"objects" = {
+        "CA1600000000000000000001" = { "isa" = "PBXFileReference"; "lastKnownFileType" = "sourcecode.swift"; "path" = "Tests/ApplicationSessionChecks.swift"; "sourceTree" = "<group>"; };
+        "CA1600000000000000000002" = { "isa" = "PBXBuildFile"; "fileRef" = "CA1600000000000000000001"; };
+        "CA1500000000000000000003" = { "isa" = "PBXFileReference"; "lastKnownFileType" = "sourcecode.swift"; "path" = "App/AboutView.swift"; "sourceTree" = "<group>"; };
+        "CA1500000000000000000004" = { "isa" = "PBXBuildFile"; "fileRef" = "CA1500000000000000000003"; };
+        "CA1500000000000000000001" = { "isa" = "PBXFileReference"; "lastKnownFileType" = "sourcecode.swift"; "path" = "Services/UpdateController.swift"; "sourceTree" = "<group>"; };
+        "CA1500000000000000000002" = { "isa" = "PBXBuildFile"; "fileRef" = "CA1500000000000000000001"; };
+        "CA1400000000000000000001" = { "isa" = "XCRemoteSwiftPackageReference"; "repositoryURL" = "https://github.com/sparkle-project/Sparkle"; "requirement" = { "kind" = "exactVersion"; "version" = "2.9.6"; }; };
+        "CA1400000000000000000002" = { "isa" = "XCSwiftPackageProductDependency"; "package" = "CA1400000000000000000001"; "productName" = "Sparkle"; };
+        "CA1400000000000000000003" = { "isa" = "PBXBuildFile"; "productRef" = "CA1400000000000000000002"; };
+
         "CA1300000000000000000003" = { "isa" = "PBXFileReference"; "lastKnownFileType" = "sourcecode.swift"; "path" = "Video/DeliveryFeedback.swift"; "sourceTree" = "<group>"; };
         "CA1300000000000000000004" = { "isa" = "PBXBuildFile"; "fileRef" = "CA1300000000000000000003"; };
         "CA1300000000000000000001" = { "isa" = "PBXFileReference"; "lastKnownFileType" = "sourcecode.swift"; "path" = "Services/Telemetry.swift"; "sourceTree" = "<group>"; };
@@ -167,7 +177,7 @@
 			"isa" = "PBXFileReference";
 			"explicitFileType" = "wrapper.application";
 			"includeInIndex" = "0";
-			"path" = "Callayers Renderer Preview.app";
+			"path" = "Callayers.app";
 			"sourceTree" = "BUILT_PRODUCTS_DIR";
 		};
 		"5C5846C6B57382E15C0E5CFE" = {
@@ -208,6 +218,9 @@
 		"13C4608B5138EBE9B3A45A55" = {
 			"isa" = "PBXGroup";
 			"children" = (
+                "CA1600000000000000000001",
+                "CA1500000000000000000003",
+                "CA1500000000000000000001",
                 "CA1300000000000000000003",
                 "CA1300000000000000000001",
                 "CA120000000000000000000B",
@@ -347,6 +360,9 @@
 			"isa" = "PBXSourcesBuildPhase";
 			"buildActionMask" = "2147483647";
 			"files" = (
+                "CA1600000000000000000002",
+                "CA1500000000000000000004",
+                "CA1500000000000000000002",
                 "CA1300000000000000000004",
                 "CA1300000000000000000002",
                 "CA120000000000000000000C",
@@ -398,6 +414,7 @@
 			"isa" = "PBXFrameworksBuildPhase";
 			"buildActionMask" = "2147483647";
 			"files" = (
+                "CA1400000000000000000003",
 				"C711CE0A8B0A44E1A1200002",
 				"A7E57ED4F52F5E3646D315F0",
 				"D4D04261C034A3D77E3755E0",
@@ -452,7 +469,7 @@
 			"isa" = "XCBuildConfiguration";
 			"baseConfigurationReference" = "1B5D25A1C585CDF700906F9A";
 			"buildSettings" = {
-				"PRODUCT_NAME" = "Callayers Renderer Preview";
+				"PRODUCT_NAME" = "Callayers";
 				"PRODUCT_BUNDLE_IDENTIFIER" = "com.callayers.renderer-preview";
 				"INFOPLIST_FILE" = "Config/AppInfo.plist";
 				"GENERATE_INFOPLIST_FILE" = "NO";
@@ -475,7 +492,7 @@
 			"isa" = "XCBuildConfiguration";
 			"baseConfigurationReference" = "1B5D25A1C585CDF700906F9A";
 			"buildSettings" = {
-				"PRODUCT_NAME" = "Callayers Renderer Preview";
+				"PRODUCT_NAME" = "Callayers";
 				"PRODUCT_BUNDLE_IDENTIFIER" = "com.callayers.renderer-preview";
 				"INFOPLIST_FILE" = "Config/AppInfo.plist";
 				"GENERATE_INFOPLIST_FILE" = "NO";
@@ -504,6 +521,7 @@
 		};
 		"8C1A045E96B998B40533C7FF" = {
 			"isa" = "PBXNativeTarget";
+            "packageProductDependencies" = ("CA1400000000000000000002",);
 			"buildConfigurationList" = "7FA7C6DD60DC323C7F3FA76C";
 			"buildPhases" = (
 				"6ACE7BC297BF23705D4E5F56",
@@ -518,7 +536,7 @@
 				"C6BCE2F15EAFEA4D80BB81D7",
 			);
 			"name" = "Callayers";
-			"productName" = "Callayers Renderer Preview";
+			"productName" = "Callayers";
 			"productReference" = "81F31879437340D5CD6ED968";
 			"productType" = "com.apple.product-type.application";
 		};
@@ -654,6 +672,7 @@
 		};
 		"244210E48437B6556980A702" = {
 			"isa" = "PBXProject";
+            "packageReferences" = ("CA1400000000000000000001",);
 			"attributes" = {
 				"BuildIndependentTargetsInParallel" = "YES";
 				"LastUpgradeCheck" = "1600";

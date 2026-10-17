@@ -95,6 +95,7 @@ extension WorkspaceDocument {
         }
         guard cards.count < 100 else { throw ServiceFailure(message: "Your library is full. Remove a card before creating another.") }
         var card = WorkspaceCard(name: content.name, html: content.html)
+        card.visible = false
         card.contentWidth = content.width; card.contentHeight = content.height; card.contentRevision = UUID()
         card.place(x: 48, y: 48)
         cards.append(card); selectedID = card.id

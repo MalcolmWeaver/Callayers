@@ -101,9 +101,9 @@ fi
 xcodebuild -project "$root/macos/Callayers.xcodeproj" \
     -scheme Callayers -configuration Debug -destination "$destination" \
     -derivedDataPath "$build" ARCHS="$arch" ONLY_ACTIVE_ARCH=YES \
-    ULTRALIGHT_ROOT="$sdk" ${signing[@]+"${signing[@]}"} build 2>&1 | tee "$build/build.log"
+    ULTRALIGHT_ROOT="$sdk" CALLAYERS_UPDATE_ARCH="$arch" ${signing[@]+"${signing[@]}"} build 2>&1 | tee "$build/build.log"
 products="$build/Build/Products/Debug"
-app="$products/Callayers Renderer Preview.app"
+app="$products/Callayers.app"
 /usr/bin/codesign --verify --deep --strict "$app"
 /usr/bin/codesign --verify --strict "$app/Contents/Library/SystemExtensions/com.callayers.renderer-preview.camera.systemextension"
 if [[ "$arch" == "$host_arch" ]]; then

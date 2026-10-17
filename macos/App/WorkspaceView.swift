@@ -14,18 +14,21 @@ struct WorkspaceView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 14) {
-                Text("Callayers").font(.title2.weight(.semibold))
-                Text("Your cards, saved on this Mac").font(.subheadline).foregroundColor(.secondary)
-                Button(model.importing ? "Importing…" : "Import image") { model.importImage() }
-                    .disabled(!model.editable || model.document.cards.count >= 100)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 10) {
+                    Image("CallayersMark").resizable().frame(width: 32, height: 32)
+                    Text("Callayers").font(.title2.weight(.semibold))
+                }
                 HStack {
                     Button("Create with AI") { model.select(nil) }
                         .disabled(!model.editable || model.document.cards.count >= 100)
-                    Spacer()
+                    Button(model.importing ? "Importing…" : "Import image") { model.importImage() }
+                        .disabled(!model.editable || model.document.cards.count >= 100)
+                }
+                HStack {
+                    TextField("Search cards", text: $search)
                     Button("Hide all") { model.hideAll() }.disabled(!model.editable || model.visibleCards.isEmpty)
                 }
-                TextField("Search cards", text: $search)
                 ScrollView {
                     LazyVStack(spacing: 4) {
                         ForEach(model.library.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }) { card in
@@ -39,7 +42,7 @@ struct WorkspaceView: View {
                 }
                 if let card = model.selected {
                     Divider()
-                    Text(card.name).font(.headline).lineLimit(1).help(card.name)
+                    DisclosureGroup {
                     Text(card.visible ? "Drag the border to move; drag the corner to resize." : "Hidden from the preview.")
                         .font(.caption).foregroundColor(.secondary)
                     geometry("Horizontal", value: card.x, range: 0...(1280 - card.width)) { model.placeSelected(x: $0) }
@@ -49,25 +52,26 @@ struct WorkspaceView: View {
                         Button("Duplicate") { model.duplicateSelected() }.disabled(!model.editable || model.document.cards.count >= 100)
                         Button("Bring to front") { model.bringToFront() }.disabled(!model.editable)
                     }
+                    } label: { Text("Position and size").font(.subheadline) }
                 }
                 Divider()
                 VStack(alignment: .leading, spacing: 8) {
                     Text(model.selected.map { "Edit “\($0.name)”" } ?? "New card").font(.headline).lineLimit(1)
                     Text(model.selected == nil ? "Describe what you want to show." : "Describe what you want to change.")
                         .font(.caption).foregroundColor(.secondary)
-                    TextEditor(text: Binding(get: { model.prompt }, set: model.setPrompt))
+                    TextEditor(text: Binding(get: { model.prompt }, set: { model.setPrompt($0) }))
                         .font(.body).frame(height: 90).overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.secondary.opacity(0.3)))
                         .accessibilityLabel("Card prompt")
                     HStack {
                         Button("Send") { model.generate() }.disabled(!model.editable || model.generating || model.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         if model.generating { ProgressView().controlSize(.small); Button("Cancel") { model.cancelGeneration() } }
                     }
-                    if !model.generationMessage.isEmpty { Text(model.generationMessage).font(.caption).foregroundColor(.secondary) }
+                    if !model.generationMessage.isEmpty { Text(model.generationMessage).font(.caption).foregroundColor(.secondary).lineLimit(4).help(model.generationMessage) }
                 }
                 Divider()
                 Text("Choose Callayers as the camera in your calling app.")
                     .font(.caption).foregroundColor(.secondary)
-            }.padding(20).frame(width: 285).background(Color(NSColor.windowBackgroundColor))
+            }.padding(16).frame(width: 285).background(Color(NSColor.windowBackgroundColor))
             Divider()
             VStack(alignment: .leading, spacing: 16) {
                 HStack {
@@ -132,7 +136,7 @@ struct WorkspaceView: View {
         } message: { Text("The previous saved workspace will reopen. The unreadable original will be preserved separately.") }
     }
 
-    private func geometry(_ title: String, value: Double, range: ClosedRange<Double>, change: @escaping (Double) -> Void) -> some View {
+    private func geometry(_ title: String, value: Double, range: ClosedRange<Double>, change: @escaping @MainActor @Sendable (Double) -> Void) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(title).font(.caption)
             Slider(value: Binding(get: { value }, set: change), in: range).disabled(!model.editable)

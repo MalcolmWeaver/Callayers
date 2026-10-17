@@ -30,8 +30,8 @@ def main():
     if args.hours is not None and (not math.isfinite(args.hours) or not 0.05 <= args.hours <= 24):
         parser.error('--hours must be between 0.05 and 24')
     build = ROOT / 'build' / ('macos-camera-' + platform.machine())
-    app = (args.app or build / 'Build/Products/Debug/Callayers Renderer Preview.app').resolve()
-    executable = app / 'Contents/MacOS/Callayers Renderer Preview'
+    app = (args.app or build / 'Build/Products/Debug/Callayers.app').resolve()
+    executable = app / 'Contents/MacOS/Callayers'
     if not executable.exists():
         parser.error('Build the signed Mac app first.')
     # Keep two runners from competing for the same physical camera and producer.
@@ -41,7 +41,7 @@ def main():
     except BlockingIOError:
         parser.error('Another unattended suite is already running.')
     processes = subprocess.check_output(['ps', '-axo', 'command='], text=True)
-    if any('/Contents/MacOS/Callayers Renderer Preview' in line for line in processes.splitlines()):
+    if any('/Contents/MacOS/Callayers' in line for line in processes.splitlines()):
         parser.error('Quit Callayers before testing. Close calling apps; test video is published to the virtual camera.')
     subprocess.run(['codesign', '--verify', '--deep', '--strict', str(app)], check=True)
     run_id = str(uuid.uuid4())
@@ -51,7 +51,7 @@ def main():
     summary = {'runID': run_id, 'started': datetime.datetime.now(datetime.timezone.utc).isoformat(),
                'app': str(app), 'passed': False, 'status': 'running', 'checks': [], 'cycles': [],
                'webcamRequested': args.webcam, 'hoursRequested': args.hours}
-    binary = app / 'Contents/MacOS/Callayers Renderer Preview.debug.dylib'
+    binary = app / 'Contents/MacOS/Callayers.debug.dylib'
     summary['binarySHA256'] = hashlib.sha256((binary if binary.exists() else executable).read_bytes()).hexdigest()
 
     def save():
@@ -59,7 +59,7 @@ def main():
         temporary.write_text(json.dumps(summary, indent=2) + '\n')
         temporary.replace(summary_path)
 
-    def camera_check(label, seconds, webcam):
+    def camera_check(label, seconds, webcam, lifecycle=False):
         phase_id = str(uuid.uuid4())
         report_path = result_dir / (label + '.json')
         summary['activePhase'] = label
@@ -67,7 +67,7 @@ def main():
         print('Testing ' + label + '…', flush=True)
         subprocess.run(['open', '-n', '-g', '--stdout', str(result_dir / (label + '.log')),
                         '--stderr', str(result_dir / (label + '-error.log')), str(app), '--args',
-                        '--check-webcam-transport' if webcam else '--check-camera-transport',
+                        '--check-session-lifecycle' if lifecycle else ('--check-webcam-transport' if webcam else '--check-camera-transport'),
                         str(seconds), str(report_path), phase_id, str(os.getpid())], check=True, timeout=15)
         deadline = time.monotonic() + seconds + 60
         next_progress = time.monotonic() + 30
@@ -122,6 +122,7 @@ def main():
             if result.returncode: raise RuntimeError(name + ' failed')
         budget_end = time.monotonic() + args.hours * 3600 if args.hours else None
         if args.webcam:
+            camera_check('session-lifecycle', 120, True, lifecycle=True)
             camera_check('synthetic-preflight', 10, False)
         cycle = 0
         while True:

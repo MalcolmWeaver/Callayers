@@ -71,7 +71,7 @@ node website/serve.mjs
 
 Open `http://127.0.0.1:4173`. Website source stays in `website/public`; build output is ignored. The source contains a home/download page and a tester privacy page. Its download control follows the published tester feed; it never creates an installer release.
 
-The download panel selects Windows or Linux using best-effort browser platform hints, with a manual platform switch for unsupported/unknown browsers and downloads for another computer. Header and hero buttons link directly to the published Windows installer when Windows is selected; Linux opens/focuses its distribution picker. Linux commands appear only after a distribution is selected: Ubuntu uses the standard installer, and Debian/Mint/Pop!_OS/Fedora/Arch include `--allow-experimental` with distribution-specific requirements. Fedora additionally offers an explicit RPM Fusion Free checkbox; its flag is never added by default. Fedora/Arch commands appear only after the published metadata advertises native repositories. Other distributions expose no install command. Browser detection does not establish Linux distribution, supported release, CPU compatibility, or Secure Boot state; the installer performs the actual machine checks. Successful Linux copies include the selected `distribution` in analytics; direct Windows hero/navigation downloads retain the existing download event with the corresponding button location.
+The download panel selects Windows, Mac, or Linux using best-effort browser platform hints, with a manual platform switch for unsupported/unknown browsers and downloads for another computer. Header and hero buttons link directly to the published Windows installer when Windows is selected; Linux opens/focuses its distribution picker. Linux commands appear only after a distribution is selected: Ubuntu uses the standard installer, and Debian/Mint/Pop!_OS/Fedora/Arch include `--allow-experimental` with distribution-specific requirements. Fedora additionally offers an explicit RPM Fusion Free checkbox; its flag is never added by default. Fedora/Arch commands appear only after the published metadata advertises native repositories. Other distributions expose no install command. Browser detection does not establish Linux distribution, supported release, CPU compatibility, or Secure Boot state; the installer performs the actual machine checks. Successful Linux copies include the selected `distribution` in analytics; direct Windows hero/navigation downloads retain the existing download event with the corresponding button location.
 
 Website/release credentials, R2 bucket/domain/CORS activation, and GitHub variable/secret activation are required before hosted delivery can be verified. Prepared builds are not runtime acceptance; step 10 remains open until the user accepts installed behavior and hosted delivery.
 
@@ -123,3 +123,38 @@ Fedora requires RPM Fusion Free for its camera driver. The installer never enabl
 Arch installation performs a full upgrade, installs the matching kernel headers and `v4l2loopback-dkms`, and can require reboot/rerun if the running kernel no longer has matching headers. The Callayers repository is `linux/arch/x86_64`, with signed packages and signed pacman databases; the installer does not disable signature verification or install an AUR helper.
 
 Before hosted publication, install local candidates with `sudo bash ./install.sh --allow-experimental --package ./callayers-<version>-1.x86_64.rpm` (Fedora) or `sudo bash ./install.sh --allow-experimental --package ./callayers-<version>-1-x86_64.pkg.tar.zst` (Arch). Add the explicit Fedora repository flag only when desired. Local candidate mode does not configure Callayers repository updates; rerun the normal public installer after release.
+
+## Mac build and release preparation
+
+The native Mac product is `Callayers.app`; the stable bundle IDs remain `com.callayers.renderer-preview` and `com.callayers.renderer-preview.camera` so existing camera approvals and producer authentication remain valid. Intel and Apple Silicon use separate archives and feeds. The app uses pinned Sparkle 2.9.6, validates signed feeds and archives before extraction, and defers installation during camera use or unfinished AI/import work. Release startup checks the bundled extension version and requests an upgrade only while no calling app is consuming the camera; macOS can still require approval or restart. Development builds do not check the public update feed or automatically replace the installed camera.
+
+A development checkpoint can be prepared with:
+
+```sh
+bash scripts/package-macos.sh --development --arch x86_64 --team TEAM_ID
+```
+
+Use `--arch arm64` for the Silicon artifact; building it on Intel does not run its renderer or establish physical Mac acceptance. `--skip-build` packages an already verified development build. Archives contain just the application, with a separate SHA-256 file, and existing versioned archives are never overwritten. `check-macos-package.py` verifies binary architecture, bundled dependencies/resources and signatures. `macos/Tests/check-update-signing.py` exercises the actual pinned Sparkle signer using a disposable private key; it does not install an update.
+
+Public release preparation requires a **Developer ID Application** certificate with its private key, provisioning for the host and camera extension, a notarization credential saved under a named `notarytool` Keychain profile, and a durable Ed25519 update key. Apple Development signing alone is insufficient. Keep the update key out of Git and build artifacts, and back it up before publication. Generate it once in a protected, ignored local directory; the helper refuses to replace an existing file and prints only its public key:
+
+```sh
+mkdir -p .local/release-keys
+xcrun swift scripts/macos-update-key.swift --generate .local/release-keys/macos-ed25519.key
+```
+
+Prepare each architecture in its own fresh output directory:
+
+```sh
+bash scripts/package-macos.sh --arch arm64 --team TEAM_ID \
+  --identity 'Developer ID Application: YOUR NAME (TEAM_ID)' \
+  --notary-profile CallayersNotary \
+  --ed-key-file .local/release-keys/macos-ed25519.key \
+  --output build/mac-release-arm64
+```
+
+The release path archives and exports with Developer ID signing and hardened runtime, checks the app, submits to Apple's notary service, requires acceptance, staples/validates the ticket, checks Gatekeeper, then creates the final ZIP and signed Sparkle appcast. It preserves failed outputs for diagnosis and never publishes or changes `/Applications`. The script has not completed a real Developer ID export/notarization on the initial Intel machine; the needed distribution identity is not installed.
+
+Publication remains a separate operation after physical runtime/upgrade acceptance. Immutable archives belong at `https://downloads.callayers.com/macos/releases/<version>/<arch>/`; publish the matching signed feed last at `https://downloads.callayers.com/macos/<arch>/appcast.xml`. Never reuse a version/build number for different public bytes. The first feed and subsequent upgrades need the same retained signing identity. Keep prior releases for recovery. Actual upgrade acceptance must cover saved work, an active-call deferral, extension activation/restart handling, and both processor families before public launch.
+
+Mac website availability is prepared independently for each architecture. Production packaging writes `feed/latest.json` only after notarization, stapling, and Gatekeeper assessment succeed. Publish its versioned ZIP first, then `macos/<arch>/appcast.xml` and `macos/<arch>/latest.json` last; permit HTTPS cross-origin reads for the availability JSON. The website offers explicit Apple silicon and Intel choices and never infers the CPU from `MacIntel` browser strings. Development ZIPs do not generate availability metadata and must not be published through these release paths. No Mac artifacts or website changes were published during local preparation.

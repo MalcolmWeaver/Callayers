@@ -23,7 +23,7 @@ struct GenerationChecks {
         var document = WorkspaceDocument()
         let create = GenerationTicket(card: nil)
         let id = try document.apply(generated, ticket: create)
-        try require(document.cards.count == 1 && document.selectedID == id && document.cards[0].visible, "Creation lost identity or visibility")
+        try require(document.cards.count == 1 && document.selectedID == id && !document.cards[0].visible, "New cards must stay hidden until explicitly shown")
         document.cards[0].name = "My name"; document.cards[0].state = "{\"count\":2}"
         let original = document.cards[0], revision = GenerationTicket(card: original)
         let newer = try GeneratedContent(["name": "AI name", "html": "<p>Changed</p>", "width": 500, "height": 300], imageRequired: false)

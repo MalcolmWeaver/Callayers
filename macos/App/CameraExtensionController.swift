@@ -11,6 +11,7 @@ final class CameraExtensionController: NSObject, ObservableObject, OSSystemExten
     @Published private(set) var needsApproval = false
     private var pending: OSSystemExtensionRequest?
     private var removing = false
+    private var checking = false
 
     var canInstall: Bool { !busy && signedForCamera && installedInApplications }
     var prerequisite: String? {
@@ -35,10 +36,31 @@ final class CameraExtensionController: NSObject, ObservableObject, OSSystemExten
         return entitlements["com.apple.developer.system-extension.install"] as? Bool == true
     }
 
+    func prepareRelease() {
+        guard Bundle.main.object(forInfoDictionaryKey: "CallayersRelease") as? String == "YES", canInstall else { return }
+        checking = true; busy = true
+        let request = OSSystemExtensionRequest.propertiesRequest(forExtensionWithIdentifier: Self.identifier, queue: .main)
+        pending = request; request.delegate = self
+        OSSystemExtensionManager.shared.submitRequest(request)
+    }
+    nonisolated func request(_ request: OSSystemExtensionRequest, foundProperties properties: [OSSystemExtensionProperties]) {
+        let current = properties.filter { $0.isEnabled || $0.isAwaitingUserApproval }.max { $0.bundleVersion.compare($1.bundleVersion, options: .numeric) == .orderedAscending }
+        let version = current?.bundleVersion, approval = current?.isAwaitingUserApproval ?? false
+        Task { @MainActor in
+            guard pending === request else { return }
+            checking = false; busy = false; pending = nil
+            let extensionURL = Bundle.main.bundleURL.appendingPathComponent("Contents/Library/SystemExtensions/" + Self.identifier + ".systemextension")
+            guard let bundled = Bundle(url: extensionURL)?.object(forInfoDictionaryKey: "CFBundleVersion") as? String else { return }
+            if approval { needsApproval = true; message = "Allow Callayers Camera in System Settings to finish setup."; return }
+            if version == nil || bundled.compare(version!, options: .numeric) == .orderedDescending { install() }
+        }
+    }
     func install() { submit(removing: false) }
     func remove() { submit(removing: true) }
     private func submit(removing: Bool) {
         guard canInstall else { return }
+        let camera = CLVirtualCameraClient(); camera.refresh()
+        guard camera.consumerCount == 0 else { message = "Finish using Callayers in your calling app, then try camera setup again."; return }
         self.removing = removing
         busy = true
         needsApproval = false
@@ -52,17 +74,20 @@ final class CameraExtensionController: NSObject, ObservableObject, OSSystemExten
     }
     nonisolated func requestNeedsUserApproval(_ request: OSSystemExtensionRequest) {
         Task { @MainActor in
+            guard pending === request else { return }
             needsApproval = true
             message = "Allow Callayers in System Settings. On macOS 15, open General → Login Items & Extensions → Camera Extensions."
         }
     }
     nonisolated func request(_ request: OSSystemExtensionRequest, actionForReplacingExtension existing: OSSystemExtensionProperties,
                  withExtension replacement: OSSystemExtensionProperties) -> OSSystemExtensionRequest.ReplacementAction {
-        .replace
+        replacement.bundleVersion.compare(existing.bundleVersion, options: .numeric) == .orderedAscending ? .cancel : .replace
     }
     nonisolated func request(_ request: OSSystemExtensionRequest, didFinishWithResult result: OSSystemExtensionRequest.Result) {
         let restart = result == .willCompleteAfterReboot
         Task { @MainActor in
+            guard pending === request else { return }
+            if checking { checking = false; busy = false; pending = nil; return }
             busy = false
             pending = nil
             needsApproval = false
@@ -75,12 +100,13 @@ final class CameraExtensionController: NSObject, ObservableObject, OSSystemExten
     }
     nonisolated func request(_ request: OSSystemExtensionRequest, didFailWithError error: Error) {
         let failure = error as NSError
-        let detail = "Camera setup failed: \(failure.localizedDescription) (\(failure.domain), \(failure.code)). You can retry installation."
+        let detail = "Camera setup could not finish. \(failure.localizedDescription) Try Install camera again."
         Task { @MainActor in
+            guard pending === request else { return }
             busy = false
             pending = nil
             needsApproval = false
-            message = detail
+            checking = false; message = detail
         }
     }
     func openSettings() {

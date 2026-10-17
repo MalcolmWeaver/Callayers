@@ -50,13 +50,15 @@ struct CallayersRendererPreviewApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @StateObject private var session = ApplicationSession()
     @StateObject private var camera = CameraExtensionController()
+    @StateObject private var updates = UpdateController()
+    @State private var showAbout = false
     @State private var showCameraSetup = false
     @State private var handledLaunch = false
 
     init() {
         #if DEBUG
         let arguments = ProcessInfo.processInfo.arguments
-        if let index = arguments.firstIndex(where: { $0 == "--check-camera-transport" || $0 == "--check-webcam-transport" }) {
+        if let index = arguments.firstIndex(where: { $0 == "--check-camera-transport" || $0 == "--check-webcam-transport" || $0 == "--check-session-lifecycle" }) {
             // Exit before SwiftUI instantiates the normal workspace and its camera pipeline.
             guard arguments.count == index + 5,
                   let owner = Int32(arguments[index + 4]), owner > 1,
@@ -70,6 +72,10 @@ struct CallayersRendererPreviewApp: App {
             ownerWatch.setEventHandler { if kill(owner, 0) != 0 && errno == ESRCH { _exit(125) } }
             ownerWatch.resume()
             let reportURL = URL(fileURLWithPath: arguments[index + 2])
+            if arguments[index] == "--check-session-lifecycle" {
+                ApplicationSessionChecks.begin(reportURL: reportURL, runID: arguments[index + 3])
+                CFRunLoopRun(); exit(2)
+            }
             var report: [String: Any]
             if arguments[index] == "--check-webcam-transport" {
                 do {
@@ -103,6 +109,8 @@ struct CallayersRendererPreviewApp: App {
             SessionView(session: session, auth: session.auth)
                 .frame(minWidth: 1000, idealWidth: 1280, minHeight: 640, idealHeight: 800)
                 .onAppear {
+                    camera.prepareRelease()
+                    updates.session = session; updates.start()
                     delegate.session = session
                     session.start()
                     delegate.model = session.workspace
@@ -115,14 +123,17 @@ struct CallayersRendererPreviewApp: App {
                         }
                     }
                 }
+                .onReceive(camera.$needsApproval) { if $0 { showCameraSetup = true } }
                 .onReceive(session.$workspace) { delegate.model = $0 }
                 .preferredColorScheme(.dark)
                 .toolbar {
                     Button("Camera setup…") { showCameraSetup = true }
                 }
+                .sheet(isPresented: $showAbout) { AboutView(updates: updates) }
                 .sheet(isPresented: $showCameraSetup) { CameraSetupView(camera: camera) }
         }
         .commands {
+            CommandGroup(replacing: .appInfo) { Button("About Callayers") { showAbout = true } }
             CommandGroup(replacing: .newItem) {}
             CommandGroup(after: .newItem) {
                 Button("Save Workspace") { session.workspace?.save() }.keyboardShortcut("s")

@@ -24,3 +24,6 @@ GCC_PREPROCESSOR_DEFINITIONS = $(inherited) CALLAYERS_ULTRALIGHT_MAJOR=$(CALLAYE
 HEADER_SEARCH_PATHS = $(inherited) "$(ULTRALIGHT_ROOT)/include" "$(SRCROOT)/Renderer"
 LIBRARY_SEARCH_PATHS = $(inherited) "$(ULTRALIGHT_ROOT)/bin"
 OTHER_LDFLAGS = $(inherited) -lAppCore -lUltralight -lUltralightCore -lWebCore -lc++
+
+CALLAYERS_RELEASE = NO
+CALLAYERS_UPDATE_PUBLIC_KEY =

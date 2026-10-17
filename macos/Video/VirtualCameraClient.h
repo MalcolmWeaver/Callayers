@@ -10,5 +10,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)refresh;
 - (BOOL)sendSample:(CMSampleBufferRef)sample;
 - (void)stop;
+// Release device listeners before process termination, rather than relying on exit cleanup.
+- (void)disconnect;
 @end
 NS_ASSUME_NONNULL_END

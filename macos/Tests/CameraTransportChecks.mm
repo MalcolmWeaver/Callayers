@@ -133,12 +133,15 @@ NSDictionary *CLRunCameraTransportChecks(double duration, id<CLCameraTestProduce
             unsigned before = sending ? reader.changes : reader.fallbackFrames;
             unsigned last = before, sent = 0;
             double start = CMTimeGetSeconds(CMClockGetTime(CMClockGetHostTimeClock()));
-            double lastChange = start, maxGap = 0;
+            double lastChange = start, maxGap = 0, maxRefresh = 0, maxSend = 0;
             while (true) {
                 @autoreleasepool {
                     double now = CMTimeGetSeconds(CMClockGetTime(CMClockGetHostTimeClock()));
                     if (now - start >= seconds) break;
+                    double apiStart = CFAbsoluteTimeGetCurrent();
                     [client refresh];
+                    maxRefresh = std::max(maxRefresh, CFAbsoluteTimeGetCurrent() - apiStart);
+                    apiStart = CFAbsoluteTimeGetCurrent();
                     if (sending && producer) {
                         if ([producer prepareFrame:sequence++]) {
                             CMSampleBufferRef sample = producer.sample;
@@ -155,6 +158,7 @@ NSDictionary *CLRunCameraTransportChecks(double duration, id<CLCameraTestProduce
                             CFRelease(sample);
                         }
                     }
+                    maxSend = std::max(maxSend, CFAbsoluteTimeGetCurrent() - apiStart);
                     unsigned current = sending ? reader.changes : reader.fallbackFrames;
                     if (current != last) { lastChange = now; last = current; }
                     maxGap = std::max(maxGap, now - lastChange);
@@ -162,9 +166,9 @@ NSDictionary *CLRunCameraTransportChecks(double duration, id<CLCameraTestProduce
                 }
             }
             unsigned received = (sending ? reader.changes : reader.fallbackFrames) - before;
-            BOOL passed = received >= (sending ? seconds * 10 : 10) && maxGap < 3;
+            BOOL passed = received >= (sending ? seconds * 10 : 10) && maxGap < 3 && maxRefresh < 3 && maxSend < 3;
             [checks addObject:@{@"name": name, @"passed": @(passed), @"sent": @(sent),
-                @"observed": @(received), @"maximumGapSeconds": @(maxGap), @"transport": client.status}];
+                @"observed": @(received), @"maximumGapSeconds": @(maxGap), @"maximumRefreshSeconds": @(maxRefresh), @"maximumSendSeconds": @(maxSend), @"transport": client.status}];
         };
         [session startRunning];
         run(producer ? @"fresh webcam and overlay round trip" : @"changing synthetic frames", duration, true);

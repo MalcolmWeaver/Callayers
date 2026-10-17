@@ -33,6 +33,7 @@ static void SinkQueueChanged(CMIOStreamID, void *, void *) {}
     NSString *_status;
     CFAbsoluteTime _retryAfter;
     BOOL _started;
+    BOOL _deliveryAvailable;
 }
 - (instancetype)init {
     if ((self = [super init])) { _status = @"Choose Camera setup to install or update Callayers."; }
@@ -40,23 +41,24 @@ static void SinkQueueChanged(CMIOStreamID, void *, void *) {}
 }
 - (NSInteger)consumerCount { return _consumerCount; }
 - (NSString *)status { return _status; }
-- (NSString *)deliveryState { return _device ? StringProperty(_device, 'cliv') : nil; }
+- (NSString *)deliveryState { return _device && _deliveryAvailable ? StringProperty(_device, 'cliv') : nil; }
 - (void)refresh {
-    // Include software devices in the legacy C API's device list.
-    auto allow = Address(kCMIOHardwarePropertyAllowScreenCaptureDevices); UInt32 yes = 1;
-    CMIOObjectSetPropertyData(kCMIOObjectSystemObject, &allow, 0, nullptr, sizeof(yes), &yes);
+    // Modern camera extensions are in the normal device list. Do not rewrite
+    // the legacy screen-capture flag: it can stall discovery after camera use.
     CMIODeviceID found = 0;
     for (auto device : Objects(kCMIOObjectSystemObject, Address(kCMIOHardwarePropertyDevices))) {
         if ([StringProperty(device, kCMIODevicePropertyDeviceUID) isEqualToString:@"com.callayers.virtual-camera"]) { found = device; break; }
     }
+
     if (!found || (_device && _device != found)) {
         [self stop];
         auto countAddress = Address('cact');
         if (_device) {
             CMIOObjectRemovePropertyListener(_device, &countAddress, ConsumersChanged, nullptr);
-            auto deliveryAddress = Address('cliv'); CMIOObjectRemovePropertyListener(_device, &deliveryAddress, ConsumersChanged, nullptr);
+            auto deliveryAddress = Address('cliv');
+            if (_deliveryAvailable) CMIOObjectRemovePropertyListener(_device, &deliveryAddress, ConsumersChanged, nullptr);
         }
-        _device = 0; _sink = 0;
+        _device = 0; _sink = 0; _deliveryAvailable = NO;
     }
     _consumerCount = 0;
     if (!found) { _status = @"Callayers camera is not active. Open Camera setup."; return; }
@@ -64,7 +66,9 @@ static void SinkQueueChanged(CMIOStreamID, void *, void *) {}
         _device = found;
         auto countAddress = Address('cact');
         CMIOObjectAddPropertyListener(_device, &countAddress, ConsumersChanged, nullptr);
-        auto deliveryAddress = Address('cliv'); CMIOObjectAddPropertyListener(_device, &deliveryAddress, ConsumersChanged, nullptr);
+        auto deliveryAddress = Address('cliv');
+        _deliveryAvailable = CMIOObjectHasProperty(_device, &deliveryAddress);
+        if (_deliveryAvailable) CMIOObjectAddPropertyListener(_device, &deliveryAddress, ConsumersChanged, nullptr);
     }
     NSString *count = StringProperty(_device, 'cact');
     if (!count) { [self stop]; _sink = 0; _status = @"Camera update needed. Open Camera setup and install the new version."; return; }
@@ -73,6 +77,7 @@ static void SinkQueueChanged(CMIOStreamID, void *, void *) {}
     for (auto stream : Objects(_device, Address(kCMIODevicePropertyStreams, kCMIODevicePropertyScopeOutput))) {
         newSink = stream; break;
     }
+
     if (_sink != newSink) { [self stop]; _sink = newSink; }
     if (!_sink) { [self stop]; _status = @"Camera input is unavailable. Reinstall from Camera setup."; return; }
     if (!_consumerCount) { [self stop]; _status = @"Callayers camera ready — select it in your calling app."; }
@@ -106,12 +111,15 @@ static void SinkQueueChanged(CMIOStreamID, void *, void *) {}
     while (const void *sample = CMSimpleQueueDequeue(_queue)) CFRelease(sample);
     CFRelease(_queue); _queue = nullptr;
 }
-- (void)dealloc {
+- (void)disconnect {
     [self stop];
     auto address = Address('cact');
     if (_device) {
         CMIOObjectRemovePropertyListener(_device, &address, ConsumersChanged, nullptr);
-        auto deliveryAddress = Address('cliv'); CMIOObjectRemovePropertyListener(_device, &deliveryAddress, ConsumersChanged, nullptr);
+        auto deliveryAddress = Address('cliv');
+        if (_deliveryAvailable) CMIOObjectRemovePropertyListener(_device, &deliveryAddress, ConsumersChanged, nullptr);
     }
+    _device = 0; _sink = 0; _consumerCount = 0; _deliveryAvailable = NO;
 }
+- (void)dealloc { [self disconnect]; }
 @end

@@ -53,9 +53,9 @@ final class WorkspaceModel: ObservableObject {
     var closing: Bool { quitCompletion != nil }
     var editable: Bool { authorized && !locked && !saving && !loading && !closing && !importing }
 
-    init(video: VideoModel? = nil, auth: AuthController? = nil) {
+    init(video: VideoModel? = nil, auth: AuthController? = nil, workspaceStore: WorkspaceStore? = nil) {
         self.video = video ?? VideoModel(); self.auth = auth
-        do { store = try WorkspaceStore.applicationStore(); try open() }
+        do { store = try workspaceStore ?? WorkspaceStore.applicationStore(); try open() }
         catch { locked = true; problem = "Could not open your workspace. The saved file has been kept. \(error.localizedDescription)" }
         timer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in self?.tick() }
@@ -98,7 +98,7 @@ final class WorkspaceModel: ObservableObject {
                         self.renderers.removeValue(forKey: id)
                         if doc.promptDraft == input { doc.promptDraft = "" }
                         self.pendingCreations.append((ticket.target == nil ? .aiCreate : .aiRevision, id))
-                        self.generationMessage = "Your card is ready."
+                        self.generationMessage = ticket.target == nil ? "Your card is ready. Check its box to show it." : "Your card is ready."
                     } catch { self.generationMessage = error.localizedDescription }
                     self.generating = false; self.generationID = nil
                 }
@@ -171,6 +171,10 @@ final class WorkspaceModel: ObservableObject {
         panel.allowedContentTypes = [.png, .jpeg, .bmp]
         panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        importImage(from: url)
+    }
+    func importImage(from url: URL) {
+        guard editable, document.cards.count < 100 else { return }
         importing = true
         let scoped = url.startAccessingSecurityScopedResource()
         Task {
@@ -185,6 +189,7 @@ final class WorkspaceModel: ObservableObject {
                 let assetID = UUID()
                 try store.saveImage(image.png, id: assetID)
                 var card = WorkspaceCard(name: image.name, html: ImportedImage.html)
+                card.visible = false
                 card.imageID = assetID
                 card.contentWidth = Double(image.width); card.contentHeight = Double(image.height)
                 card.place(scale: min(1, min(640 / card.canvasWidth, 400 / card.canvasHeight)))
@@ -269,9 +274,10 @@ final class WorkspaceModel: ObservableObject {
         if let index = items.firstIndex(where: { $0.id == item.id }) { items[index] = item }
         else {
             guard items.count < 500 else { problem = "You have reached the annotation limit."; return }
-            items.append(item); pendingCreations.append((.annotation, item.id))
+            items.append(item)
         }
         guard items.reduce(0, { $0 + $1.points.count }) <= 200_000 else { problem = "These annotations are too large to save."; return }
+        if !document.annotationItems.contains(where: { $0.id == item.id }) { pendingCreations.append((.annotation, item.id)) }
         document.annotationItems = items
         selectedAnnotation = item.id; refreshAnnotations(); save()
     }

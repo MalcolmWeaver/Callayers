@@ -2,16 +2,27 @@ import SwiftUI
 
 @MainActor
 final class ApplicationSession: ObservableObject {
-    let auth = AuthController()
+    let auth: AuthController
     @Published private(set) var workspace: WorkspaceModel?
     @Published private(set) var camera: VideoModel?
     @Published private(set) var ready = false
     private var telemetry: TelemetrySession?
     private var started = false
     private var timer: Timer?
-    init() {
-        auth.onCredentialsChanged = { [weak self] grant in self?.telemetry?.renew(grant) }
-        auth.onAccessChanged = { [weak self] allowed in self?.accessChanged(allowed) }
+    private let createCamera: @MainActor () -> VideoModel
+    private let createWorkspace: @MainActor (VideoModel, AuthController) -> WorkspaceModel
+    private let createTelemetry: @MainActor (AuthGrant) -> TelemetrySession?
+    private let activate: @MainActor () -> Void
+    init(auth: AuthController? = nil,
+         createCamera: @escaping @MainActor () -> VideoModel = { VideoModel() },
+         createWorkspace: @escaping @MainActor (VideoModel, AuthController) -> WorkspaceModel = { WorkspaceModel(video: $0, auth: $1) },
+         createTelemetry: @escaping @MainActor (AuthGrant) -> TelemetrySession? = { TelemetrySession(grant: $0) },
+         activate: @escaping @MainActor () -> Void = { NSApp?.activate(ignoringOtherApps: true) }) {
+        self.auth = auth ?? AuthController()
+        self.createCamera = createCamera; self.createWorkspace = createWorkspace
+        self.createTelemetry = createTelemetry; self.activate = activate
+        self.auth.onCredentialsChanged = { [weak self] grant in self?.telemetry?.renew(grant) }
+        self.auth.onAccessChanged = { [weak self] allowed in self?.accessChanged(allowed) }
     }
     deinit { timer?.invalidate() }
     func start() {
@@ -21,13 +32,13 @@ final class ApplicationSession: ObservableObject {
                 guard let self, self.auth.allowed, !self.ready, let camera = self.camera else { return }
                 camera.refreshDemand()
                 guard camera.hasLiveCamera else { return }
-                if self.workspace == nil { self.workspace = WorkspaceModel(video: camera, auth: self.auth) }
+                if self.workspace == nil { self.workspace = self.createWorkspace(camera, self.auth) }
                 self.workspace?.telemetry = self.telemetry
                 self.ready = true
             }
         }
     }
-    func finishTelemetry(_ completion: @escaping () -> Void) {
+    func finishTelemetry(_ completion: @escaping @MainActor () -> Void) {
         camera?.shutdown()
         guard let telemetry else { completion(); return }
         telemetry.finish()
@@ -40,12 +51,12 @@ final class ApplicationSession: ObservableObject {
     private func accessChanged(_ allowed: Bool) {
         ready = false
         if allowed {
-            if let grant = auth.grant { telemetry = TelemetrySession(grant: grant) }
-            if camera == nil { camera = VideoModel() }
+            if let grant = auth.grant { telemetry = createTelemetry(grant) }
+            if camera == nil { camera = createCamera() }
             if let workspace { workspace.setAuthorized(true) } else { camera?.setAuthorized(true) }
             workspace?.telemetry = telemetry
             camera?.onTelemetry = { [weak self] state in self?.telemetry?.video(state) }
-            NSApp.activate(ignoringOtherApps: true)
+            activate()
         } else {
             workspace?.setAuthorized(false); camera?.setAuthorized(false)
             telemetry?.finish(); telemetry = nil; workspace?.telemetry = nil; camera?.onTelemetry = nil
@@ -70,6 +81,7 @@ struct SessionView: View {
                 }.padding(40).frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 VStack(spacing: 24) {
+                    Image("CallayersMark").resizable().frame(width: 72, height: 72)
                     Text("Callayers").font(.system(size: 42, weight: .semibold))
                     Text("Ideas in the picture").font(.title3).foregroundColor(.secondary)
                     if auth.busy {

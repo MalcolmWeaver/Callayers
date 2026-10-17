@@ -17,14 +17,18 @@ fi
 frameworks="$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH"
 resources="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH"
 mkdir -p "$frameworks" "$resources/resources" "$resources/RendererLicenses"
+signing_options=(--timestamp=none)
+if [[ "${CALLAYERS_RELEASE:-NO}" == YES ]]; then signing_options=(--timestamp --options runtime); fi
 for library in AppCore Ultralight UltralightCore WebCore; do
     source_library="$ULTRALIGHT_ROOT/bin/lib$library.dylib"
     /usr/bin/ditto "$source_library" "$frameworks/lib$library.dylib"
     # Use the app's identity for team-signed builds as well as local previews.
-    /usr/bin/codesign --force --sign "${EXPANDED_CODE_SIGN_IDENTITY:--}" --timestamp=none "$frameworks/lib$library.dylib"
+    /usr/bin/codesign --force --sign "${EXPANDED_CODE_SIGN_IDENTITY:--}" "${signing_options[@]}" "$frameworks/lib$library.dylib"
 done
 for resource in icudt67l.dat cacert.pem; do
     /usr/bin/ditto "$ULTRALIGHT_ROOT/resources/$resource" "$resources/resources/$resource"
 done
 /usr/bin/ditto "$ULTRALIGHT_ROOT/license" "$resources/RendererLicenses"
 /usr/bin/ditto "$ULTRALIGHT_ROOT/VERSION.txt" "$resources/RendererLicenses/VERSION.txt"
+/usr/bin/ditto "$SRCROOT/Resources/Sparkle-LICENSE.txt" "$resources/Sparkle-LICENSE.txt"
+/usr/bin/ditto "$SRCROOT/../spec-v2/assets/callayers.png" "$resources/CallayersMark.png"
