@@ -1,0 +1,16 @@
+{
+  "x86_64": {
+    "platform": "macos-x64",
+    "version": "1.4.0",
+    "sdk_version": "1.4.0.1b4b800",
+    "api_major": 1,
+    "sha256": "96c6fa7ad6ae46254fc13633cd04d1684f900028831666bea2f1b1618c12f87f"
+  },
+  "arm64": {
+    "platform": "macos-arm64",
+    "version": "2.0.0-beta.2",
+    "sdk_version": "2.0.0-beta.2",
+    "api_major": 2,
+    "sha256": "87c679eba7d00eacfb81549a24754c1d87868dcfa82800b8be2719a74971b91c"
+  }
+}

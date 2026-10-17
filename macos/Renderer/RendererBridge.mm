@@ -48,7 +48,7 @@
             throw std::runtime_error("Could not display the rendered card");
         }
         CGImageRef image = CGImageCreate(frame.width, frame.height, 8, 32, frame.rowBytes, colorSpace,
-            kCGBitmapByteOrder32Little | kCGImageAlphaPremultipliedFirst, provider, nullptr, true, kCGRenderingIntentDefault);
+            static_cast<CGBitmapInfo>(kCGBitmapByteOrder32Little | kCGImageAlphaPremultipliedFirst), provider, nullptr, true, kCGRenderingIntentDefault);
         CGDataProviderRelease(provider); CGColorSpaceRelease(colorSpace);
         if (!image) throw std::runtime_error("Could not display the rendered card");
         _image = [[NSImage alloc] initWithCGImage:image size:NSMakeSize(1280, 720)];
@@ -107,8 +107,14 @@
         const auto text = std::string((event.characters ?: @"").UTF8String);
         const auto unmodified = std::string((event.charactersIgnoringModifiers ?: @"").UTF8String);
         _renderer->key(event.type == NSEventTypeKeyDown ? 2 : 1, key, event.keyCode, modifiers, "", unmodified, event.isARepeat);
+        // Private-use function-key characters must not become editable text.
+        // Test the characters themselves: punctuation can share virtual key codes
+        // with navigation keys when using a non-US keyboard layout.
+        NSString *characters = event.characters ?: @"";
+        const unichar first = characters.length ? [characters characterAtIndex:0] : 0;
+        const bool printable = first >= 0x20 && first != 0x7f && !(first >= 0xf700 && first <= 0xf8ff);
         if (event.type == NSEventTypeKeyDown && !(flags & (NSEventModifierFlagCommand | NSEventModifierFlagControl)) &&
-            !text.empty() && key != 8 && key != 9 && key != 27 && key != 46 && !(key >= 35 && key <= 40))
+            !text.empty() && (printable || key == 13))
             _renderer->key(3, key, event.keyCode, modifiers, text, unmodified, event.isARepeat);
     } catch (const std::exception& error) { _bridgeProblem = @(error.what()); }
 }

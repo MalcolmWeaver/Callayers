@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 @main
+@MainActor
 struct CallayersRendererPreviewApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @StateObject private var model = PreviewModel()

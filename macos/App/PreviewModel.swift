@@ -32,7 +32,7 @@ final class PreviewModel: ObservableObject {
             problem = "The preview card is missing from the app. Rebuild the app to restore it."
         }
         timer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
-            self?.tick()
+            Task { @MainActor [weak self] in self?.tick() }
         }
         if let timer = timer { RunLoop.main.add(timer, forMode: .common) }
     }

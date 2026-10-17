@@ -22,7 +22,7 @@ Use the modern camera extension on both architectures. Do not add a legacy DAL c
 
 ## Renderer versions
 
-Split renderer versions by architecture. Apple Silicon ports the current Ultralight 2.0.0-beta.2 integration to Mac. Intel uses Ultralight 1.4, with its exact SDK revision and checksum pinned when acquisition is implemented. Intel compatibility must not hold back the primary Silicon renderer.
+Split renderer versions by architecture. Apple Silicon uses Ultralight 2.0.0-beta.2. Intel uses Ultralight 1.4.0, whose SDK identifies itself as 1.4.0.1b4b800. Both archives are pinned by SHA-256 in `macos/Config/renderer-sdks.json`. Intel compatibility must not hold back the primary Silicon renderer.
 
 Keep these differences behind a renderer interface for loading cards, delivering input, extracting frames, and reading or restoring state. Share card HTML, application behavior, and the rest of the Mac source wherever compatible. Separate downloads allow architecture-specific dependencies without making a universal application bundle an initial requirement.
 
@@ -36,7 +36,11 @@ Prove the renderer integration before building out the Mac workspace: acquire an
 
 Linux can support source preparation and shared-code checks. Mac SDK compilation requires a macOS build environment; actual interface, camera permission, extension activation, and calling-app behavior require Mac runtime verification. Prepare small builds and put verification instructions in chat under [AGENTS.md](../AGENTS.md).
 
-Status: architecture selected; Mac implementation and runtime verification have not started.
+Status: the first renderer preview is implemented in source. A SwiftUI sidebar and AppKit preview use one C++ renderer with adapters for both SDK versions. The demo card exercises animation, transparency, pointer input, basic keyboard input, size changes, hide/show, and saved counter/note values. The shared renderer checks pass against the actual Linux builds of both SDK versions, including card isolation, rejected file/network access, and state validation. Both Mac SDK archives have been downloaded and checked for version, checksum, architecture, and bundled resources. Neither Mac target has been compiled or runtime-verified yet.
+
+The Xcode project currently contains the development preview and `RendererChecks` targets. On a Mac with full Xcode selected and Python 3 available, run `bash scripts/build-macos.sh --open` from the repository root. The script acquires the host architecture's SDK, builds the app and checks, verifies the local app signature, runs the renderer checks, and opens the preview. `--arch arm64` and `--arch x86_64` select explicit builds; execution checks require a matching host. The app is locally signed and uses its own `com.callayers.renderer-preview` preferences. Developer ID distribution, camera entitlements, and notarization are not part of this checkpoint.
+
+`.github/workflows/macos.yml` prepares separate Intel and Silicon build/check jobs; adding it locally does not run CI. Native input orientation, Swift/Objective-C++ compilation, AppKit event delivery, and packaged library loading remain Mac checks. IME composition and full editing shortcuts belong to the later workspace implementation. The user has confirmed Apple Developer membership; the team's signing identity and camera-extension provisioning will be configured at the camera checkpoint.
 
 ## Implementation plan
 
@@ -127,7 +131,7 @@ The names below describe the expected boundaries; small helpers may be combined 
 
 ## Complexity and preparation limits
 
-- **High uncertainty:** Intel renderer compatibility, especially scripting into isolated cards. Resolve before full workspace work.
+- **Reduced but unresolved uncertainty:** the shared message bridge works with isolated cards on both Linux SDK versions. The Intel Mac renderer still needs compilation and native runtime verification before full workspace work.
 - **High integration complexity:** camera extension signing/activation, app-to-extension delivery, stream lifecycle, and recovery. A visible test picture is the first proof, not full calling-app acceptance.
 - **High interface effort:** preview hit testing, focus, input methods, proportional scaling, and private text edits matching completed output. Native UI does not eliminate that work.
 - **Moderate complexity:** webcam capture/recovery, saving, authentication/Keychain, AI request lifecycle, and packaging. Existing behavior and protocols provide concrete references.

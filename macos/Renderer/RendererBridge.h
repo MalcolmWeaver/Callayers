@@ -15,7 +15,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (NSUInteger)beginSnapshot;
 - (nullable NSString *)snapshotForRequest:(NSUInteger)request NS_SWIFT_NAME(snapshot(request:));
 - (void)mouse:(NSInteger)type x:(NSInteger)x y:(NSInteger)y button:(NSInteger)button;
-- (void)scrollAtX:(NSInteger)x y:(NSInteger)y deltaX:(NSInteger)deltaX deltaY:(NSInteger)deltaY;
+- (void)scrollAtX:(NSInteger)x y:(NSInteger)y deltaX:(NSInteger)deltaX deltaY:(NSInteger)deltaY NS_SWIFT_NAME(scroll(x:y:deltaX:deltaY:));
 - (void)keyEvent:(NSEvent *)event;
 - (void)blur;
 @end

@@ -1,5 +1,6 @@
 import SwiftUI
 
+@MainActor
 struct WorkspaceView: View {
     @ObservedObject var model: PreviewModel
 

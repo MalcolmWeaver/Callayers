@@ -1,0 +1,44 @@
+name: Mac renderer preview — Build and check
+on:
+  pull_request:
+    paths: ['macos/**', 'scripts/*macos*', '.github/workflows/macos.yml']
+  push:
+    branches: [main]
+    paths: ['macos/**', 'scripts/*macos*', '.github/workflows/macos.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  renderer:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15
+          - arch: x86_64
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build native preview and exercise renderer
+        run: bash scripts/build-macos.sh --arch '${{ matrix.arch }}'
+      - name: Archive development preview
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent \
+            'build/macos-${{ matrix.arch }}/Build/Products/Debug/Callayers Renderer Preview.app' \
+            'build/macos-${{ matrix.arch }}/Callayers-renderer-preview-${{ matrix.arch }}.zip'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mac-renderer-preview-${{ matrix.arch }}
+          path: |
+            build/macos-${{ matrix.arch }}/*.log
+            build/macos-${{ matrix.arch }}/*.png
+            build/macos-${{ matrix.arch }}/*.zip
+          if-no-files-found: warn
+          retention-days: 14

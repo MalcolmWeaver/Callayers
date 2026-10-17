@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 
+@MainActor
 struct PreviewView: NSViewRepresentable {
     @ObservedObject var model: PreviewModel
 
@@ -75,7 +76,7 @@ final class CardPreviewView: NSView {
     override func scrollWheel(with event: NSEvent) {
         let (x, y) = position(event)
         let factor = event.hasPreciseScrollingDeltas ? 1.0 : 24.0
-        renderer?.scroll(atX: x, y: y, deltaX: Int(event.scrollingDeltaX * factor), deltaY: Int(event.scrollingDeltaY * factor))
+        renderer?.scroll(x: x, y: y, deltaX: Int(event.scrollingDeltaX * factor), deltaY: Int(event.scrollingDeltaY * factor))
     }
     override func keyDown(with event: NSEvent) { renderer?.keyEvent(event) }
     override func keyUp(with event: NSEvent) { renderer?.keyEvent(event) }
