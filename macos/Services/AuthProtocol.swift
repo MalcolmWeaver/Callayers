@@ -29,6 +29,7 @@ struct AuthGrant {
     let token: String
     let email: String
     let expires: Date
+    var completeSignIn: ((Bool) -> Void)? = nil
 }
 enum AuthFailure: LocalizedError {
     case expired, denied, cancelled, storage, connection
@@ -92,10 +93,11 @@ protocol SessionStore {
     func clear() throws
 }
 struct SessionKeychain: SessionStore {
+    var account = "firebase"
     private var query: [String: Any] {
         let context = LAContext(); context.interactionNotAllowed = true
         return [kSecClass as String: kSecClassGenericPassword,
-        kSecAttrService as String: "com.callayers.macos.session", kSecAttrAccount as String: "firebase",
+        kSecAttrService as String: "com.callayers.macos.session", kSecAttrAccount as String: account,
         kSecUseAuthenticationContext as String: context] }
     func load() throws -> SavedSession? {
         var request = query; request[kSecReturnData as String] = true; request[kSecMatchLimit as String] = kSecMatchLimitOne

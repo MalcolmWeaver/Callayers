@@ -50,9 +50,16 @@ final class LoopbackSignIn {
         }, onCancel: { Task { @MainActor in self.cancel() } })
     }
     func cancel() { finish(.failure(AuthFailure.cancelled)); complete(success: false) }
-    func complete(success: Bool) {
+    func complete(success: Bool, ticket: String? = nil, redirectToWebsite: Bool = false) {
         guard let connection = browserConnection else { return }
         browserConnection = nil
+        if success && redirectToWebsite {
+            var location = "https://callayers.com/signed-in"
+            if let ticket, ticket.range(of: "^[A-Za-z0-9_-]{43}$", options: .regularExpression) != nil { location += "#ticket=" + ticket }
+            let response = Data("HTTP/1.1 303 See Other\r\nLocation: \(location)\r\nContent-Length: 0\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\n\r\n".utf8)
+            connection.send(content: response, completion: .contentProcessed { _ in connection.cancel() })
+            return
+        }
         send(connection, status: "200 OK", message: success ? "Signed in. You can return to Callayers and close this tab." : "Sign-in could not be completed. Return to Callayers to retry.")
     }
     private func accept(_ connection: NWConnection) {

@@ -1,7 +1,7 @@
 import Foundation
 
-private func require(_ condition: @autoclosure () -> Bool, _ message: String) throws {
-    if !condition() { throw ServiceFailure(message: message) }
+private func require(_ condition: @autoclosure () throws -> Bool, _ message: String) throws {
+    if try !condition() { throw ServiceFailure(message: message) }
 }
 private func rejects(_ action: () throws -> Void) throws {
     var failed = false; do { try action() } catch { failed = true }
@@ -50,7 +50,9 @@ struct AuthChecks {
         let http = try FixtureHTTP([configObject, ["id_token": "token", "refresh_token": "rotated", "user_id": "uid", "expires_in": "3600"], ["uid": "uid", "accessAllowed": true, "email": "test@example.invalid"]])
         let service = AuthService(http: http)
         let config = try await service.config()
-        let result = try await service.refresh(saved, config: config)
+        var result = try await service.refresh(saved, config: config)
+        var completions: [Bool] = []
+        result.completeSignIn = { completions.append($0) }
         try require(result.saved.refresh == "rotated" && result.saved.uid == "uid", "Refresh rotation/identity failed")
         try require(http.requests[2].value(forHTTPHeaderField: "Authorization") == "Bearer token", "Account was not authenticated")
         let mismatchHTTP = try FixtureHTTP([["id_token": "token", "refresh_token": "rotated", "user_id": "other", "expires_in": "3600"]])
@@ -76,7 +78,20 @@ struct AuthChecks {
         try require(!auth.allowed && store.value == nil, "Late refresh restored a signed-out account")
         store.failWrite = true; auth.signIn(); await settle(); fixture.pending?.resume(returning: result); fixture.pending = nil; await settle()
         try require(!auth.allowed, "Keychain failure allowed an unsaved session")
-        print("PASS cancellation, late refresh rejection, expiry gating, sign-out and secure-storage failure")
+        try require(completions == [false, true, false, false], "Browser success was sent before accepted secure storage, or after cancellation")
+        print("PASS cancellation, late refresh rejection, expiry gating, sign-out, secure-storage failure and browser completion")
+        if CommandLine.arguments.contains("--keychain") {
+            let keychain = SessionKeychain(account: "fixture-" + UUID().uuidString)
+            defer { try? keychain.clear() }
+            try require(try keychain.load() == nil, "Fixture Keychain item already existed")
+            try keychain.save(saved)
+            try require(try keychain.load() == saved, "Keychain did not round-trip session")
+            try keychain.save(result.saved)
+            try require(try keychain.load() == result.saved, "Keychain did not rotate session")
+            try keychain.clear()
+            try require(try keychain.load() == nil, "Keychain did not remove session")
+            print("PASS actual isolated Keychain save, load, rotation and deletion")
+        }
 
         if CommandLine.arguments.contains("--loopback") {
             let callback = LoopbackSignIn(), attempt = try OAuthAttempt()

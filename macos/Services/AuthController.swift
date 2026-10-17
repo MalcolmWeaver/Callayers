@@ -42,8 +42,8 @@ final class AuthService: AuthServicing {
         let attempt = try OAuthAttempt()
         let callback = LoopbackSignIn()
         let (code, redirect) = try await callback.authorize(config: config, attempt: attempt)
-        var succeeded = false
-        defer { callback.complete(success: succeeded) }
+        var handedOff = false
+        defer { if !handedOff { callback.complete(success: false) } }
         try Task.checkCancellation()
         let google = try await object(ServiceClient.request(URL(string: "https://oauth2.googleapis.com/token")!, method: "POST",
             body: ServiceClient.form(["client_id": config.client, "client_secret": config.secret, "code": code,
@@ -56,8 +56,13 @@ final class AuthService: AuthServicing {
         let firebase = try await object(ServiceClient.request(firebaseURL, method: "POST", body: JSONSerialization.data(withJSONObject: body)))
         let saved = SavedSession(service: config.service, project: config.project, uid: try ServiceClient.string(firebase, "localId", max: 128),
                                  refresh: try ServiceClient.string(firebase, "refreshToken"))
-        let result = try await refresh(saved, config: config)
-        try Task.checkCancellation(); succeeded = true
+        var result = try await refresh(saved, config: config)
+        var ticket: String?
+        if let response = try? await object(ServiceClient.request(service.appendingPathComponent("attribution/ticket"), method: "POST", token: result.token)),
+           let value = response["ticket"] as? String, value.range(of: "^[A-Za-z0-9_-]{43}$", options: .regularExpression) != nil { ticket = value }
+        try Task.checkCancellation()
+        result.completeSignIn = { success in callback.complete(success: success, ticket: ticket, redirectToWebsite: true) }
+        handedOff = true
         return result
     }
 }
@@ -128,9 +133,11 @@ final class AuthController: ObservableObject {
                 let result: AuthGrant
                 if let saved { result = try await service.refresh(saved, config: config) }
                 else { result = try await service.signIn(config: config) }
-                guard epoch == ticket, !Task.isCancelled else { return }
-                try store.save(result.saved)
+                guard epoch == ticket, !Task.isCancelled else { result.completeSignIn?(false); return }
+                do { try store.save(result.saved) }
+                catch { result.completeSignIn?(false); throw error }
                 setGrant(result); message = ""; busy = false
+                result.completeSignIn?(true)
             } catch {
                 guard epoch == ticket else { return }
                 busy = false
