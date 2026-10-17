@@ -22,7 +22,7 @@ struct PreviewView: NSViewRepresentable {
         let view = CardPreviewView(frame: .zero); view.model = model; return view
     }
     func updateNSView(_ view: CardPreviewView, context: Context) {
-        view.model = model; view.needsDisplay = true
+        view.model = model; view.synchronizeTextEditor(); view.needsDisplay = true
     }
 }
 
@@ -34,6 +34,9 @@ final class CardPreviewView: NSView {
     private var focusedID: UUID?
     private var pointerID: UUID?
     private var hoveredID: UUID?
+    private var annotationDrag: (item: WorkspaceAnnotation, start: CGPoint, resizing: Bool)?
+    private var eraseTarget: UUID?
+    private var textEditor: AnnotationTextView?
     private var drag: (card: WorkspaceCard, start: CGPoint, resizing: Bool)?
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
@@ -42,6 +45,7 @@ final class CardPreviewView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         guard let window = window, window.delegate !== closeDelegate else { return }
+        window.setFrameAutosaveName("CallayersWorkspace")
         let delegate = WorkspaceCloseDelegate(original: window.delegate)
         closeDelegate = delegate; window.delegate = delegate
     }
@@ -85,12 +89,91 @@ final class CardPreviewView: NSView {
                 fraction: 1, respectFlipped: true, hints: nil)
             NSGraphicsContext.restoreGraphicsState()
         }
+        drawAnnotationControls()
         if let card = model.selected, card.visible {
             NSColor.controlAccentColor.setStroke()
             let outline = NSBezierPath(rect: rect(card).insetBy(dx: -3, dy: -3))
             outline.lineWidth = 2; outline.stroke()
             NSColor.controlAccentColor.setFill(); handle(card).fill()
         }
+    }
+
+    func synchronizeTextEditor() {
+        guard let model, model.editingText, let draft = model.annotationDraft else {
+            textEditor?.removeFromSuperview(); textEditor = nil; return
+        }
+        let editor: AnnotationTextView
+        if let existing = textEditor { editor = existing }
+        else {
+            editor = AnnotationTextView(frame: .zero)
+            editor.owner = self; editor.delegate = self
+            editor.drawsBackground = false; editor.isRichText = false; editor.importsGraphics = false
+            editor.isAutomaticQuoteSubstitutionEnabled = false
+            editor.textContainerInset = .zero; editor.textContainer?.lineFragmentPadding = 0
+            editor.isHorizontallyResizable = false; editor.isVerticallyResizable = false
+            editor.allowsUndo = true; editor.string = draft.text
+            textEditor = editor; addSubview(editor)
+        }
+        let r = draft.bounds
+        editor.frame = NSRect(x: r.minX * sx, y: r.minY * sy, width: r.width * sx, height: r.height * sy)
+        editor.textContainer?.containerSize = editor.bounds.size
+        editor.font = NSFont.systemFont(ofSize: draft.fontSize * sx)
+        editor.textColor = AnnotationRenderer.color(draft.color)
+        if window?.firstResponder !== editor { window?.makeFirstResponder(editor) }
+    }
+    func endText(cancel: Bool) {
+        if cancel { model?.cancelText() } else { model?.finishText() }
+        window?.makeFirstResponder(self); synchronizeTextEditor()
+    }
+    private func annotationAt(_ point: CGPoint) -> WorkspaceAnnotation? {
+        model?.document.annotationItems.reversed().first { $0.contains(point) }
+    }
+    private func drawAnnotationControls() {
+        guard let model, model.annotationToolbar else { return }
+        if let draft = model.annotationDraft, !model.editingText, let image = AnnotationRenderer.image([draft]) {
+            NSImage(cgImage: image, size: NSSize(width: 1280, height: 720)).draw(in: bounds, from: .zero,
+                operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        }
+        let selected = model.annotationDraft ?? model.document.annotationItems.first { $0.id == (eraseTarget ?? model.selectedAnnotation) }
+        if let selected {
+            let r = selected.bounds
+            let rect = NSRect(x: r.minX * sx, y: r.minY * sy, width: r.width * sx, height: r.height * sy)
+            (eraseTarget == nil ? NSColor.cyan : NSColor.systemRed).setStroke()
+            let outline = NSBezierPath(rect: rect.insetBy(dx: -3, dy: -3)); outline.lineWidth = 2; outline.stroke()
+            if !model.editingText {
+                NSColor.cyan.setFill(); NSRect(x: rect.maxX - 5, y: rect.maxY - 5, width: 10, height: 10).fill()
+            }
+        }
+    }
+    private func annotationMouseDown(_ event: NSEvent, point: CGPoint) -> Bool {
+        guard let model, model.annotationToolbar else { return false }
+        let tool = model.annotationTool
+        if tool == .eraser {
+            if let item = annotationAt(point) { model.removeAnnotation(item.id) }
+            eraseTarget = nil; needsDisplay = true; return true
+        }
+        if tool == .select {
+            if let selected = model.document.annotationItems.first(where: { $0.id == model.selectedAnnotation }),
+               NSRect(x: selected.bounds.maxX - 8 / sx, y: selected.bounds.maxY - 8 / sy, width: 16 / sx, height: 16 / sy).contains(point) {
+                annotationDrag = (selected, point, true); model.annotationDraft = selected; model.refreshAnnotations(); return true
+            }
+            if let item = annotationAt(point) {
+                model.select(nil); model.selectedAnnotation = item.id
+                if item.kind == .text && event.clickCount == 2 { model.beginText(item); synchronizeTextEditor() }
+                else { annotationDrag = (item, point, false); model.annotationDraft = item; model.refreshAnnotations() }
+                needsDisplay = true; return true
+            }
+            model.selectedAnnotation = nil; return false
+        }
+        model.select(nil); model.selectedAnnotation = nil
+        let start = AnnotationPoint(point)
+        var item = WorkspaceAnnotation(kind: tool, points: [start, start], color: model.annotationColor, thickness: model.annotationThickness)
+        if tool == .text {
+            let origin = CGPoint(x: min(start.x, 960), y: min(start.y, 580))
+            item.points = [AnnotationPoint(origin), AnnotationPoint(CGPoint(x: origin.x + 320, y: origin.y + 140))]
+            model.beginText(item); synchronizeTextEditor()
+        } else { model.annotationDraft = item; model.refreshAnnotations() }
+        needsDisplay = true; return true
     }
 
     private func point(_ event: NSEvent) -> CGPoint {
@@ -112,7 +195,9 @@ final class CardPreviewView: NSView {
         // Periodic snapshots must not swallow clicks or keystrokes. A later
         // snapshot (including the final quit snapshot) captures newer input.
         guard let model = model, !model.locked, !model.loading, !model.closing else { return }
+        if model.editingText { endText(cancel: false) }
         window?.makeFirstResponder(self)
+        if annotationMouseDown(event, point: point(event)) { return }
         let local = convert(event.locationInWindow, from: nil), p = point(event)
         if let card = model.selected, card.visible {
             let r = rect(card)
@@ -127,6 +212,20 @@ final class CardPreviewView: NSView {
         forward(event, id: pointerID, type: 1, button: 1)
     }
     override func mouseDragged(with event: NSEvent) {
+        if let model, let moved = annotationDrag {
+            let p = point(event)
+            if moved.resizing {
+                let r = moved.item.bounds
+                model.annotationDraft = moved.item.resized(factor: 1 + ((p.x - moved.start.x) * r.width + (p.y - moved.start.y) * r.height) / (r.width * r.width + r.height * r.height))
+            } else { model.annotationDraft = moved.item.moved(dx: p.x - moved.start.x, dy: p.y - moved.start.y) }
+            needsDisplay = true; return
+        }
+        if let model, var draft = model.annotationDraft, !model.editingText {
+            if draft.kind == .pen {
+                if draft.points.count < 8192 { draft.points.append(AnnotationPoint(point(event))) }
+            } else { draft.points[1] = AnnotationPoint(point(event)) }
+            model.annotationDraft = draft; needsDisplay = true; return
+        }
         if let drag = drag {
             let p = point(event)
             if drag.resizing {
@@ -136,16 +235,26 @@ final class CardPreviewView: NSView {
         } else { forward(event, id: pointerID, type: 0, button: 1) }
     }
     override func mouseUp(with event: NSEvent) {
+        if let model, let draft = model.annotationDraft, !model.editingText {
+            model.annotationDraft = nil; annotationDrag = nil
+            if draft.bounds.width > 2 || draft.bounds.height > 2 { model.commitAnnotation(draft) }
+            needsDisplay = true; return
+        }
+        annotationDrag = nil
         if drag != nil { drag = nil }
         else { forward(event, id: pointerID, type: 2, button: 1) }
         pointerID = nil
     }
     override func mouseMoved(with event: NSEvent) {
+        if model?.annotationToolbar == true && model?.annotationTool == .eraser {
+            eraseTarget = annotationAt(point(event))?.id; needsDisplay = true; return
+        }
         let id = hit(point(event))?.id
         if hoveredID != id, let old = hoveredID { model?.renderers[old]?.mouse(0, x: -1, y: -1, button: 0) }
         hoveredID = id; forward(event, id: id, type: 0, button: 0)
     }
     override func mouseExited(with event: NSEvent) {
+        eraseTarget = nil; needsDisplay = true
         if let id = hoveredID { model?.renderers[id]?.mouse(0, x: -1, y: -1, button: 0) }
         hoveredID = nil
     }
@@ -166,6 +275,33 @@ final class CardPreviewView: NSView {
     override func resignFirstResponder() -> Bool {
         if let model = model { for renderer in model.renderers.values { renderer.blur() } }
         focusedID = nil
+        return super.resignFirstResponder()
+    }
+}
+
+
+extension CardPreviewView: NSTextViewDelegate {
+    func textDidChange(_ notification: Notification) {
+        guard let editor = textEditor, var draft = model?.annotationDraft else { return }
+        var text = editor.string
+        while text.utf16.count > 16384 { text.removeLast() }
+        if text != editor.string { editor.string = text }
+        draft.text = text; model?.annotationDraft = draft
+    }
+}
+
+@MainActor
+private final class AnnotationTextView: NSTextView {
+    weak var owner: CardPreviewView?
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 53 { owner?.endText(cancel: true); return }
+        if [36, 76].contains(event.keyCode) && !event.modifierFlags.intersection([.command, .control]).isEmpty {
+            owner?.endText(cancel: false); return
+        }
+        super.keyDown(with: event)
+    }
+    override func resignFirstResponder() -> Bool {
+        owner?.model?.finishText()
         return super.resignFirstResponder()
     }
 }

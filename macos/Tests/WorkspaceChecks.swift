@@ -34,6 +34,25 @@ struct WorkspaceChecks {
         try require(restored.cards[1].state == first.state, "Renaming lost interactive state")
         print("PASS multiple cards, independent values, placement, selection and stacking survive reopening")
 
+        var versions = document.cards[0]
+        let old = versions.versionSnapshot, oldID = versions.id, oldX = versions.x, oldY = versions.y
+        try require(versions.revise(html: "<p>Revised</p>", width: versions.canvasWidth, height: versions.canvasHeight, expectedRevision: nil), "First revision was rejected")
+        try require(versions.previousVersion == old && versions.state == "{}", "Revision did not retain exactly one prior version or reset state")
+        try require(!versions.revise(html: "late", width: 640, height: 400, expectedRevision: nil), "A late revision overwrote newer content")
+        document.cards[0] = versions; try store.save(document)
+        var versionReopen = try store.load()
+        try require(versionReopen.cards[0].restorePreviousVersion(), "Previous version was lost across reopening")
+        let undone = versionReopen.cards[0]
+        try require(undone.versionSnapshot == old && undone.id == oldID && undone.x == oldX && undone.y == oldY && undone.previousVersion == nil, "Restoration changed placement/identity or retained redo")
+        try require(!versionReopen.cards[0].restorePreviousVersion(), "Restoration could be repeated")
+        document = restored
+        try store.save(document)
+        document.reorder(first.id, .back)
+        try require(document.cards.first?.id == first.id, "Send to back did not change drawing order")
+        document.reorder(first.id, .front)
+        try require(document.cards.last?.id == first.id, "Bring to front did not change drawing order")
+        print("PASS version persistence, late-revision rejection, one-shot restoration and stacking changes")
+
         var invalid = document
         invalid.cards.append(invalid.cards[0])
         try rejects({ try store.save(invalid) }, "Duplicate identities were accepted")
@@ -49,6 +68,7 @@ struct WorkspaceChecks {
         try require(!WorkspaceDocument.validState("{\"a\":\"" + String(repeating: "x", count: 4097) + "\"}"), "An oversized string was accepted")
         print("PASS invalid saved values, identities, geometry and unsupported versions are rejected")
 
+        let expectedBackup = try JSONDecoder().decode(WorkspaceDocument.self, from: Data(contentsOf: store.backup)).validated()
         let corruption = Data("not a workspace".utf8)
         try corruption.write(to: store.file, options: .atomic)
         let failed = WorkspaceStore(directory: directory)
@@ -58,7 +78,7 @@ struct WorkspaceChecks {
         try require(original == corruption, "The unreadable original was modified")
         try require(failed.canRecoverBackup, "A valid backup was unavailable")
         let recovered = try failed.recoverBackup()
-        try require(recovered == reopened, "Recovery did not restore the previous saved workspace")
+        try require(recovered == expectedBackup, "Recovery did not restore the previous saved workspace")
         let preserved = try fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).filter { $0.lastPathComponent.hasPrefix("workspace-preserved-") }
         try require(preserved.count == 1, "Recovery did not preserve the unreadable original")
         let preservedBytes = try Data(contentsOf: preserved[0])

@@ -9,6 +9,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let model = model else { return .terminateNow }
+        if model.video.hasConsumers {
+            let alert = NSAlert()
+            alert.messageText = "Quit while Callayers camera is in use?"
+            alert.informativeText = "Your calling app will stop receiving your camera and cards."
+            alert.addButton(withTitle: "Keep Callayers open"); alert.addButton(withTitle: "Quit")
+            guard alert.runModal() == .alertSecondButtonReturn else { return .terminateCancel }
+        }
+        model.finishText()
         sender.keyWindow?.makeFirstResponder(nil)
         // Reply on the next run-loop turn even if an empty workspace saves
         // synchronously, after AppKit has received terminateLater.

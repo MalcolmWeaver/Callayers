@@ -48,7 +48,7 @@ build="$root/build/macos-$arch"
 if [[ -n "$team" ]]; then build="$root/build/macos-camera-$arch"; fi
 mkdir -p "$build"
 xcrun --sdk macosx swiftc -swift-version 5 -parse-as-library -target "$arch-apple-macos12.3" \
-    "$root/macos/App/WorkspaceModels.swift" "$root/macos/App/WorkspaceStore.swift" \
+    "$root/macos/App/Annotations.swift" "$root/macos/App/WorkspaceModels.swift" "$root/macos/App/WorkspaceStore.swift" \
     "$root/macos/Tests/WorkspaceChecks.swift" -o "$build/WorkspaceChecks"
 if [[ "$arch" == "$host_arch" ]]; then
     "$build/WorkspaceChecks" 2>&1 | tee "$build/workspace-checks.log"
@@ -65,10 +65,17 @@ if [[ "$arch" == "$host_arch" ]]; then
     "$build/VideoChecks" 2>&1 | tee "$build/video-checks.log"
 fi
 xcrun --sdk macosx swiftc -swift-version 5 -parse-as-library -target "$arch-apple-macos12.3" \
-    "$root/macos/App/WorkspaceModels.swift" "$root/macos/App/WorkspaceStore.swift" \
+    "$root/macos/App/Annotations.swift" "$root/macos/App/WorkspaceModels.swift" "$root/macos/App/WorkspaceStore.swift" \
     "$root/macos/App/ImageImport.swift" "$root/macos/Tests/ImageImportChecks.swift" -o "$build/ImageImportChecks"
 if [[ "$arch" == "$host_arch" ]]; then
     "$build/ImageImportChecks" "$build/imported-card.html" 2>&1 | tee "$build/image-checks.log"
+fi
+xcrun --sdk macosx swiftc -swift-version 5 -parse-as-library -target "$arch-apple-macos12.3" \
+    "$root/macos/App/Annotations.swift" "$root/macos/App/AnnotationRenderer.swift" \
+    "$root/macos/App/WorkspaceModels.swift" "$root/macos/App/WorkspaceStore.swift" \
+    "$root/macos/Tests/AnnotationChecks.swift" -o "$build/AnnotationChecks"
+if [[ "$arch" == "$host_arch" ]]; then
+    "$build/AnnotationChecks" 2>&1 | tee "$build/annotation-checks.log"
 fi
 xcodebuild -project "$root/macos/Callayers.xcodeproj" \
     -scheme Callayers -configuration Debug -destination "$destination" \

@@ -61,7 +61,7 @@ struct ImageImportChecks {
         {"version":1,"cards":[{"id":"00000000-0000-0000-0000-000000000001","name":"Old card","html":"hi","state":"{}","visible":true,"x":160,"y":120,"scale":1,"edited":0}]}
         """
         let migrated = try JSONDecoder().decode(WorkspaceDocument.self, from: Data(legacy.utf8)).validated()
-        try require(migrated.version == 2 && migrated.cards[0].width == 640 && migrated.cards[0].height == 400, "Legacy workspace dimensions changed")
+        try require(migrated.version == 3 && migrated.cards[0].width == 640 && migrated.cards[0].height == 400, "Legacy workspace dimensions changed")
         print("PASS existing workspaces retain their original card dimensions")
     }
 }

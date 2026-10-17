@@ -13,10 +13,22 @@ final class WorkspaceModel: ObservableObject {
     @Published private(set) var importing = false
     @Published var checkerboard = true
     let video = VideoModel()
+    @Published var annotationToolbar = false
+    @Published var annotationTool: AnnotationTool = .select
+    @Published var annotationColor: UInt32 = 0x56ddca
+    @Published var annotationThickness = 4.0
+    @Published var selectedAnnotation: UUID?
+    @Published var annotationDraft: WorkspaceAnnotation?
+    @Published var editingText = false
+    private var renderedAnnotations: [WorkspaceAnnotation]?
+    private var renderedDraftID: UUID?
+    private var annotationImage: CGImage?
+    private var editingBackgroundImage: CGImage?
     var editingName = false
     private(set) var renderers: [UUID: CLRendererBridge] = [:]
     private var store: WorkspaceStore?
     private let resources = Bundle.main.resourceURL ?? Bundle.main.bundleURL
+    private var renderingPaused = false
     private var timer: Timer?
     private var pending: [UUID: UInt] = [:]
     private var mutation: ((inout WorkspaceDocument) -> Void)?
@@ -46,7 +58,7 @@ final class WorkspaceModel: ObservableObject {
         guard let store = store else { throw WorkspaceError.locked }
         document = try store.load()
         locked = false; problem = ""; message = "Workspace opened."
-        syncRenderers(); nextSave = Date().addingTimeInterval(2)
+        refreshAnnotations(); syncRenderers(); nextSave = Date().addingTimeInterval(2)
     }
 
     func retryOpen() {
@@ -62,7 +74,8 @@ final class WorkspaceModel: ObservableObject {
         do {
             document = try store.recoverBackup(); locked = false; problem = ""
             message = "Restored the backup. The original file has been preserved."
-            syncRenderers(); nextSave = Date().addingTimeInterval(2)
+            if !video.wantsFrames { renderingPaused = true }
+            refreshAnnotations(); syncRenderers(); nextSave = Date().addingTimeInterval(2)
         } catch { problem = "Could not restore the backup: \(error.localizedDescription)" }
     }
 
@@ -169,6 +182,74 @@ final class WorkspaceModel: ObservableObject {
         }
     }
 
+    func reorder(_ id: UUID, _ order: CardOrder) {
+        guard editable else { return }
+        save { $0.reorder(id, order) }
+    }
+    func restoreVersion(_ id: UUID) {
+        guard editable else { return }
+        save { doc in
+            guard let index = doc.cards.firstIndex(where: { $0.id == id }), doc.cards[index].restorePreviousVersion() else { return }
+            self.renderers.removeValue(forKey: id)
+        }
+    }
+
+    func refreshAnnotations() {
+        let items = document.annotationItems, draftID = annotationDraft?.id
+        if renderedAnnotations != items {
+            annotationImage = AnnotationRenderer.image(items)
+        }
+        if renderedAnnotations != items || renderedDraftID != draftID {
+            editingBackgroundImage = draftID == nil ? nil : AnnotationRenderer.image(items.filter { $0.id != draftID })
+        }
+        renderedAnnotations = items; renderedDraftID = draftID
+        frameSerial &+= 1
+    }
+    func commitAnnotation(_ item: WorkspaceAnnotation) {
+        guard !locked, !closing, item.valid else { return }
+        var items = document.annotationItems
+        if let index = items.firstIndex(where: { $0.id == item.id }) { items[index] = item }
+        else {
+            guard items.count < 500 else { problem = "You have reached the annotation limit."; return }
+            items.append(item)
+        }
+        guard items.reduce(0, { $0 + $1.points.count }) <= 200_000 else { problem = "These annotations are too large to save."; return }
+        document.annotationItems = items
+        selectedAnnotation = item.id; refreshAnnotations(); save()
+    }
+    func removeAnnotation(_ id: UUID) {
+        guard !locked, !closing else { return }
+        document.annotationItems.removeAll { $0.id == id }
+        if selectedAnnotation == id { selectedAnnotation = nil }
+        refreshAnnotations(); save()
+    }
+    func clearAnnotations() {
+        guard !locked, !closing else { return }
+        cancelText(); selectedAnnotation = nil; document.annotationItems = []
+        refreshAnnotations(); save()
+    }
+    func setAnnotationColor(_ color: UInt32) {
+        annotationColor = color
+        if var draft = annotationDraft { draft.color = color; annotationDraft = draft }
+        else if var item = document.annotationItems.first(where: { $0.id == selectedAnnotation }) {
+            item.color = color; commitAnnotation(item)
+        }
+    }
+    func beginText(_ item: WorkspaceAnnotation) {
+        annotationDraft = item; editingText = true; selectedAnnotation = item.id
+        refreshAnnotations()
+    }
+    func finishText() {
+        guard editingText, let item = annotationDraft else { return }
+        editingText = false; annotationDraft = nil
+        if !item.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { commitAnnotation(item) }
+        else if document.annotationItems.contains(where: { $0.id == item.id }) { removeAnnotation(item.id) }
+        refreshAnnotations()
+    }
+    func cancelText() {
+        editingText = false; annotationDraft = nil; refreshAnnotations()
+    }
+
     func reloadSavedCard() {
         guard !locked, !saving, let id = document.selectedID else { return }
         renderers.removeValue(forKey: id)
@@ -207,13 +288,14 @@ final class WorkspaceModel: ObservableObject {
             guard let store = store else { throw WorkspaceError.locked }
             try store.save(document)
             saving = false; problem = ""; message = "Workspace saved."
-            syncRenderers(); nextSave = Date().addingTimeInterval(2)
+            if !video.wantsFrames { renderingPaused = true }
+            refreshAnnotations(); syncRenderers(); nextSave = Date().addingTimeInterval(2)
             if quitNeedsFreshSnapshot {
                 quitNeedsFreshSnapshot = false; save()
             } else {
                 let completion = quitCompletion; quitCompletion = nil; completion?(true)
             }
-        } catch { failSave("Could not save your workspace. Changes remain open; try Save now. \(error.localizedDescription)") }
+        } catch { syncRenderers(); failSave("Could not save your workspace. Changes remain open; choose Retry saving. \(error.localizedDescription)") }
     }
 
     private func failSave(_ error: String) {
@@ -225,6 +307,7 @@ final class WorkspaceModel: ObservableObject {
     }
 
     private func syncRenderers() {
+        if renderingPaused { renderers.removeAll(); frameSerial &+= 1; return }
         let visible = Set(visibleCards.map(\.id))
         for id in Array(renderers.keys) where !visible.contains(id) { renderers.removeValue(forKey: id) }
         for card in visibleCards where renderers[card.id] == nil {
@@ -240,16 +323,26 @@ final class WorkspaceModel: ObservableObject {
     }
 
     private func tick() {
+        video.refreshDemand()
+        if renderingPaused && video.wantsFrames { renderingPaused = false; syncRenderers() }
+        if !renderingPaused && !video.wantsFrames && !saving && !locked { save() }
         var changed = false
         for renderer in renderers.values { if renderer.tick() { changed = true } }
-        let layers: [VideoLayer] = visibleCards.compactMap { card in
+        var layers: [VideoLayer] = visibleCards.compactMap { card in
             guard let image = renderers[card.id]?.image?.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
             // Crop the card canvas from the renderer before native placement.
             let sx = CGFloat(image.width) / 1280, sy = CGFloat(image.height) / 720
             guard let cropped = image.cropping(to: CGRect(x: 0, y: 0, width: card.canvasWidth * sx, height: card.canvasHeight * sy)) else { return nil }
             return VideoLayer(image: cropped, rect: CGRect(x: card.x, y: card.y, width: card.width, height: card.height))
         }
-        if video.tick(layers: layers) { changed = true }
+        let cardLayers = layers
+        if let annotationImage { layers.append(VideoLayer(image: annotationImage, rect: CGRect(x: 0, y: 0, width: 1280, height: 720))) }
+        var previewLayers: [VideoLayer]?
+        if annotationDraft != nil {
+            previewLayers = cardLayers
+            if let editingBackgroundImage { previewLayers?.append(VideoLayer(image: editingBackgroundImage, rect: CGRect(x: 0, y: 0, width: 1280, height: 720))) }
+        }
+        if video.tick(layers: layers, previewLayers: previewLayers) { changed = true }
         if changed { frameSerial &+= 1 }
         if saving {
             for (id, request) in Array(pending) {

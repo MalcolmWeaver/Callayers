@@ -71,7 +71,9 @@ final class VideoModel: ObservableObject {
             cameraStatus = error.isEmpty ? (image == nil ? "Opening webcam…" : "Webcam live") : error
         }
     }
-    func tick(layers: [VideoLayer]) -> Bool {
+    var hasConsumers: Bool { output.consumerCount > 0 }
+    func refreshDemand() { if Date() >= refreshTime { refresh() } }
+    func tick(layers: [VideoLayer], previewLayers: [VideoLayer]? = nil) -> Bool {
         guard !terminated else { return false }
         if Date() >= refreshTime { refresh() }
         guard wantsFrames, let composer else { return false }
@@ -79,7 +81,11 @@ final class VideoModel: ObservableObject {
         do {
             guard let (sample, image) = try composer.compose(camera: camera, layers: layers, at: CMClockGetTime(CMClockGetHostTimeClock())) else { return false }
             retainedSample = sample
-            preview = NSImage(cgImage: image, size: NSSize(width: 1280, height: 720))
+            if let previewLayers {
+                if let previewImage = try composer.compose(camera: camera, layers: previewLayers, at: CMClockGetTime(CMClockGetHostTimeClock()))?.1 {
+                    preview = NSImage(cgImage: previewImage, size: NSSize(width: 1280, height: 720))
+                }
+            } else { preview = NSImage(cgImage: image, size: NSSize(width: 1280, height: 720)) }
             if output.consumerCount > 0 {
                 _ = output.sendSample(sample)
                 if outputStatus != output.status { outputStatus = output.status }

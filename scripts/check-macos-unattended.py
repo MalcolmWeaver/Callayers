@@ -106,7 +106,7 @@ def main():
 
     signal.signal(signal.SIGTERM, interrupt)
     try:
-        for name in ('WorkspaceChecks', 'CameraChecks', 'VideoChecks', 'ImageImportChecks', 'RendererChecks'):
+        for name in ('WorkspaceChecks', 'CameraChecks', 'VideoChecks', 'ImageImportChecks', 'AnnotationChecks', 'RendererChecks'):
             command = [str(build / name)]
             if name == 'CameraChecks': command += [str(result_dir / 'test-picture.png')]
             if name == 'ImageImportChecks': command += [str(result_dir / 'imported-card.html')]
