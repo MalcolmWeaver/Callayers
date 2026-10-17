@@ -5,6 +5,10 @@
 	};
 	"objectVersion" = "56";
 	"objects" = {
+        "CA1300000000000000000003" = { "isa" = "PBXFileReference"; "lastKnownFileType" = "sourcecode.swift"; "path" = "Video/DeliveryFeedback.swift"; "sourceTree" = "<group>"; };
+        "CA1300000000000000000004" = { "isa" = "PBXBuildFile"; "fileRef" = "CA1300000000000000000003"; };
+        "CA1300000000000000000001" = { "isa" = "PBXFileReference"; "lastKnownFileType" = "sourcecode.swift"; "path" = "Services/Telemetry.swift"; "sourceTree" = "<group>"; };
+        "CA1300000000000000000002" = { "isa" = "PBXBuildFile"; "fileRef" = "CA1300000000000000000001"; };
         "CA120000000000000000000B" = { "isa" = "PBXFileReference"; "lastKnownFileType" = "sourcecode.swift"; "path" = "App/ApplicationSession.swift"; "sourceTree" = "<group>"; };
         "CA120000000000000000000C" = { "isa" = "PBXBuildFile"; "fileRef" = "CA120000000000000000000B"; };
         "CA1200000000000000000009" = { "isa" = "PBXFileReference"; "lastKnownFileType" = "sourcecode.swift"; "path" = "Services/GenerationService.swift"; "sourceTree" = "<group>"; };
@@ -204,6 +208,8 @@
 		"13C4608B5138EBE9B3A45A55" = {
 			"isa" = "PBXGroup";
 			"children" = (
+                "CA1300000000000000000003",
+                "CA1300000000000000000001",
                 "CA120000000000000000000B",
                 "CA1200000000000000000009",
                 "CA1200000000000000000007",
@@ -341,6 +347,8 @@
 			"isa" = "PBXSourcesBuildPhase";
 			"buildActionMask" = "2147483647";
 			"files" = (
+                "CA1300000000000000000004",
+                "CA1300000000000000000002",
                 "CA120000000000000000000C",
                 "CA120000000000000000000A",
                 "CA1200000000000000000008",
@@ -908,6 +916,7 @@
 			"isa" = "PBXSourcesBuildPhase";
 			"buildActionMask" = "2147483647";
 			"files" = (
+                "CA1300000000000000000004",
 				"7BB4EE7935237FEADEF13707",
 				"C23664B4C1A9AEC86710F1AA",
 				"2D30CD12DB594CD85609ADBB",

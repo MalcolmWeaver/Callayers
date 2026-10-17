@@ -45,6 +45,7 @@ final class CardPreviewView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         guard let window = window, window.delegate !== closeDelegate else { return }
+        model?.video.previewWindow = window
         window.setFrameAutosaveName("CallayersWorkspace")
         let delegate = WorkspaceCloseDelegate(original: window.delegate)
         closeDelegate = delegate; window.delegate = delegate

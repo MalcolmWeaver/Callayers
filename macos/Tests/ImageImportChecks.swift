@@ -49,6 +49,22 @@ struct ImageImportChecks {
         try rejects { _ = try store.renderedHTML(for: card) }
         print("PASS image decode, aspect ratio, local asset persistence, missing/corrupt asset rejection and custom geometry")
 
+        let cleanup = WorkspaceStore(directory: directory.appendingPathComponent("cleanup"))
+        var cleanupDocument = try cleanup.load()
+        let retained = UUID(), orphan = UUID()
+        try cleanup.saveImage(imported.png, id: retained); try cleanup.saveImage(imported.png, id: orphan)
+        var withBackup = WorkspaceCard(name: "Revised image", html: "<p>Replacement</p>")
+        withBackup.previousVersion = CardVersion(name: "Original image", html: ImportedImage.html, width: 320, height: 160, imageID: retained)
+        cleanupDocument.cards = [withBackup]; try cleanup.save(cleanupDocument)
+        let images = cleanup.directory.appendingPathComponent("images")
+        try require(FileManager.default.fileExists(atPath: images.appendingPathComponent(retained.uuidString + ".png").path), "Cleanup removed the previous card version's image")
+        try require(!FileManager.default.fileExists(atPath: images.appendingPathComponent(orphan.uuidString + ".png").path), "Cleanup retained an orphan image")
+        cleanupDocument.cards = []; try cleanup.save(cleanupDocument)
+        try require(FileManager.default.fileExists(atPath: images.appendingPathComponent(retained.uuidString + ".png").path), "Cleanup broke the workspace backup")
+        cleanupDocument.promptDraft = "changed"; try cleanup.save(cleanupDocument)
+        try require(!FileManager.default.fileExists(atPath: images.appendingPathComponent(retained.uuidString + ".png").path), "Cleanup retained an image after its last saved reference was removed")
+        print("PASS unused image cleanup preserves card versions and the recoverable workspace backup")
+
         let jpeg = NSMutableData()
         let jpegDestination = CGImageDestinationCreateWithData(jpeg, UTType.jpeg.identifier as CFString, 1, nil)!
         CGImageDestinationAddImage(jpegDestination, context.makeImage()!, [kCGImagePropertyOrientation: 6] as CFDictionary)

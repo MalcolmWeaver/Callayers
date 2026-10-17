@@ -5,6 +5,7 @@ NS_ASSUME_NONNULL_BEGIN
 // Main-thread API. CoreMediaIO owns consumption on the other end of its queue.
 @interface CLVirtualCameraClient : NSObject
 @property(nonatomic, readonly) NSInteger consumerCount;
+@property(nonatomic, readonly, nullable) NSString *deliveryState;
 @property(nonatomic, readonly) NSString *status;
 - (void)refresh;
 - (BOOL)sendSample:(CMSampleBufferRef)sample;

@@ -14,6 +14,8 @@ final class WorkspaceModel: ObservableObject {
     @Published var checkerboard = true
     let video: VideoModel
     private var authorized = true
+    weak var telemetry: TelemetrySession?
+    private var pendingCreations: [(TelemetryEvent.Creation, UUID)] = []
     weak var auth: AuthController?
     @Published private(set) var generating = false
     @Published private(set) var generationMessage = ""
@@ -95,6 +97,7 @@ final class WorkspaceModel: ObservableObject {
                         let id = try doc.apply(result, ticket: ticket)
                         self.renderers.removeValue(forKey: id)
                         if doc.promptDraft == input { doc.promptDraft = "" }
+                        self.pendingCreations.append((ticket.target == nil ? .aiCreate : .aiRevision, id))
                         self.generationMessage = "Your card is ready."
                     } catch { self.generationMessage = error.localizedDescription }
                     self.generating = false; self.generationID = nil
@@ -185,7 +188,7 @@ final class WorkspaceModel: ObservableObject {
                 card.imageID = assetID
                 card.contentWidth = Double(image.width); card.contentHeight = Double(image.height)
                 card.place(scale: min(1, min(640 / card.canvasWidth, 400 / card.canvasHeight)))
-                save { doc in doc.cards.append(card); doc.selectedID = card.id }
+                save { doc in doc.cards.append(card); doc.selectedID = card.id; self.pendingCreations.append((.imageImport, card.id)) }
             } catch { problem = error.localizedDescription }
         }
     }
@@ -266,7 +269,7 @@ final class WorkspaceModel: ObservableObject {
         if let index = items.firstIndex(where: { $0.id == item.id }) { items[index] = item }
         else {
             guard items.count < 500 else { problem = "You have reached the annotation limit."; return }
-            items.append(item)
+            items.append(item); pendingCreations.append((.annotation, item.id))
         }
         guard items.reduce(0, { $0 + $1.points.count }) <= 200_000 else { problem = "These annotations are too large to save."; return }
         document.annotationItems = items
@@ -342,6 +345,12 @@ final class WorkspaceModel: ObservableObject {
         do {
             guard let store = store else { throw WorkspaceError.locked }
             try store.save(document)
+            for (kind, id) in pendingCreations {
+                if kind == .annotation {
+                    if document.annotationItems.contains(where: { $0.id == id }) { telemetry?.created(.annotation) }
+                } else if document.cards.contains(where: { $0.id == id }) { telemetry?.created(kind, card: id) }
+            }
+            pendingCreations = []
             saving = false; problem = ""; message = "Workspace saved."
             if !video.wantsFrames { renderingPaused = true }
             refreshAnnotations(); syncRenderers(); nextSave = Date().addingTimeInterval(2)
@@ -391,7 +400,7 @@ final class WorkspaceModel: ObservableObject {
             // Crop the card canvas from the renderer before native placement.
             let sx = CGFloat(image.width) / 1280, sy = CGFloat(image.height) / 720
             guard let cropped = image.cropping(to: CGRect(x: 0, y: 0, width: card.canvasWidth * sx, height: card.canvasHeight * sy)) else { return nil }
-            return VideoLayer(image: cropped, rect: CGRect(x: card.x, y: card.y, width: card.width, height: card.height))
+            return VideoLayer(image: cropped, rect: CGRect(x: card.x, y: card.y, width: card.width, height: card.height), cardID: card.id, cardType: card.imageID == nil ? "ai" : "image")
         }
         let cardLayers = layers
         if let annotationImage { layers.append(VideoLayer(image: annotationImage, rect: CGRect(x: 0, y: 0, width: 1280, height: 720))) }

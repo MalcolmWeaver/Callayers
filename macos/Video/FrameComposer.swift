@@ -8,6 +8,8 @@ struct VideoLayer {
     let image: CGImage
     // Logical top-left coordinates in the 1280 × 720 workspace.
     let rect: CGRect
+    var cardID: UUID? = nil
+    var cardType: String = "ai"
 }
 
 final class FrameComposer {

@@ -91,6 +91,13 @@ xcrun --sdk macosx swiftc -swift-version 5 -parse-as-library -target "$arch-appl
 if [[ "$arch" == "$host_arch" ]]; then
     "$build/GenerationChecks" 2>&1 | tee "$build/generation-checks.log"
 fi
+xcrun --sdk macosx swiftc -swift-version 5 -parse-as-library -target "$arch-apple-macos12.3" \
+    "$root/macos/Services/ServiceClient.swift" "$root/macos/Services/AuthProtocol.swift" \
+    "$root/macos/Services/Telemetry.swift" "$root/macos/Video/DeliveryFeedback.swift" \
+    "$root/macos/Tests/TelemetryChecks.swift" -o "$build/TelemetryChecks"
+if [[ "$arch" == "$host_arch" ]]; then
+    "$build/TelemetryChecks" "$build/telemetry-fixture.json" 2>&1 | tee "$build/telemetry-checks.log"
+fi
 xcodebuild -project "$root/macos/Callayers.xcodeproj" \
     -scheme Callayers -configuration Debug -destination "$destination" \
     -derivedDataPath "$build" ARCHS="$arch" ONLY_ACTIVE_ARCH=YES \

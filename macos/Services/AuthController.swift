@@ -12,7 +12,7 @@ protocol AuthServicing {
 final class AuthService: AuthServicing {
     let http: HTTPTransport
     let service: URL
-    init(http: HTTPTransport = ServiceClient(), service: URL = ServiceClient.production) { self.http = http; self.service = service }
+    init(http: HTTPTransport = ServiceClient(timeout: 15), service: URL = ServiceClient.production) { self.http = http; self.service = service }
     private func object(_ request: URLRequest) async throws -> [String: Any] {
         let response = try await http.send(request, limit: 65_536)
         if response.status == 401 || response.status == 400 { throw AuthFailure.expired }
@@ -69,6 +69,7 @@ final class AuthController: ObservableObject {
     @Published private(set) var message = "Sign in to use Callayers."
     @Published private(set) var email = ""
     private(set) var grant: AuthGrant?
+    var onCredentialsChanged: ((AuthGrant) -> Void)?
     var onAccessChanged: ((Bool) -> Void)?
     private let service: AuthServicing
     private let store: SessionStore
@@ -110,6 +111,7 @@ final class AuthController: ObservableObject {
         grant = value; email = value?.email ?? ""; allowed = value != nil
         nextRefresh = value?.expires.addingTimeInterval(-120) ?? .distantFuture
         if wasAllowed != allowed { onAccessChanged?(allowed) }
+        if let value { onCredentialsChanged?(value) }
     }
     private func run(interactive: Bool) {
         guard !busy else { return }

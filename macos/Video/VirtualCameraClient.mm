@@ -40,6 +40,7 @@ static void SinkQueueChanged(CMIOStreamID, void *, void *) {}
 }
 - (NSInteger)consumerCount { return _consumerCount; }
 - (NSString *)status { return _status; }
+- (NSString *)deliveryState { return _device ? StringProperty(_device, 'cliv') : nil; }
 - (void)refresh {
     // Include software devices in the legacy C API's device list.
     auto allow = Address(kCMIOHardwarePropertyAllowScreenCaptureDevices); UInt32 yes = 1;
@@ -51,7 +52,10 @@ static void SinkQueueChanged(CMIOStreamID, void *, void *) {}
     if (!found || (_device && _device != found)) {
         [self stop];
         auto countAddress = Address('cact');
-        if (_device) CMIOObjectRemovePropertyListener(_device, &countAddress, ConsumersChanged, nullptr);
+        if (_device) {
+            CMIOObjectRemovePropertyListener(_device, &countAddress, ConsumersChanged, nullptr);
+            auto deliveryAddress = Address('cliv'); CMIOObjectRemovePropertyListener(_device, &deliveryAddress, ConsumersChanged, nullptr);
+        }
         _device = 0; _sink = 0;
     }
     _consumerCount = 0;
@@ -60,6 +64,7 @@ static void SinkQueueChanged(CMIOStreamID, void *, void *) {}
         _device = found;
         auto countAddress = Address('cact');
         CMIOObjectAddPropertyListener(_device, &countAddress, ConsumersChanged, nullptr);
+        auto deliveryAddress = Address('cliv'); CMIOObjectAddPropertyListener(_device, &deliveryAddress, ConsumersChanged, nullptr);
     }
     NSString *count = StringProperty(_device, 'cact');
     if (!count) { [self stop]; _sink = 0; _status = @"Camera update needed. Open Camera setup and install the new version."; return; }
@@ -104,6 +109,9 @@ static void SinkQueueChanged(CMIOStreamID, void *, void *) {}
 - (void)dealloc {
     [self stop];
     auto address = Address('cact');
-    if (_device) CMIOObjectRemovePropertyListener(_device, &address, ConsumersChanged, nullptr);
+    if (_device) {
+        CMIOObjectRemovePropertyListener(_device, &address, ConsumersChanged, nullptr);
+        auto deliveryAddress = Address('cliv'); CMIOObjectRemovePropertyListener(_device, &deliveryAddress, ConsumersChanged, nullptr);
+    }
 }
 @end

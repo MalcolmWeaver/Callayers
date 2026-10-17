@@ -38,6 +38,13 @@ final class CameraDevice: NSObject, CMIOExtensionDeviceSource {
     private let queue: DispatchQueue
     private var timer: DispatchSourceTimer?
     private var streamCount = 0
+    private var connectionID = UUID().uuidString
+    private var clientIDs: Set<UUID> = []
+    private var consumerLabel = "none"
+    private var deliveredSource: Int64 = 0
+    private var deliveredAt: Int64 = 0
+    private var lastFeedback = Date.distantPast
+    static let deliveryProperty = CMIOExtensionProperty(rawValue: "4cc_cliv_glob_0000")
     private var producer: CMIOExtensionClient?
     private var receiving = false
     private var consuming = false
@@ -62,13 +69,16 @@ final class CameraDevice: NSObject, CMIOExtensionDeviceSource {
         try device.addStream(input.stream)
     }
 
-    var availableProperties: Set<CMIOExtensionProperty> { [.deviceTransportType, .deviceModel, Self.consumerProperty] }
+    var availableProperties: Set<CMIOExtensionProperty> { [.deviceTransportType, .deviceModel, Self.consumerProperty, Self.deliveryProperty] }
     func deviceProperties(forProperties properties: Set<CMIOExtensionProperty>) throws -> CMIOExtensionDeviceProperties {
         let result = CMIOExtensionDeviceProperties(dictionary: [:])
         if properties.contains(.deviceTransportType) { result.transportType = kIOAudioDeviceTransportTypeVirtual }
         if properties.contains(.deviceModel) { result.model = "Callayers Virtual Camera" }
         if properties.contains(Self.consumerProperty) {
             result.setPropertyState(CMIOExtensionPropertyState(value: String(streamCount) as NSString), forProperty: Self.consumerProperty)
+        }
+        if properties.contains(Self.deliveryProperty) {
+            result.setPropertyState(CMIOExtensionPropertyState(value: feedbackText() as NSString), forProperty: Self.deliveryProperty)
         }
         return result
     }
@@ -102,7 +112,39 @@ final class CameraDevice: NSObject, CMIOExtensionDeviceSource {
         latest.clear()
     }
     private func notifyConsumers() {
+        connectionID = UUID().uuidString
+        notifyFeedback(force: true)
         device.notifyPropertiesChanged([Self.consumerProperty: CMIOExtensionPropertyState<AnyObject>(value: String(streamCount) as NSString)])
+    }
+    private func feedbackText() -> String {
+        let value = DeliveryFeedback(sourceTime: streamCount > 0 ? deliveredSource : 0,
+            deliveryTime: deliveredAt, connection: connectionID, consumerApp: streamCount > 0 ? consumerLabel : "none", count: streamCount)
+        return (try? JSONEncoder().encode(value)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+    }
+    private func consumerIdentity(_ client: CMIOExtensionClient) -> String {
+        if #available(macOS 13.0, *), let identity = client.signingID {
+            let label = DeliveryFeedback.label(identity)
+            if label != "unknown" { return label }
+        }
+        var guest: SecCode?, code: SecStaticCode?, info: CFDictionary?
+        guard SecCodeCopyGuestWithAttributes(nil, [kSecGuestAttributePid: client.pid, kSecGuestAttributeDynamicCode: true] as CFDictionary, [], &guest) == errSecSuccess,
+              let guest, SecCodeCopyStaticCode(guest, [], &code) == errSecSuccess, let code,
+              SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
+              let dictionary = info as? [String: Any], let identity = dictionary[kSecCodeInfoIdentifier as String] as? String else { return "unknown" }
+        return DeliveryFeedback.label(identity)
+    }
+    private func notifyFeedback(force: Bool = false) {
+        guard force || Date().timeIntervalSince(lastFeedback) >= 0.25 else { return }
+        lastFeedback = Date()
+        let clients = video.stream.streamingClients
+        let ids = Set(clients.map(\.clientID))
+        if ids != clientIDs {
+            clientIDs = ids; connectionID = UUID().uuidString
+            let labels = Set(clients.map { consumerIdentity($0) })
+            consumerLabel = labels.count == 1 ? labels.first! : "unknown"
+        }
+        if streamCount > 0 && consumerLabel == "none" { consumerLabel = "unknown" }
+        device.notifyPropertiesChanged([Self.deliveryProperty: CMIOExtensionPropertyState<AnyObject>(value: feedbackText() as NSString)])
     }
     func authorizeProducer(_ client: CMIOExtensionClient) -> Bool {
         // CMIO can report "unknown" even for Apple Development signed clients.
@@ -152,7 +194,7 @@ final class CameraDevice: NSObject, CMIOExtensionDeviceSource {
     }
     func stopReceiving() {
         receiving = false; producer = nil; consuming = false; generation &+= 1
-        latest.clear(); stopTimerIfIdle()
+        latest.clear(); deliveredSource = 0; notifyFeedback(force: true); stopTimerIfIdle()
     }
     func disconnect(_ client: CMIOExtensionClient) {
         if producer?.clientID == client.clientID { stopReceiving() }
@@ -185,6 +227,7 @@ final class CameraDevice: NSObject, CMIOExtensionDeviceSource {
         let now = CMClockGetTime(CMClockGetHostTimeClock())
         do {
             let sample: CMSampleBuffer
+            var sourceTime: Int64 = 0
             if let incoming = latest.sample(now: now), let image = CMSampleBufferGetImageBuffer(incoming) {
                 var timing = CMSampleTimingInfo(duration: TestPicture.frameDuration, presentationTimeStamp: now, decodeTimeStamp: .invalid)
                 var retimed: CMSampleBuffer?
@@ -192,12 +235,14 @@ final class CameraDevice: NSObject, CMIOExtensionDeviceSource {
                     formatDescription: picture.format, sampleTiming: &timing, sampleBufferOut: &retimed)
                 guard status == noErr, let retimed else { return }
                 sample = retimed
+                sourceTime = CMTimeConvertScale(CMSampleBufferGetPresentationTimeStamp(incoming), timescale: 1_000_000_000, method: .default).value
             } else {
                 guard let fallback = try picture.sample(at: now) else { return }
                 sample = fallback
             }
             let nanos = CMTimeConvertScale(now, timescale: 1_000_000_000, method: .default).value
             video.stream.send(sample, discontinuity: [], hostTimeInNanoseconds: UInt64(max(0, nanos)))
+            deliveredSource = sourceTime; deliveredAt = nanos; notifyFeedback()
         } catch { logger.error("Frame generation failed: \(String(describing: error), privacy: .public)") }
     }
 }

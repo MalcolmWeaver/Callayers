@@ -62,6 +62,28 @@ final class WorkspaceStore {
         if let previous = lastSaved { try previous.write(to: backup, options: .atomic) }
         try data.write(to: file, options: .atomic)
         lastSaved = data
+        pruneUnusedImages(document)
+    }
+
+    private func pruneUnusedImages(_ document: WorkspaceDocument) {
+        // A preserved unreadable workspace may reference assets we cannot enumerate.
+        guard let names = try? manager.contentsOfDirectory(atPath: directory.path),
+              !names.contains(where: { $0.hasPrefix("workspace-preserved-") }) else { return }
+        var documents = [document]
+        if manager.fileExists(atPath: backup.path) {
+            guard let previous = try? read(backup).0 else { return }
+            documents.append(previous)
+        }
+        let keep = Set(documents.flatMap { $0.cards.flatMap { [$0.imageID, $0.previousVersion?.imageID].compactMap { $0 } } })
+        let images = directory.appendingPathComponent("images", isDirectory: true)
+        guard (try? images.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == false,
+              let assets = try? manager.contentsOfDirectory(at: images, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey]) else { return }
+        for asset in assets where asset.pathExtension == "png" {
+            guard let id = UUID(uuidString: asset.deletingPathExtension().lastPathComponent), !keep.contains(id),
+                  let values = try? asset.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]),
+                  values.isRegularFile == true, values.isSymbolicLink == false else { continue }
+            try? manager.removeItem(at: asset)
+        }
     }
 
     private func imageURL(_ id: UUID) -> URL {

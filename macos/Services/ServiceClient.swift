@@ -16,15 +16,19 @@ struct HTTPResult {
 protocol HTTPTransport {
     func send(_ request: URLRequest, limit: Int) async throws -> HTTPResult
 }
-final class ServiceClient: NSObject, HTTPTransport, URLSessionTaskDelegate {
-    private lazy var session: URLSession = {
-        let config = URLSessionConfiguration.ephemeral
-        config.httpCookieStorage = nil; config.urlCredentialStorage = nil; config.urlCache = nil
-        config.timeoutIntervalForRequest = 15; config.timeoutIntervalForResource = 125
-        return URLSession(configuration: config, delegate: self, delegateQueue: nil)
-    }()
+private final class NoServiceRedirects: NSObject, URLSessionTaskDelegate {
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
+}
+final class ServiceClient: HTTPTransport {
+    private let session: URLSession
+    init(timeout: TimeInterval = 125) {
+        let config = URLSessionConfiguration.ephemeral
+        config.httpCookieStorage = nil; config.urlCredentialStorage = nil; config.urlCache = nil
+        config.timeoutIntervalForRequest = 15; config.timeoutIntervalForResource = timeout
+        session = URLSession(configuration: config, delegate: NoServiceRedirects(), delegateQueue: nil)
+    }
+    deinit { session.invalidateAndCancel() }
     func send(_ request: URLRequest, limit: Int = 1_048_576) async throws -> HTTPResult {
         let (bytes, response) = try await session.bytes(for: request)
         guard let response = response as? HTTPURLResponse, response.expectedContentLength <= limit else { throw ServiceFailure.invalid }

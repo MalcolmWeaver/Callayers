@@ -5,10 +5,15 @@ import AVFoundation
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     weak var model: WorkspaceModel?
+    weak var session: ApplicationSession?
     func applicationWillTerminate(_ notification: Notification) { model?.video.shutdown() }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard let model = model else { return .terminateNow }
+        guard let model = model else {
+            guard let session, session.auth.allowed else { return .terminateNow }
+            DispatchQueue.main.async { session.finishTelemetry { sender.reply(toApplicationShouldTerminate: true) } }
+            return .terminateLater
+        }
         if model.video.hasConsumers {
             let alert = NSAlert()
             alert.messageText = "Quit while Callayers camera is in use?"
@@ -22,7 +27,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // synchronously, after AppKit has received terminateLater.
         DispatchQueue.main.async {
             model.saveBeforeQuit { saved in
-                if saved { sender.reply(toApplicationShouldTerminate: true); return }
+                if saved {
+                    if let session = self.session { session.finishTelemetry { sender.reply(toApplicationShouldTerminate: true) } }
+                    else { sender.reply(toApplicationShouldTerminate: true) }
+                    return
+                }
                 let alert = NSAlert()
                 alert.messageText = "Your workspace could not be saved"
                 alert.informativeText = "Cancel quitting to retry saving. Quitting without saving may lose recent changes."
@@ -94,6 +103,7 @@ struct CallayersRendererPreviewApp: App {
             SessionView(session: session, auth: session.auth)
                 .frame(minWidth: 1000, idealWidth: 1280, minHeight: 640, idealHeight: 800)
                 .onAppear {
+                    delegate.session = session
                     session.start()
                     delegate.model = session.workspace
                     // Explicit development launch option uses the same system approval flow as the button.
