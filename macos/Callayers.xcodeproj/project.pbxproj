@@ -1,948 +1,785 @@
 // !$*UTF8*$!
 {
-	"archiveVersion" = "1";
-	"classes" = {
+	archiveVersion = 1;
+	classes = {
 	};
-	"objectVersion" = "56";
-	"objects" = {
-		"23BC76EE33C11A714C2853A8" = {
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "App/CallayersApp.swift";
-			"sourceTree" = "<group>";
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0D47B44FF5F3FBAE03145CDF /* App/CallayersApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23BC76EE33C11A714C2853A8 /* App/CallayersApp.swift */; };
+		206B890CB6934B9FE1B131BB /* App/WorkspaceModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BC39A78051C504EEF9862CA /* App/WorkspaceModels.swift */; };
+		2D30CD12DB594CD85609ADBB /* CameraExtension/TestPicture.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC83006363E34D53BE62FEFA /* CameraExtension/TestPicture.swift */; };
+		315E68FF8A2289C504EFEE2C /* App/CameraExtensionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE5FFECA51724086D14220CB /* App/CameraExtensionController.swift */; };
+		39D63F9C3899A9418E97E0BA /* App/WorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFB6B9B906061AC613FBCD2F /* App/WorkspaceView.swift */; };
+		524F0ABF0B4C33EDADE5F292 /* Resources/counter-card.html in Resources */ = {isa = PBXBuildFile; fileRef = 6B54401D42F839CFFE104B21 /* Resources/counter-card.html */; };
+		5C3BF2C2DCC0E0E88C81F75E /* App/PreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B5B7229B74FB441FACDC16B /* App/PreviewView.swift */; };
+		5C57AB940FC0983384CE2D37 /* App/CameraPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAE55E00831B8468BA0A2F97 /* App/CameraPickerView.swift */; };
+		6487949BD4435A5283206D8F /* App/WorkspaceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F923792C849C68BFE52CF30 /* App/WorkspaceStore.swift */; };
+		67414B6F07DE692747E8CD72 /* Video/VirtualCameraClient.mm in Sources */ = {isa = PBXBuildFile; fileRef = AB16C3EDA1A4DF0F89E2E5AF /* Video/VirtualCameraClient.mm */; };
+		68F5655A19B73AF6B9DDF2AF /* Tests/RendererChecks.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 86871F2E55398CD6B62EFBA9 /* Tests/RendererChecks.cpp */; };
+		6B10F8402BF737F20E297C77 /* com.callayers.renderer-preview.camera.systemextension in Embed Camera Extension */ = {isa = PBXBuildFile; fileRef = 6C9332577E86C5230DF7964A /* com.callayers.renderer-preview.camera.systemextension */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		73142B6194B1E4732C93B1FA /* Resources/scene-host.js in Resources */ = {isa = PBXBuildFile; fileRef = 325B23352F603097065FF9FC /* Resources/scene-host.js */; };
+		77BD1E83F747FDA0F1D3FF6F /* Resources/card-bridge.js in Resources */ = {isa = PBXBuildFile; fileRef = E4747737CEE414F1DEAAFEC6 /* Resources/card-bridge.js */; };
+		7ABF40C3A014774C4B2F4A50 /* Renderer/Renderer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 64694478AFC9B4D0A7A29C3A /* Renderer/Renderer.cpp */; };
+		7BB4EE7935237FEADEF13707 /* CameraExtension/main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93A0FC423C50B8BC36652D78 /* CameraExtension/main.swift */; };
+		7FABB6C93D2BF27235FE7596 /* Resources/scene-host.html in Resources */ = {isa = PBXBuildFile; fileRef = 5BC68D68899B099E17EC132E /* Resources/scene-host.html */; };
+		8456833A920B582E1566B9D7 /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7A66E2056149DA7B28BD01F7 /* CoreGraphics.framework */; };
+		86A3B44D7E5D594003D656D1 /* Video/LatestVideoFrame.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F3A7CCBCA11C7A098F79DDF /* Video/LatestVideoFrame.swift */; };
+		8D7A6915F1C70CD2A823BDF8 /* App/WorkspaceModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A829F6DDBA4AFC2ABC48DF38 /* App/WorkspaceModel.swift */; };
+		91575C714ED6C18E8B30B26C /* Renderer/Renderer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 64694478AFC9B4D0A7A29C3A /* Renderer/Renderer.cpp */; };
+		99CCB528C9336A2EE5CB750C /* Video/CameraCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE8CDDEBB4FC36DB84B694DE /* Video/CameraCapture.swift */; };
+		9A3B8B92460CA1500437EA28 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F092A2AEBE0B8E309C3F5287 /* Foundation.framework */; };
+		A7E57ED4F52F5E3646D315F0 /* AppKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8BD2FC20C69A1E6BAD334CD6 /* AppKit.framework */; };
+		AA52943932FD415C864AD136 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 885C90F66F9A72E63491669F /* SwiftUI.framework */; };
+		BB2EF99EEA3E06E0B2CACB9F /* AppKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8BD2FC20C69A1E6BAD334CD6 /* AppKit.framework */; };
+		BCD78D2BF88C4EE1121FF06A /* Renderer/RendererBridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = 5165D01339810E3088D19F88 /* Renderer/RendererBridge.mm */; };
+		C23664B4C1A9AEC86710F1AA /* CameraExtension/CameraProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EEB81AC2DA431866D00EDDA /* CameraExtension/CameraProvider.swift */; };
+		C711CE0A8B0A44E1A1200002 /* CoreMediaIO.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C711CE0A8B0A44E1A1200001 /* CoreMediaIO.framework */; };
+		D4D04261C034A3D77E3755E0 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F092A2AEBE0B8E309C3F5287 /* Foundation.framework */; };
+		E4E246BBCAB3E7F109021450 /* Video/VideoModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA4C6F326A2F546EA54656BB /* Video/VideoModel.swift */; };
+		ED840A443C44D4EF8B2EBE81 /* Video/FrameComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8122248BAE3E07EE32EDA6AB /* Video/FrameComposer.swift */; };
+		F88D184A2C400FD933D3B9F9 /* App/CameraSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 475AE3E87A49B95A46F0192A /* App/CameraSetupView.swift */; };
+		AFE5B4747BA0189C88262EA7 /* AnnotationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D3483F65BD40A4335F24629; };
+		8A1D0CEE69A15953E221E3AE /* AnnotationModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35D29D05D90558B0C1A27ADE; };
+		44294EFA71DF0DF0838EBDEE /* AnnotationTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A95AD60B4495033ECE4DCF5; };
+		95899F5924E3ECB095BBA0ED /* AnnotationToolbar.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3291E1C35E4D43C5EAEB2F4; };
+		071A75B95EA760BD1218C5C9 /* CameraRecoveryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01BD1F11E800583D34E3F8E4; };
+		7D138BBFB984C1ACBB7A65ED /* CardComposerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0991B03446192046614A756A; };
+		4A041EE89753C3FA26FA4F1F /* CardRevision.swift in Sources */ = {isa = PBXBuildFile; fileRef = 889517C386E27813D62F87A3; };
+		0FAC31353A9C86A991E118C8 /* ImageImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 581DB57549E23BDC519F97FB; };
+		E7279DBCE64AF1809CC5619B /* SignInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFADAF93AFCC8D5DDA2F5B66; };
+		E748B01438B0371DC7F9104A /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D399793C581D6A9F2D50C9C; };
+		96F964C9D21620A00E94FD58 /* AuthCallback.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDA104A3C44B89EE2F3C6200; };
+		6DCA32A4AA756759FBB2440A /* AuthController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4353524B82644671ED250281; };
+		1D63F8E01D54141135EB9715 /* BackendClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AFEEC6D1F8D078F88412ECF; };
+		1994C01018F3CB3809B98AE8 /* GenerationContract.swift in Sources */ = {isa = PBXBuildFile; fileRef = 552B1C30F56128BEC6474F94; };
+		58CA9A381990AAE8521281EC /* GenerationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FFD28D3CDD8E82B054A09FF; };
+		0949E7B989F1DB923ED0C373 /* SessionKeychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DAC36F9DC7181C7B96C018C; };
+		D87AD7015A477099D14C3DA3 /* AnnotationRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B75B6227B853F266CFADDA35; };
+		F839671139A2A70B2D02A69A /* Telemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD32AF389D1DB2B83168BCF6; };
+		12918E711955557C0FC996A8 /* TelemetryQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = B061F6FC7E03D45604280FAB; };
+		0A96143BB6C1979558D04A27 /* FrameDeliveryTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57A4ACEE8D5F0C06836361CD; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		3A448032DF730F67CA295EC4 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 244210E48437B6556980A702 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 9D19BA051218D23939DB32DE;
+			remoteInfo = CallayersCamera;
 		};
-		"A829F6DDBA4AFC2ABC48DF38" = {
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "App/WorkspaceModel.swift";
-			"sourceTree" = "<group>";
-		};
-		"CFB6B9B906061AC613FBCD2F" = {
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "App/WorkspaceView.swift";
-			"sourceTree" = "<group>";
-		};
-		"3B5B7229B74FB441FACDC16B" = {
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "App/PreviewView.swift";
-			"sourceTree" = "<group>";
-		};
-		"64694478AFC9B4D0A7A29C3A" = {
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "sourcecode.cpp.cpp";
-			"path" = "Renderer/Renderer.cpp";
-			"sourceTree" = "<group>";
-		};
-		"FFD6864FD3AB0464F92D6045" = {
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "sourcecode.c.h";
-			"path" = "Renderer/Renderer.h";
-			"sourceTree" = "<group>";
-		};
-		"C4040BC52359BA4E933646F8" = {
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "sourcecode.c.h";
-			"path" = "Renderer/SDKCompatibility.h";
-			"sourceTree" = "<group>";
-		};
-		"B1A77F6ACABDFE3E2BBC0A03" = {
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "sourcecode.c.h";
-			"path" = "Renderer/RendererBridge.h";
-			"sourceTree" = "<group>";
-		};
-		"5165D01339810E3088D19F88" = {
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "sourcecode.cpp.objcpp";
-			"path" = "Renderer/RendererBridge.mm";
-			"sourceTree" = "<group>";
-		};
-		"86871F2E55398CD6B62EFBA9" = {
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "sourcecode.cpp.cpp";
-			"path" = "Tests/RendererChecks.cpp";
-			"sourceTree" = "<group>";
-		};
-		"08D8CA31A06EE3EE90F5A139" = {
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "text.script.python";
-			"path" = "Tests/run-renderer-checks.py";
-			"sourceTree" = "<group>";
-		};
-		"1B5D25A1C585CDF700906F9A" = {
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "text.xcconfig";
-			"path" = "Config/Build.xcconfig";
-			"sourceTree" = "<group>";
-		};
-		"2C7562ADEEB057A0333EE8A1" = {
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "text.plist.xml";
-			"path" = "Config/AppInfo.plist";
-			"sourceTree" = "<group>";
-		};
-		"FCD07712A411221D96877828" = {
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "text.json";
-			"path" = "Config/renderer-sdks.json";
-			"sourceTree" = "<group>";
-		};
-		"5BC68D68899B099E17EC132E" = {
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "text.html";
-			"path" = "Resources/scene-host.html";
-			"sourceTree" = "<group>";
-		};
-		"325B23352F603097065FF9FC" = {
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "sourcecode.javascript";
-			"path" = "Resources/scene-host.js";
-			"sourceTree" = "<group>";
-		};
-		"E4747737CEE414F1DEAAFEC6" = {
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "sourcecode.javascript";
-			"path" = "Resources/card-bridge.js";
-			"sourceTree" = "<group>";
-		};
-		"6B54401D42F839CFFE104B21" = {
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "text.html";
-			"path" = "Resources/counter-card.html";
-			"sourceTree" = "<group>";
-		};
-		"81F31879437340D5CD6ED968" = {
-			"isa" = "PBXFileReference";
-			"explicitFileType" = "wrapper.application";
-			"includeInIndex" = "0";
-			"path" = "Callayers Renderer Preview.app";
-			"sourceTree" = "BUILT_PRODUCTS_DIR";
-		};
-		"5C5846C6B57382E15C0E5CFE" = {
-			"isa" = "PBXFileReference";
-			"explicitFileType" = "compiled.mach-o.executable";
-			"includeInIndex" = "0";
-			"path" = "RendererChecks";
-			"sourceTree" = "BUILT_PRODUCTS_DIR";
-		};
-		"8BD2FC20C69A1E6BAD334CD6" = {
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "wrapper.framework";
-			"name" = "AppKit.framework";
-			"path" = "System/Library/Frameworks/AppKit.framework";
-			"sourceTree" = "SDKROOT";
-		};
-		"F092A2AEBE0B8E309C3F5287" = {
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "wrapper.framework";
-			"name" = "Foundation.framework";
-			"path" = "System/Library/Frameworks/Foundation.framework";
-			"sourceTree" = "SDKROOT";
-		};
-		"885C90F66F9A72E63491669F" = {
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "wrapper.framework";
-			"name" = "SwiftUI.framework";
-			"path" = "System/Library/Frameworks/SwiftUI.framework";
-			"sourceTree" = "SDKROOT";
-		};
-		"7A66E2056149DA7B28BD01F7" = {
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "wrapper.framework";
-			"name" = "CoreGraphics.framework";
-			"path" = "System/Library/Frameworks/CoreGraphics.framework";
-			"sourceTree" = "SDKROOT";
-		};
-		"13C4608B5138EBE9B3A45A55" = {
-			"isa" = "PBXGroup";
-			"children" = (
-				"23BC76EE33C11A714C2853A8",
-				"A829F6DDBA4AFC2ABC48DF38",
-				"CFB6B9B906061AC613FBCD2F",
-				"3B5B7229B74FB441FACDC16B",
-				"3BC39A78051C504EEF9862CA",
-				"4F923792C849C68BFE52CF30",
-				"AE5FFECA51724086D14220CB",
-				"475AE3E87A49B95A46F0192A",
-				"FAE55E00831B8468BA0A2F97",
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		AB26D170003FE160249859D1 /* Embed Camera Extension */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Library/SystemExtensions";
+			dstSubfolderSpec = 16;
+			files = (
+				6B10F8402BF737F20E297C77 /* com.callayers.renderer-preview.camera.systemextension in Embed Camera Extension */,
 			);
-			"name" = "App";
-			"sourceTree" = "<group>";
+			name = "Embed Camera Extension";
+			runOnlyForDeploymentPostprocessing = 0;
 		};
-		"08CCD6019919EE57E901413E" = {
-			"isa" = "PBXGroup";
-			"children" = (
-				"64694478AFC9B4D0A7A29C3A",
-				"FFD6864FD3AB0464F92D6045",
-				"C4040BC52359BA4E933646F8",
-				"B1A77F6ACABDFE3E2BBC0A03",
-				"5165D01339810E3088D19F88",
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		08D8CA31A06EE3EE90F5A139 /* Tests/run-renderer-checks.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = "Tests/run-renderer-checks.py"; sourceTree = "<group>"; };
+		1B5D25A1C585CDF700906F9A /* Config/Build.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/Build.xcconfig; sourceTree = "<group>"; };
+		23BC76EE33C11A714C2853A8 /* App/CallayersApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CallayersApp.swift; sourceTree = "<group>"; };
+		2C7562ADEEB057A0333EE8A1 /* Config/AppInfo.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Config/AppInfo.plist; sourceTree = "<group>"; };
+		325B23352F603097065FF9FC /* Resources/scene-host.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "Resources/scene-host.js"; sourceTree = "<group>"; };
+		3B5B7229B74FB441FACDC16B /* App/PreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/PreviewView.swift; sourceTree = "<group>"; };
+		3BC39A78051C504EEF9862CA /* App/WorkspaceModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/WorkspaceModels.swift; sourceTree = "<group>"; };
+		42441622E97F300627D20BA2 /* Config/Camera.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Config/Camera.entitlements; sourceTree = "<group>"; };
+		475AE3E87A49B95A46F0192A /* App/CameraSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CameraSetupView.swift; sourceTree = "<group>"; };
+		4F923792C849C68BFE52CF30 /* App/WorkspaceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/WorkspaceStore.swift; sourceTree = "<group>"; };
+		5165D01339810E3088D19F88 /* Renderer/RendererBridge.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = Renderer/RendererBridge.mm; sourceTree = "<group>"; };
+		5BC68D68899B099E17EC132E /* Resources/scene-host.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = "Resources/scene-host.html"; sourceTree = "<group>"; };
+		5C5846C6B57382E15C0E5CFE /* RendererChecks */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = RendererChecks; sourceTree = BUILT_PRODUCTS_DIR; };
+		64694478AFC9B4D0A7A29C3A /* Renderer/Renderer.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = Renderer/Renderer.cpp; sourceTree = "<group>"; };
+		6B54401D42F839CFFE104B21 /* Resources/counter-card.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = "Resources/counter-card.html"; sourceTree = "<group>"; };
+		6C9332577E86C5230DF7964A /* com.callayers.renderer-preview.camera.systemextension */ = {isa = PBXFileReference; explicitFileType = "wrapper.system-extension"; includeInIndex = 0; path = "com.callayers.renderer-preview.camera.systemextension"; sourceTree = BUILT_PRODUCTS_DIR; };
+		6EEB81AC2DA431866D00EDDA /* CameraExtension/CameraProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraExtension/CameraProvider.swift; sourceTree = "<group>"; };
+		7A66E2056149DA7B28BD01F7 /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
+		7C0999BA84766F2C458A9ED7 /* Video/VirtualCameraClient.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = Video/VirtualCameraClient.h; sourceTree = "<group>"; };
+		8122248BAE3E07EE32EDA6AB /* Video/FrameComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Video/FrameComposer.swift; sourceTree = "<group>"; };
+		81F31879437340D5CD6ED968 /* Callayers Renderer Preview.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Callayers.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		86871F2E55398CD6B62EFBA9 /* Tests/RendererChecks.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = Tests/RendererChecks.cpp; sourceTree = "<group>"; };
+		885C90F66F9A72E63491669F /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		8BD2FC20C69A1E6BAD334CD6 /* AppKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppKit.framework; path = System/Library/Frameworks/AppKit.framework; sourceTree = SDKROOT; };
+		93A0FC423C50B8BC36652D78 /* CameraExtension/main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraExtension/main.swift; sourceTree = "<group>"; };
+		9F3A7CCBCA11C7A098F79DDF /* Video/LatestVideoFrame.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Video/LatestVideoFrame.swift; sourceTree = "<group>"; };
+		A7845FE2A76CC1A4043D4EFF /* Tests/WorkspaceChecks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/WorkspaceChecks.swift; sourceTree = "<group>"; };
+		A829F6DDBA4AFC2ABC48DF38 /* App/WorkspaceModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/WorkspaceModel.swift; sourceTree = "<group>"; };
+		AB16C3EDA1A4DF0F89E2E5AF /* Video/VirtualCameraClient.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = Video/VirtualCameraClient.mm; sourceTree = "<group>"; };
+		AE5FFECA51724086D14220CB /* App/CameraExtensionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CameraExtensionController.swift; sourceTree = "<group>"; };
+		B1A77F6ACABDFE3E2BBC0A03 /* Renderer/RendererBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = Renderer/RendererBridge.h; sourceTree = "<group>"; };
+		B4AC6C785AA3C7AA4D22921F /* Config/App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Config/App.entitlements; sourceTree = "<group>"; };
+		BE8CDDEBB4FC36DB84B694DE /* Video/CameraCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Video/CameraCapture.swift; sourceTree = "<group>"; };
+		C4040BC52359BA4E933646F8 /* Renderer/SDKCompatibility.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = Renderer/SDKCompatibility.h; sourceTree = "<group>"; };
+		C711CE0A8B0A44E1A1200001 /* CoreMediaIO.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreMediaIO.framework; path = System/Library/Frameworks/CoreMediaIO.framework; sourceTree = SDKROOT; };
+		CF1DC78F716AAB0FA9F9EBE9 /* Tests/VideoChecks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/VideoChecks.swift; sourceTree = "<group>"; };
+		CFB6B9B906061AC613FBCD2F /* App/WorkspaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/WorkspaceView.swift; sourceTree = "<group>"; };
+		DA4C6F326A2F546EA54656BB /* Video/VideoModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Video/VideoModel.swift; sourceTree = "<group>"; };
+		DC83006363E34D53BE62FEFA /* CameraExtension/TestPicture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraExtension/TestPicture.swift; sourceTree = "<group>"; };
+		E4747737CEE414F1DEAAFEC6 /* Resources/card-bridge.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "Resources/card-bridge.js"; sourceTree = "<group>"; };
+		E5C423074E322CE3F6F9E3B1 /* Config/CameraInfo.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Config/CameraInfo.plist; sourceTree = "<group>"; };
+		E903E6DF21D449E68367B526 /* Tests/CameraChecks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/CameraChecks.swift; sourceTree = "<group>"; };
+		F092A2AEBE0B8E309C3F5287 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
+		FAE55E00831B8468BA0A2F97 /* App/CameraPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CameraPickerView.swift; sourceTree = "<group>"; };
+		FCD07712A411221D96877828 /* Config/renderer-sdks.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "Config/renderer-sdks.json"; sourceTree = "<group>"; };
+		FFD6864FD3AB0464F92D6045 /* Renderer/Renderer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = Renderer/Renderer.h; sourceTree = "<group>"; };
+		7D3483F65BD40A4335F24629 /* AnnotationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AnnotationController.swift"; sourceTree = SOURCE_ROOT; };
+		35D29D05D90558B0C1A27ADE /* AnnotationModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AnnotationModels.swift"; sourceTree = SOURCE_ROOT; };
+		7A95AD60B4495033ECE4DCF5 /* AnnotationTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AnnotationTextEditor.swift"; sourceTree = SOURCE_ROOT; };
+		C3291E1C35E4D43C5EAEB2F4 /* AnnotationToolbar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AnnotationToolbar.swift"; sourceTree = SOURCE_ROOT; };
+		01BD1F11E800583D34E3F8E4 /* CameraRecoveryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/CameraRecoveryView.swift"; sourceTree = SOURCE_ROOT; };
+		0991B03446192046614A756A /* CardComposerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/CardComposerView.swift"; sourceTree = SOURCE_ROOT; };
+		889517C386E27813D62F87A3 /* CardRevision.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/CardRevision.swift"; sourceTree = SOURCE_ROOT; };
+		581DB57549E23BDC519F97FB /* ImageImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/ImageImport.swift"; sourceTree = SOURCE_ROOT; };
+		FFADAF93AFCC8D5DDA2F5B66 /* SignInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/SignInView.swift"; sourceTree = SOURCE_ROOT; };
+		6D399793C581D6A9F2D50C9C /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/Theme.swift"; sourceTree = SOURCE_ROOT; };
+		DDA104A3C44B89EE2F3C6200 /* AuthCallback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Services/AuthCallback.swift"; sourceTree = SOURCE_ROOT; };
+		4353524B82644671ED250281 /* AuthController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Services/AuthController.swift"; sourceTree = SOURCE_ROOT; };
+		4AFEEC6D1F8D078F88412ECF /* BackendClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Services/BackendClient.swift"; sourceTree = SOURCE_ROOT; };
+		552B1C30F56128BEC6474F94 /* GenerationContract.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Services/GenerationContract.swift"; sourceTree = SOURCE_ROOT; };
+		0FFD28D3CDD8E82B054A09FF /* GenerationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Services/GenerationController.swift"; sourceTree = SOURCE_ROOT; };
+		4DAC36F9DC7181C7B96C018C /* SessionKeychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Services/SessionKeychain.swift"; sourceTree = SOURCE_ROOT; };
+		B75B6227B853F266CFADDA35 /* AnnotationRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Video/AnnotationRenderer.swift"; sourceTree = SOURCE_ROOT; };
+		FD32AF389D1DB2B83168BCF6 /* Telemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Services/Telemetry.swift"; sourceTree = SOURCE_ROOT; };
+		B061F6FC7E03D45604280FAB /* TelemetryQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Services/TelemetryQueue.swift"; sourceTree = SOURCE_ROOT; };
+		57A4ACEE8D5F0C06836361CD /* FrameDeliveryTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Video/FrameDeliveryTracker.swift"; sourceTree = SOURCE_ROOT; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		0CD8E1F39D688D448A59669F /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
-			"name" = "Renderer";
-			"sourceTree" = "<group>";
+			runOnlyForDeploymentPostprocessing = 0;
 		};
-		"369366657F0CC118760331FE" = {
-			"isa" = "PBXGroup";
-			"children" = (
-				"5BC68D68899B099E17EC132E",
-				"325B23352F603097065FF9FC",
-				"E4747737CEE414F1DEAAFEC6",
-				"6B54401D42F839CFFE104B21",
+		13D58F750C9F7A867F986420 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C711CE0A8B0A44E1A1200002 /* CoreMediaIO.framework in Frameworks */,
+				A7E57ED4F52F5E3646D315F0 /* AppKit.framework in Frameworks */,
+				D4D04261C034A3D77E3755E0 /* Foundation.framework in Frameworks */,
+				AA52943932FD415C864AD136 /* SwiftUI.framework in Frameworks */,
+				8456833A920B582E1566B9D7 /* CoreGraphics.framework in Frameworks */,
 			);
-			"name" = "Resources";
-			"sourceTree" = "<group>";
+			runOnlyForDeploymentPostprocessing = 0;
 		};
-		"1B3039B2E15DD2AB7EA6156D" = {
-			"isa" = "PBXGroup";
-			"children" = (
-				"1B5D25A1C585CDF700906F9A",
-				"2C7562ADEEB057A0333EE8A1",
-				"FCD07712A411221D96877828",
-				"E5C423074E322CE3F6F9E3B1",
-				"42441622E97F300627D20BA2",
-				"B4AC6C785AA3C7AA4D22921F",
+		EEA8CE26C2F7260A96D8EE9C /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BB2EF99EEA3E06E0B2CACB9F /* AppKit.framework in Frameworks */,
+				9A3B8B92460CA1500437EA28 /* Foundation.framework in Frameworks */,
 			);
-			"name" = "Config";
-			"sourceTree" = "<group>";
+			runOnlyForDeploymentPostprocessing = 0;
 		};
-		"6DC4FAD667A85B8567F612FB" = {
-			"isa" = "PBXGroup";
-			"children" = (
-				"86871F2E55398CD6B62EFBA9",
-				"08D8CA31A06EE3EE90F5A139",
-				"A7845FE2A76CC1A4043D4EFF",
-				"E903E6DF21D449E68367B526",
-				"CF1DC78F716AAB0FA9F9EBE9",
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		087463E0E71121BA2C363166 /* Video */ = {
+			isa = PBXGroup;
+			children = (
+				8122248BAE3E07EE32EDA6AB /* Video/FrameComposer.swift */,
+				BE8CDDEBB4FC36DB84B694DE /* Video/CameraCapture.swift */,
+				DA4C6F326A2F546EA54656BB /* Video/VideoModel.swift */,
+				AB16C3EDA1A4DF0F89E2E5AF /* Video/VirtualCameraClient.mm */,
+				7C0999BA84766F2C458A9ED7 /* Video/VirtualCameraClient.h */,
+				9F3A7CCBCA11C7A098F79DDF /* Video/LatestVideoFrame.swift */,
 			);
-			"name" = "Tests";
-			"sourceTree" = "<group>";
+			name = Video;
+			sourceTree = "<group>";
 		};
-		"99B2612622859F92D7197CBF" = {
-			"isa" = "PBXGroup";
-			"children" = (
-				"C711CE0A8B0A44E1A1200001",
-				"8BD2FC20C69A1E6BAD334CD6",
-				"F092A2AEBE0B8E309C3F5287",
-				"885C90F66F9A72E63491669F",
-				"7A66E2056149DA7B28BD01F7",
+		08CCD6019919EE57E901413E /* Renderer */ = {
+			isa = PBXGroup;
+			children = (
+				64694478AFC9B4D0A7A29C3A /* Renderer/Renderer.cpp */,
+				FFD6864FD3AB0464F92D6045 /* Renderer/Renderer.h */,
+				C4040BC52359BA4E933646F8 /* Renderer/SDKCompatibility.h */,
+				B1A77F6ACABDFE3E2BBC0A03 /* Renderer/RendererBridge.h */,
+				5165D01339810E3088D19F88 /* Renderer/RendererBridge.mm */,
 			);
-			"name" = "Frameworks";
-			"sourceTree" = "<group>";
+			name = Renderer;
+			sourceTree = "<group>";
 		};
-		"6F7199ED7B63CDA338A0FB82" = {
-			"isa" = "PBXGroup";
-			"children" = (
-				"81F31879437340D5CD6ED968",
-				"5C5846C6B57382E15C0E5CFE",
-				"6C9332577E86C5230DF7964A",
+		13C4608B5138EBE9B3A45A55 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				57A4ACEE8D5F0C06836361CD,
+				FD32AF389D1DB2B83168BCF6,
+				B061F6FC7E03D45604280FAB,
+				7D3483F65BD40A4335F24629,
+				35D29D05D90558B0C1A27ADE,
+				7A95AD60B4495033ECE4DCF5,
+				C3291E1C35E4D43C5EAEB2F4,
+				01BD1F11E800583D34E3F8E4,
+				0991B03446192046614A756A,
+				889517C386E27813D62F87A3,
+				581DB57549E23BDC519F97FB,
+				FFADAF93AFCC8D5DDA2F5B66,
+				6D399793C581D6A9F2D50C9C,
+				DDA104A3C44B89EE2F3C6200,
+				4353524B82644671ED250281,
+				4AFEEC6D1F8D078F88412ECF,
+				552B1C30F56128BEC6474F94,
+				0FFD28D3CDD8E82B054A09FF,
+				4DAC36F9DC7181C7B96C018C,
+				B75B6227B853F266CFADDA35,
+				23BC76EE33C11A714C2853A8 /* App/CallayersApp.swift */,
+				A829F6DDBA4AFC2ABC48DF38 /* App/WorkspaceModel.swift */,
+				CFB6B9B906061AC613FBCD2F /* App/WorkspaceView.swift */,
+				3B5B7229B74FB441FACDC16B /* App/PreviewView.swift */,
+				3BC39A78051C504EEF9862CA /* App/WorkspaceModels.swift */,
+				4F923792C849C68BFE52CF30 /* App/WorkspaceStore.swift */,
+				AE5FFECA51724086D14220CB /* App/CameraExtensionController.swift */,
+				475AE3E87A49B95A46F0192A /* App/CameraSetupView.swift */,
+				FAE55E00831B8468BA0A2F97 /* App/CameraPickerView.swift */,
 			);
-			"name" = "Products";
-			"sourceTree" = "<group>";
+			name = App;
+			sourceTree = "<group>";
 		};
-		"AA0596BBDB4DCC95D5D4F10C" = {
-			"isa" = "PBXGroup";
-			"children" = (
-				"13C4608B5138EBE9B3A45A55",
-				"08CCD6019919EE57E901413E",
-				"B72261CB07CEAA200E55C1B0",
-				"087463E0E71121BA2C363166",
-				"369366657F0CC118760331FE",
-				"1B3039B2E15DD2AB7EA6156D",
-				"6DC4FAD667A85B8567F612FB",
-				"99B2612622859F92D7197CBF",
-				"6F7199ED7B63CDA338A0FB82",
+		1B3039B2E15DD2AB7EA6156D /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				1B5D25A1C585CDF700906F9A /* Config/Build.xcconfig */,
+				2C7562ADEEB057A0333EE8A1 /* Config/AppInfo.plist */,
+				FCD07712A411221D96877828 /* Config/renderer-sdks.json */,
+				E5C423074E322CE3F6F9E3B1 /* Config/CameraInfo.plist */,
+				42441622E97F300627D20BA2 /* Config/Camera.entitlements */,
+				B4AC6C785AA3C7AA4D22921F /* Config/App.entitlements */,
 			);
-			"sourceTree" = "<group>";
+			name = Config;
+			sourceTree = "<group>";
 		};
-		"0D47B44FF5F3FBAE03145CDF" = {
-			"isa" = "PBXBuildFile";
-			"fileRef" = "23BC76EE33C11A714C2853A8";
-		};
-		"8D7A6915F1C70CD2A823BDF8" = {
-			"isa" = "PBXBuildFile";
-			"fileRef" = "A829F6DDBA4AFC2ABC48DF38";
-		};
-		"39D63F9C3899A9418E97E0BA" = {
-			"isa" = "PBXBuildFile";
-			"fileRef" = "CFB6B9B906061AC613FBCD2F";
-		};
-		"5C3BF2C2DCC0E0E88C81F75E" = {
-			"isa" = "PBXBuildFile";
-			"fileRef" = "3B5B7229B74FB441FACDC16B";
-		};
-		"91575C714ED6C18E8B30B26C" = {
-			"isa" = "PBXBuildFile";
-			"fileRef" = "64694478AFC9B4D0A7A29C3A";
-		};
-		"BCD78D2BF88C4EE1121FF06A" = {
-			"isa" = "PBXBuildFile";
-			"fileRef" = "5165D01339810E3088D19F88";
-		};
-		"6ACE7BC297BF23705D4E5F56" = {
-			"isa" = "PBXSourcesBuildPhase";
-			"buildActionMask" = "2147483647";
-			"files" = (
-				"0D47B44FF5F3FBAE03145CDF",
-				"8D7A6915F1C70CD2A823BDF8",
-				"39D63F9C3899A9418E97E0BA",
-				"5C3BF2C2DCC0E0E88C81F75E",
-				"91575C714ED6C18E8B30B26C",
-				"BCD78D2BF88C4EE1121FF06A",
-				"206B890CB6934B9FE1B131BB",
-				"6487949BD4435A5283206D8F",
-				"315E68FF8A2289C504EFEE2C",
-				"F88D184A2C400FD933D3B9F9",
-				"ED840A443C44D4EF8B2EBE81",
-				"99CCB528C9336A2EE5CB750C",
-				"E4E246BBCAB3E7F109021450",
-				"67414B6F07DE692747E8CD72",
-				"5C57AB940FC0983384CE2D37",
+		369366657F0CC118760331FE /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				5BC68D68899B099E17EC132E /* Resources/scene-host.html */,
+				325B23352F603097065FF9FC /* Resources/scene-host.js */,
+				E4747737CEE414F1DEAAFEC6 /* Resources/card-bridge.js */,
+				6B54401D42F839CFFE104B21 /* Resources/counter-card.html */,
 			);
-			"runOnlyForDeploymentPostprocessing" = "0";
+			name = Resources;
+			sourceTree = "<group>";
 		};
-		"A7E57ED4F52F5E3646D315F0" = {
-			"isa" = "PBXBuildFile";
-			"fileRef" = "8BD2FC20C69A1E6BAD334CD6";
-		};
-		"D4D04261C034A3D77E3755E0" = {
-			"isa" = "PBXBuildFile";
-			"fileRef" = "F092A2AEBE0B8E309C3F5287";
-		};
-		"AA52943932FD415C864AD136" = {
-			"isa" = "PBXBuildFile";
-			"fileRef" = "885C90F66F9A72E63491669F";
-		};
-		"8456833A920B582E1566B9D7" = {
-			"isa" = "PBXBuildFile";
-			"fileRef" = "7A66E2056149DA7B28BD01F7";
-		};
-		"13D58F750C9F7A867F986420" = {
-			"isa" = "PBXFrameworksBuildPhase";
-			"buildActionMask" = "2147483647";
-			"files" = (
-				"C711CE0A8B0A44E1A1200002",
-				"A7E57ED4F52F5E3646D315F0",
-				"D4D04261C034A3D77E3755E0",
-				"AA52943932FD415C864AD136",
-				"8456833A920B582E1566B9D7",
+		6DC4FAD667A85B8567F612FB /* Tests */ = {
+			isa = PBXGroup;
+			children = (
+				86871F2E55398CD6B62EFBA9 /* Tests/RendererChecks.cpp */,
+				08D8CA31A06EE3EE90F5A139 /* Tests/run-renderer-checks.py */,
+				A7845FE2A76CC1A4043D4EFF /* Tests/WorkspaceChecks.swift */,
+				E903E6DF21D449E68367B526 /* Tests/CameraChecks.swift */,
+				CF1DC78F716AAB0FA9F9EBE9 /* Tests/VideoChecks.swift */,
 			);
-			"runOnlyForDeploymentPostprocessing" = "0";
+			name = Tests;
+			sourceTree = "<group>";
 		};
-		"7FABB6C93D2BF27235FE7596" = {
-			"isa" = "PBXBuildFile";
-			"fileRef" = "5BC68D68899B099E17EC132E";
-		};
-		"73142B6194B1E4732C93B1FA" = {
-			"isa" = "PBXBuildFile";
-			"fileRef" = "325B23352F603097065FF9FC";
-		};
-		"77BD1E83F747FDA0F1D3FF6F" = {
-			"isa" = "PBXBuildFile";
-			"fileRef" = "E4747737CEE414F1DEAAFEC6";
-		};
-		"524F0ABF0B4C33EDADE5F292" = {
-			"isa" = "PBXBuildFile";
-			"fileRef" = "6B54401D42F839CFFE104B21";
-		};
-		"EB12F685944315C425ABFF58" = {
-			"isa" = "PBXResourcesBuildPhase";
-			"buildActionMask" = "2147483647";
-			"files" = (
-				"7FABB6C93D2BF27235FE7596",
-				"73142B6194B1E4732C93B1FA",
-				"77BD1E83F747FDA0F1D3FF6F",
-				"524F0ABF0B4C33EDADE5F292",
+		6F7199ED7B63CDA338A0FB82 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				81F31879437340D5CD6ED968 /* Callayers Renderer Preview.app */,
+				5C5846C6B57382E15C0E5CFE /* RendererChecks */,
+				6C9332577E86C5230DF7964A /* com.callayers.renderer-preview.camera.systemextension */,
 			);
-			"runOnlyForDeploymentPostprocessing" = "0";
+			name = Products;
+			sourceTree = "<group>";
 		};
-		"6664B5CB9E4CB814A73A713F" = {
-			"isa" = "PBXShellScriptBuildPhase";
-			"alwaysOutOfDate" = "1";
-			"buildActionMask" = "2147483647";
-			"files" = (
+		99B2612622859F92D7197CBF /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				C711CE0A8B0A44E1A1200001 /* CoreMediaIO.framework */,
+				8BD2FC20C69A1E6BAD334CD6 /* AppKit.framework */,
+				F092A2AEBE0B8E309C3F5287 /* Foundation.framework */,
+				885C90F66F9A72E63491669F /* SwiftUI.framework */,
+				7A66E2056149DA7B28BD01F7 /* CoreGraphics.framework */,
 			);
-			"inputPaths" = (
-			);
-			"name" = "Bundle renderer SDK";
-			"outputPaths" = (
-			);
-			"runOnlyForDeploymentPostprocessing" = "0";
-			"shellPath" = "/bin/bash";
-			"shellScript" = "bash \"$SRCROOT/../scripts/bundle-macos-renderer.sh\"\n";
+			name = Frameworks;
+			sourceTree = "<group>";
 		};
-		"0D9B6C467828201280D620A8" = {
-			"isa" = "XCBuildConfiguration";
-			"baseConfigurationReference" = "1B5D25A1C585CDF700906F9A";
-			"buildSettings" = {
-				"PRODUCT_NAME" = "Callayers Renderer Preview";
-				"PRODUCT_BUNDLE_IDENTIFIER" = "com.callayers.renderer-preview";
-				"INFOPLIST_FILE" = "Config/AppInfo.plist";
-				"GENERATE_INFOPLIST_FILE" = "NO";
-				"SWIFT_OBJC_BRIDGING_HEADER" = "$(SRCROOT)/Renderer/RendererBridge.h";
-				"LD_RUNPATH_SEARCH_PATHS" = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-				);
-				"COMBINE_HIDPI_IMAGES" = "YES";
-				"GCC_OPTIMIZATION_LEVEL" = "0";
-				"SWIFT_OPTIMIZATION_LEVEL" = "-Onone";
-				"DEBUG_INFORMATION_FORMAT" = "dwarf";
-				"SWIFT_ACTIVE_COMPILATION_CONDITIONS" = "DEBUG";
-				"CODE_SIGN_ENTITLEMENTS" = "$(CALLAYERS_APP_ENTITLEMENTS)";
-				"REGISTER_APP_GROUPS" = "YES";
+		AA0596BBDB4DCC95D5D4F10C = {
+			isa = PBXGroup;
+			children = (
+				13C4608B5138EBE9B3A45A55 /* App */,
+				08CCD6019919EE57E901413E /* Renderer */,
+				B72261CB07CEAA200E55C1B0 /* CameraExtension */,
+				087463E0E71121BA2C363166 /* Video */,
+				369366657F0CC118760331FE /* Resources */,
+				1B3039B2E15DD2AB7EA6156D /* Config */,
+				6DC4FAD667A85B8567F612FB /* Tests */,
+				99B2612622859F92D7197CBF /* Frameworks */,
+				6F7199ED7B63CDA338A0FB82 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		B72261CB07CEAA200E55C1B0 /* CameraExtension */ = {
+			isa = PBXGroup;
+			children = (
+				93A0FC423C50B8BC36652D78 /* CameraExtension/main.swift */,
+				6EEB81AC2DA431866D00EDDA /* CameraExtension/CameraProvider.swift */,
+				DC83006363E34D53BE62FEFA /* CameraExtension/TestPicture.swift */,
+			);
+			name = CameraExtension;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		168396420D609F354D38189F /* RendererChecks */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 6CBB9E84DCEE243922E272F2 /* Build configuration list for PBXNativeTarget "RendererChecks" */;
+			buildPhases = (
+				0E281135196CABAB674D73B7 /* Sources */,
+				EEA8CE26C2F7260A96D8EE9C /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = RendererChecks;
+			productName = RendererChecks;
+			productReference = 5C5846C6B57382E15C0E5CFE /* RendererChecks */;
+			productType = "com.apple.product-type.tool";
+		};
+		8C1A045E96B998B40533C7FF /* Callayers */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7FA7C6DD60DC323C7F3FA76C /* Build configuration list for PBXNativeTarget "Callayers" */;
+			buildPhases = (
+				6ACE7BC297BF23705D4E5F56 /* Sources */,
+				13D58F750C9F7A867F986420 /* Frameworks */,
+				EB12F685944315C425ABFF58 /* Resources */,
+				6664B5CB9E4CB814A73A713F /* Bundle renderer SDK */,
+				AB26D170003FE160249859D1 /* Embed Camera Extension */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				C6BCE2F15EAFEA4D80BB81D7 /* PBXTargetDependency */,
+			);
+			name = Callayers;
+			productName = "Callayers Renderer Preview";
+			productReference = 81F31879437340D5CD6ED968 /* Callayers Renderer Preview.app */;
+			productType = "com.apple.product-type.application";
+		};
+		9D19BA051218D23939DB32DE /* CallayersCamera */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CD8BF945E1BFF8BDAD7288DD /* Build configuration list for PBXNativeTarget "CallayersCamera" */;
+			buildPhases = (
+				D70F28E2AE0B3011EA85F73F /* Sources */,
+				0CD8E1F39D688D448A59669F /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = CallayersCamera;
+			productName = "com.callayers.renderer-preview.camera";
+			productReference = 6C9332577E86C5230DF7964A /* com.callayers.renderer-preview.camera.systemextension */;
+			productType = "com.apple.product-type.system-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		244210E48437B6556980A702 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 2700;
 			};
-			"name" = "Debug";
-		};
-		"E532E4CDC1E6865CE523475E" = {
-			"isa" = "XCBuildConfiguration";
-			"baseConfigurationReference" = "1B5D25A1C585CDF700906F9A";
-			"buildSettings" = {
-				"PRODUCT_NAME" = "Callayers Renderer Preview";
-				"PRODUCT_BUNDLE_IDENTIFIER" = "com.callayers.renderer-preview";
-				"INFOPLIST_FILE" = "Config/AppInfo.plist";
-				"GENERATE_INFOPLIST_FILE" = "NO";
-				"SWIFT_OBJC_BRIDGING_HEADER" = "$(SRCROOT)/Renderer/RendererBridge.h";
-				"LD_RUNPATH_SEARCH_PATHS" = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-				);
-				"COMBINE_HIDPI_IMAGES" = "YES";
-				"GCC_OPTIMIZATION_LEVEL" = "s";
-				"SWIFT_OPTIMIZATION_LEVEL" = "-O";
-				"DEBUG_INFORMATION_FORMAT" = "dwarf-with-dsym";
-				"CODE_SIGN_ENTITLEMENTS" = "$(CALLAYERS_APP_ENTITLEMENTS)";
-				"REGISTER_APP_GROUPS" = "YES";
-			};
-			"name" = "Release";
-		};
-		"7FA7C6DD60DC323C7F3FA76C" = {
-			"isa" = "XCConfigurationList";
-			"buildConfigurations" = (
-				"0D9B6C467828201280D620A8",
-				"E532E4CDC1E6865CE523475E",
+			buildConfigurationList = 1922B098E983995960BE56B0 /* Build configuration list for PBXProject "Callayers" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
 			);
-			"defaultConfigurationIsVisible" = "0";
-			"defaultConfigurationName" = "Debug";
-		};
-		"8C1A045E96B998B40533C7FF" = {
-			"isa" = "PBXNativeTarget";
-			"buildConfigurationList" = "7FA7C6DD60DC323C7F3FA76C";
-			"buildPhases" = (
-				"6ACE7BC297BF23705D4E5F56",
-				"13D58F750C9F7A867F986420",
-				"EB12F685944315C425ABFF58",
-				"6664B5CB9E4CB814A73A713F",
-				"AB26D170003FE160249859D1",
-			);
-			"buildRules" = (
-			);
-			"dependencies" = (
-				"C6BCE2F15EAFEA4D80BB81D7",
-			);
-			"name" = "Callayers";
-			"productName" = "Callayers Renderer Preview";
-			"productReference" = "81F31879437340D5CD6ED968";
-			"productType" = "com.apple.product-type.application";
-		};
-		"7ABF40C3A014774C4B2F4A50" = {
-			"isa" = "PBXBuildFile";
-			"fileRef" = "64694478AFC9B4D0A7A29C3A";
-		};
-		"68F5655A19B73AF6B9DDF2AF" = {
-			"isa" = "PBXBuildFile";
-			"fileRef" = "86871F2E55398CD6B62EFBA9";
-		};
-		"0E281135196CABAB674D73B7" = {
-			"isa" = "PBXSourcesBuildPhase";
-			"buildActionMask" = "2147483647";
-			"files" = (
-				"7ABF40C3A014774C4B2F4A50",
-				"68F5655A19B73AF6B9DDF2AF",
-			);
-			"runOnlyForDeploymentPostprocessing" = "0";
-		};
-		"BB2EF99EEA3E06E0B2CACB9F" = {
-			"isa" = "PBXBuildFile";
-			"fileRef" = "8BD2FC20C69A1E6BAD334CD6";
-		};
-		"9A3B8B92460CA1500437EA28" = {
-			"isa" = "PBXBuildFile";
-			"fileRef" = "F092A2AEBE0B8E309C3F5287";
-		};
-		"EEA8CE26C2F7260A96D8EE9C" = {
-			"isa" = "PBXFrameworksBuildPhase";
-			"buildActionMask" = "2147483647";
-			"files" = (
-				"BB2EF99EEA3E06E0B2CACB9F",
-				"9A3B8B92460CA1500437EA28",
-			);
-			"runOnlyForDeploymentPostprocessing" = "0";
-		};
-		"FFB06D80E3496BCD96B857CD" = {
-			"isa" = "XCBuildConfiguration";
-			"baseConfigurationReference" = "1B5D25A1C585CDF700906F9A";
-			"buildSettings" = {
-				"PRODUCT_NAME" = "RendererChecks";
-				"GCC_PREPROCESSOR_DEFINITIONS" = (
-					"$(inherited)",
-					"CALLAYERS_RENDERER_CHECKS=1",
-				);
-				"LD_RUNPATH_SEARCH_PATHS" = (
-					"$(inherited)",
-					"$(ULTRALIGHT_ROOT)/bin",
-				);
-				"SKIP_INSTALL" = "YES";
-				"GCC_OPTIMIZATION_LEVEL" = "0";
-				"SWIFT_OPTIMIZATION_LEVEL" = "-Onone";
-				"DEBUG_INFORMATION_FORMAT" = "dwarf";
-				"SWIFT_ACTIVE_COMPILATION_CONDITIONS" = "DEBUG";
-			};
-			"name" = "Debug";
-		};
-		"5729824CD92D4BA0E9955B61" = {
-			"isa" = "XCBuildConfiguration";
-			"baseConfigurationReference" = "1B5D25A1C585CDF700906F9A";
-			"buildSettings" = {
-				"PRODUCT_NAME" = "RendererChecks";
-				"GCC_PREPROCESSOR_DEFINITIONS" = (
-					"$(inherited)",
-					"CALLAYERS_RENDERER_CHECKS=1",
-				);
-				"LD_RUNPATH_SEARCH_PATHS" = (
-					"$(inherited)",
-					"$(ULTRALIGHT_ROOT)/bin",
-				);
-				"SKIP_INSTALL" = "YES";
-				"GCC_OPTIMIZATION_LEVEL" = "s";
-				"SWIFT_OPTIMIZATION_LEVEL" = "-O";
-				"DEBUG_INFORMATION_FORMAT" = "dwarf-with-dsym";
-			};
-			"name" = "Release";
-		};
-		"6CBB9E84DCEE243922E272F2" = {
-			"isa" = "XCConfigurationList";
-			"buildConfigurations" = (
-				"FFB06D80E3496BCD96B857CD",
-				"5729824CD92D4BA0E9955B61",
-			);
-			"defaultConfigurationIsVisible" = "0";
-			"defaultConfigurationName" = "Debug";
-		};
-		"168396420D609F354D38189F" = {
-			"isa" = "PBXNativeTarget";
-			"buildConfigurationList" = "6CBB9E84DCEE243922E272F2";
-			"buildPhases" = (
-				"0E281135196CABAB674D73B7",
-				"EEA8CE26C2F7260A96D8EE9C",
-			);
-			"buildRules" = (
-			);
-			"dependencies" = (
-			);
-			"name" = "RendererChecks";
-			"productName" = "RendererChecks";
-			"productReference" = "5C5846C6B57382E15C0E5CFE";
-			"productType" = "com.apple.product-type.tool";
-		};
-		"184B519F8E1416CCE38CFFD7" = {
-			"isa" = "XCBuildConfiguration";
-			"baseConfigurationReference" = "1B5D25A1C585CDF700906F9A";
-			"buildSettings" = {
-				"GCC_OPTIMIZATION_LEVEL" = "0";
-				"SWIFT_OPTIMIZATION_LEVEL" = "-Onone";
-				"DEBUG_INFORMATION_FORMAT" = "dwarf";
-				"SWIFT_ACTIVE_COMPILATION_CONDITIONS" = "DEBUG";
-			};
-			"name" = "Debug";
-		};
-		"A824290273A346217D9BE6F4" = {
-			"isa" = "XCBuildConfiguration";
-			"baseConfigurationReference" = "1B5D25A1C585CDF700906F9A";
-			"buildSettings" = {
-				"GCC_OPTIMIZATION_LEVEL" = "s";
-				"SWIFT_OPTIMIZATION_LEVEL" = "-O";
-				"DEBUG_INFORMATION_FORMAT" = "dwarf-with-dsym";
-			};
-			"name" = "Release";
-		};
-		"1922B098E983995960BE56B0" = {
-			"isa" = "XCConfigurationList";
-			"buildConfigurations" = (
-				"184B519F8E1416CCE38CFFD7",
-				"A824290273A346217D9BE6F4",
-			);
-			"defaultConfigurationIsVisible" = "0";
-			"defaultConfigurationName" = "Debug";
-		};
-		"244210E48437B6556980A702" = {
-			"isa" = "PBXProject";
-			"attributes" = {
-				"BuildIndependentTargetsInParallel" = "YES";
-				"LastUpgradeCheck" = "1600";
-			};
-			"buildConfigurationList" = "1922B098E983995960BE56B0";
-			"compatibilityVersion" = "Xcode 14.0";
-			"developmentRegion" = "en";
-			"hasScannedForEncodings" = "0";
-			"knownRegions" = (
-				"en",
-				"Base",
-			);
-			"mainGroup" = "AA0596BBDB4DCC95D5D4F10C";
-			"productRefGroup" = "6F7199ED7B63CDA338A0FB82";
-			"projectDirPath" = "";
-			"projectRoot" = "";
-			"targets" = (
-				"8C1A045E96B998B40533C7FF",
-				"168396420D609F354D38189F",
-				"9D19BA051218D23939DB32DE",
+			mainGroup = AA0596BBDB4DCC95D5D4F10C;
+			productRefGroup = 6F7199ED7B63CDA338A0FB82 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				8C1A045E96B998B40533C7FF /* Callayers */,
+				168396420D609F354D38189F /* RendererChecks */,
+				9D19BA051218D23939DB32DE /* CallayersCamera */,
 			);
 		};
-		"3BC39A78051C504EEF9862CA" = {
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "App/WorkspaceModels.swift";
-			"sourceTree" = "<group>";
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		EB12F685944315C425ABFF58 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7FABB6C93D2BF27235FE7596 /* Resources/scene-host.html in Resources */,
+				73142B6194B1E4732C93B1FA /* Resources/scene-host.js in Resources */,
+				77BD1E83F747FDA0F1D3FF6F /* Resources/card-bridge.js in Resources */,
+				524F0ABF0B4C33EDADE5F292 /* Resources/counter-card.html in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
 		};
-		"206B890CB6934B9FE1B131BB" = {
-			"isa" = "PBXBuildFile";
-			"fileRef" = "3BC39A78051C504EEF9862CA";
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		6664B5CB9E4CB814A73A713F /* Bundle renderer SDK */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Bundle renderer SDK";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "bash \"$SRCROOT/../scripts/bundle-macos-renderer.sh\"\n";
 		};
-		"4F923792C849C68BFE52CF30" = {
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "App/WorkspaceStore.swift";
-			"sourceTree" = "<group>";
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		0E281135196CABAB674D73B7 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7ABF40C3A014774C4B2F4A50 /* Renderer/Renderer.cpp in Sources */,
+				68F5655A19B73AF6B9DDF2AF /* Tests/RendererChecks.cpp in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
 		};
-		"6487949BD4435A5283206D8F" = {
-			"isa" = "PBXBuildFile";
-			"fileRef" = "4F923792C849C68BFE52CF30";
+		6ACE7BC297BF23705D4E5F56 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0A96143BB6C1979558D04A27,
+				F839671139A2A70B2D02A69A,
+				12918E711955557C0FC996A8,
+				AFE5B4747BA0189C88262EA7,
+				8A1D0CEE69A15953E221E3AE,
+				44294EFA71DF0DF0838EBDEE,
+				95899F5924E3ECB095BBA0ED,
+				071A75B95EA760BD1218C5C9,
+				7D138BBFB984C1ACBB7A65ED,
+				4A041EE89753C3FA26FA4F1F,
+				0FAC31353A9C86A991E118C8,
+				E7279DBCE64AF1809CC5619B,
+				E748B01438B0371DC7F9104A,
+				96F964C9D21620A00E94FD58,
+				6DCA32A4AA756759FBB2440A,
+				1D63F8E01D54141135EB9715,
+				1994C01018F3CB3809B98AE8,
+				58CA9A381990AAE8521281EC,
+				0949E7B989F1DB923ED0C373,
+				D87AD7015A477099D14C3DA3,
+				0D47B44FF5F3FBAE03145CDF /* App/CallayersApp.swift in Sources */,
+				8D7A6915F1C70CD2A823BDF8 /* App/WorkspaceModel.swift in Sources */,
+				39D63F9C3899A9418E97E0BA /* App/WorkspaceView.swift in Sources */,
+				5C3BF2C2DCC0E0E88C81F75E /* App/PreviewView.swift in Sources */,
+				91575C714ED6C18E8B30B26C /* Renderer/Renderer.cpp in Sources */,
+				BCD78D2BF88C4EE1121FF06A /* Renderer/RendererBridge.mm in Sources */,
+				206B890CB6934B9FE1B131BB /* App/WorkspaceModels.swift in Sources */,
+				6487949BD4435A5283206D8F /* App/WorkspaceStore.swift in Sources */,
+				315E68FF8A2289C504EFEE2C /* App/CameraExtensionController.swift in Sources */,
+				F88D184A2C400FD933D3B9F9 /* App/CameraSetupView.swift in Sources */,
+				ED840A443C44D4EF8B2EBE81 /* Video/FrameComposer.swift in Sources */,
+				99CCB528C9336A2EE5CB750C /* Video/CameraCapture.swift in Sources */,
+				E4E246BBCAB3E7F109021450 /* Video/VideoModel.swift in Sources */,
+				67414B6F07DE692747E8CD72 /* Video/VirtualCameraClient.mm in Sources */,
+				5C57AB940FC0983384CE2D37 /* App/CameraPickerView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
 		};
-		"A7845FE2A76CC1A4043D4EFF" = {
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "Tests/WorkspaceChecks.swift";
-			"sourceTree" = "<group>";
+		D70F28E2AE0B3011EA85F73F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7BB4EE7935237FEADEF13707 /* CameraExtension/main.swift in Sources */,
+				C23664B4C1A9AEC86710F1AA /* CameraExtension/CameraProvider.swift in Sources */,
+				2D30CD12DB594CD85609ADBB /* CameraExtension/TestPicture.swift in Sources */,
+				86A3B44D7E5D594003D656D1 /* Video/LatestVideoFrame.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
 		};
-		"315E68FF8A2289C504EFEE2C" = {
-			"isa" = "PBXBuildFile";
-			"fileRef" = "AE5FFECA51724086D14220CB";
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		C6BCE2F15EAFEA4D80BB81D7 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 9D19BA051218D23939DB32DE /* CallayersCamera */;
+			targetProxy = 3A448032DF730F67CA295EC4 /* PBXContainerItemProxy */;
 		};
-		"475AE3E87A49B95A46F0192A" = {
-			"path" = "App/CameraSetupView.swift";
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "sourcecode.swift";
-			"sourceTree" = "<group>";
-		};
-		"D0B93C90A638F920B6D95D57" = {
-			"isa" = "XCBuildConfiguration";
-			"buildSettings" = {
-				"LD_RUNPATH_SEARCH_PATHS" = (
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		01A5DF8FA698D5D784688A43 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Config/Camera.entitlements;
+				DEAD_CODE_STRIPPING = YES;
+				ENABLE_APP_SANDBOX = YES;
+				GCC_PREPROCESSOR_DEFINITIONS = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				HEADER_SEARCH_PATHS = "";
+				INFOPLIST_FILE = Config/CameraInfo.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 					"@executable_path/../../../../Frameworks",
 				);
-				"LIBRARY_SEARCH_PATHS" = (
-				);
-				"INFOPLIST_FILE" = "Config/CameraInfo.plist";
-				"SKIP_INSTALL" = "YES";
-				"ENABLE_APP_SANDBOX" = "YES";
-				"GENERATE_INFOPLIST_FILE" = "NO";
-				"HEADER_SEARCH_PATHS" = (
-				);
-				"CODE_SIGN_ENTITLEMENTS" = "Config/Camera.entitlements";
-				"OTHER_LDFLAGS" = (
-				);
-				"GCC_PREPROCESSOR_DEFINITIONS" = (
-				);
-				"PRODUCT_NAME" = "$(PRODUCT_BUNDLE_IDENTIFIER)";
-				"PRODUCT_BUNDLE_IDENTIFIER" = "com.callayers.renderer-preview.camera";
-				"REGISTER_APP_GROUPS" = "YES";
+				LIBRARY_SEARCH_PATHS = "";
+				MACOSX_DEPLOYMENT_TARGET = "$(RECOMMENDED_MACOSX_DEPLOYMENT_TARGET)";
+				OTHER_LDFLAGS = "";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.callayers.renderer-preview.camera";
+				PRODUCT_NAME = "$(PRODUCT_BUNDLE_IDENTIFIER)";
+				REGISTER_APP_GROUPS = YES;
+				SKIP_INSTALL = YES;
 			};
-			"name" = "Release";
+			name = Debug;
 		};
-		"7BB4EE7935237FEADEF13707" = {
-			"isa" = "PBXBuildFile";
-			"fileRef" = "93A0FC423C50B8BC36652D78";
+		0D9B6C467828201280D620A8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1B5D25A1C585CDF700906F9A /* Config/Build.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "$(CALLAYERS_APP_ENTITLEMENTS)";
+				COMBINE_HIDPI_IMAGES = YES;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Config/AppInfo.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = "$(RECOMMENDED_MACOSX_DEPLOYMENT_TARGET)";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.callayers.renderer-preview";
+				PRODUCT_NAME = Callayers;
+				REGISTER_APP_GROUPS = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/Renderer/RendererBridge.h";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
 		};
-		"DC83006363E34D53BE62FEFA" = {
-			"path" = "CameraExtension/TestPicture.swift";
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "sourcecode.swift";
-			"sourceTree" = "<group>";
+		184B519F8E1416CCE38CFFD7 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1B5D25A1C585CDF700906F9A /* Config/Build.xcconfig */;
+			buildSettings = {
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
 		};
-		"6C9332577E86C5230DF7964A" = {
-			"path" = "com.callayers.renderer-preview.camera.systemextension";
-			"isa" = "PBXFileReference";
-			"includeInIndex" = "0";
-			"explicitFileType" = "wrapper.system-extension";
-			"sourceTree" = "BUILT_PRODUCTS_DIR";
+		5729824CD92D4BA0E9955B61 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1B5D25A1C585CDF700906F9A /* Config/Build.xcconfig */;
+			buildSettings = {
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				GCC_OPTIMIZATION_LEVEL = s;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"CALLAYERS_RENDERER_CHECKS=1",
+				);
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(ULTRALIGHT_ROOT)/bin",
+				);
+				MACOSX_DEPLOYMENT_TARGET = "$(RECOMMENDED_MACOSX_DEPLOYMENT_TARGET)";
+				PRODUCT_NAME = RendererChecks;
+				SKIP_INSTALL = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+			};
+			name = Release;
 		};
-		"2D30CD12DB594CD85609ADBB" = {
-			"isa" = "PBXBuildFile";
-			"fileRef" = "DC83006363E34D53BE62FEFA";
+		A824290273A346217D9BE6F4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1B5D25A1C585CDF700906F9A /* Config/Build.xcconfig */;
+			buildSettings = {
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = s;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+			};
+			name = Release;
 		};
-		"C6BCE2F15EAFEA4D80BB81D7" = {
-			"isa" = "PBXTargetDependency";
-			"target" = "9D19BA051218D23939DB32DE";
-			"targetProxy" = "3A448032DF730F67CA295EC4";
-		};
-		"01A5DF8FA698D5D784688A43" = {
-			"isa" = "XCBuildConfiguration";
-			"buildSettings" = {
-				"LD_RUNPATH_SEARCH_PATHS" = (
+		D0B93C90A638F920B6D95D57 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Config/Camera.entitlements;
+				DEAD_CODE_STRIPPING = YES;
+				ENABLE_APP_SANDBOX = YES;
+				GCC_PREPROCESSOR_DEFINITIONS = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				HEADER_SEARCH_PATHS = "";
+				INFOPLIST_FILE = Config/CameraInfo.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 					"@executable_path/../../../../Frameworks",
 				);
-				"LIBRARY_SEARCH_PATHS" = (
-				);
-				"INFOPLIST_FILE" = "Config/CameraInfo.plist";
-				"SKIP_INSTALL" = "YES";
-				"ENABLE_APP_SANDBOX" = "YES";
-				"GENERATE_INFOPLIST_FILE" = "NO";
-				"HEADER_SEARCH_PATHS" = (
-				);
-				"CODE_SIGN_ENTITLEMENTS" = "Config/Camera.entitlements";
-				"OTHER_LDFLAGS" = (
-				);
-				"GCC_PREPROCESSOR_DEFINITIONS" = (
-				);
-				"PRODUCT_NAME" = "$(PRODUCT_BUNDLE_IDENTIFIER)";
-				"PRODUCT_BUNDLE_IDENTIFIER" = "com.callayers.renderer-preview.camera";
-				"REGISTER_APP_GROUPS" = "YES";
+				LIBRARY_SEARCH_PATHS = "";
+				MACOSX_DEPLOYMENT_TARGET = "$(RECOMMENDED_MACOSX_DEPLOYMENT_TARGET)";
+				OTHER_LDFLAGS = "";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.callayers.renderer-preview.camera";
+				PRODUCT_NAME = "$(PRODUCT_BUNDLE_IDENTIFIER)";
+				REGISTER_APP_GROUPS = YES;
+				SKIP_INSTALL = YES;
 			};
-			"name" = "Debug";
+			name = Release;
 		};
-		"AB26D170003FE160249859D1" = {
-			"buildActionMask" = "2147483647";
-			"dstSubfolderSpec" = "16";
-			"isa" = "PBXCopyFilesBuildPhase";
-			"runOnlyForDeploymentPostprocessing" = "0";
-			"dstPath" = "$(CONTENTS_FOLDER_PATH)/Library/SystemExtensions";
-			"files" = (
-				"6B10F8402BF737F20E297C77",
-			);
-			"name" = "Embed Camera Extension";
-		};
-		"6EEB81AC2DA431866D00EDDA" = {
-			"path" = "CameraExtension/CameraProvider.swift";
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "sourcecode.swift";
-			"sourceTree" = "<group>";
-		};
-		"F88D184A2C400FD933D3B9F9" = {
-			"isa" = "PBXBuildFile";
-			"fileRef" = "475AE3E87A49B95A46F0192A";
-		};
-		"B72261CB07CEAA200E55C1B0" = {
-			"isa" = "PBXGroup";
-			"name" = "CameraExtension";
-			"children" = (
-				"93A0FC423C50B8BC36652D78",
-				"6EEB81AC2DA431866D00EDDA",
-				"DC83006363E34D53BE62FEFA",
-			);
-			"sourceTree" = "<group>";
-		};
-		"0CD8E1F39D688D448A59669F" = {
-			"isa" = "PBXFrameworksBuildPhase";
-			"buildActionMask" = "2147483647";
-			"files" = (
-			);
-			"runOnlyForDeploymentPostprocessing" = "0";
-		};
-		"3A448032DF730F67CA295EC4" = {
-			"isa" = "PBXContainerItemProxy";
-			"containerPortal" = "244210E48437B6556980A702";
-			"remoteGlobalIDString" = "9D19BA051218D23939DB32DE";
-			"remoteInfo" = "CallayersCamera";
-			"proxyType" = "1";
-		};
-		"E903E6DF21D449E68367B526" = {
-			"path" = "Tests/CameraChecks.swift";
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "sourcecode.swift";
-			"sourceTree" = "<group>";
-		};
-		"6B10F8402BF737F20E297C77" = {
-			"isa" = "PBXBuildFile";
-			"fileRef" = "6C9332577E86C5230DF7964A";
-			"settings" = {
-				"ATTRIBUTES" = (
-					"CodeSignOnCopy",
-					"RemoveHeadersOnCopy",
+		E532E4CDC1E6865CE523475E /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1B5D25A1C585CDF700906F9A /* Config/Build.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "$(CALLAYERS_APP_ENTITLEMENTS)";
+				COMBINE_HIDPI_IMAGES = YES;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				GCC_OPTIMIZATION_LEVEL = s;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Config/AppInfo.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
 				);
+				MACOSX_DEPLOYMENT_TARGET = "$(RECOMMENDED_MACOSX_DEPLOYMENT_TARGET)";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.callayers.renderer-preview";
+				PRODUCT_NAME = Callayers;
+				REGISTER_APP_GROUPS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/Renderer/RendererBridge.h";
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
 			};
+			name = Release;
 		};
-		"42441622E97F300627D20BA2" = {
-			"path" = "Config/Camera.entitlements";
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "text.plist.xml";
-			"sourceTree" = "<group>";
+		FFB06D80E3496BCD96B857CD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1B5D25A1C585CDF700906F9A /* Config/Build.xcconfig */;
+			buildSettings = {
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"CALLAYERS_RENDERER_CHECKS=1",
+				);
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(ULTRALIGHT_ROOT)/bin",
+				);
+				MACOSX_DEPLOYMENT_TARGET = "$(RECOMMENDED_MACOSX_DEPLOYMENT_TARGET)";
+				PRODUCT_NAME = RendererChecks;
+				SKIP_INSTALL = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
 		};
-		"CD8BF945E1BFF8BDAD7288DD" = {
-			"isa" = "XCConfigurationList";
-			"defaultConfigurationIsVisible" = "0";
-			"defaultConfigurationName" = "Debug";
-			"buildConfigurations" = (
-				"01A5DF8FA698D5D784688A43",
-				"D0B93C90A638F920B6D95D57",
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		1922B098E983995960BE56B0 /* Build configuration list for PBXProject "Callayers" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				184B519F8E1416CCE38CFFD7 /* Debug */,
+				A824290273A346217D9BE6F4 /* Release */,
 			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
 		};
-		"E5C423074E322CE3F6F9E3B1" = {
-			"path" = "Config/CameraInfo.plist";
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "text.plist.xml";
-			"sourceTree" = "<group>";
-		};
-		"93A0FC423C50B8BC36652D78" = {
-			"path" = "CameraExtension/main.swift";
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "sourcecode.swift";
-			"sourceTree" = "<group>";
-		};
-		"B4AC6C785AA3C7AA4D22921F" = {
-			"path" = "Config/App.entitlements";
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "text.plist.xml";
-			"sourceTree" = "<group>";
-		};
-		"9D19BA051218D23939DB32DE" = {
-			"buildConfigurationList" = "CD8BF945E1BFF8BDAD7288DD";
-			"productReference" = "6C9332577E86C5230DF7964A";
-			"productType" = "com.apple.product-type.system-extension";
-			"productName" = "com.callayers.renderer-preview.camera";
-			"isa" = "PBXNativeTarget";
-			"buildPhases" = (
-				"D70F28E2AE0B3011EA85F73F",
-				"0CD8E1F39D688D448A59669F",
+		6CBB9E84DCEE243922E272F2 /* Build configuration list for PBXNativeTarget "RendererChecks" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				FFB06D80E3496BCD96B857CD /* Debug */,
+				5729824CD92D4BA0E9955B61 /* Release */,
 			);
-			"dependencies" = (
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		7FA7C6DD60DC323C7F3FA76C /* Build configuration list for PBXNativeTarget "Callayers" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0D9B6C467828201280D620A8 /* Debug */,
+				E532E4CDC1E6865CE523475E /* Release */,
 			);
-			"name" = "CallayersCamera";
-			"buildRules" = (
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		CD8BF945E1BFF8BDAD7288DD /* Build configuration list for PBXNativeTarget "CallayersCamera" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				01A5DF8FA698D5D784688A43 /* Debug */,
+				D0B93C90A638F920B6D95D57 /* Release */,
 			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
 		};
-		"C23664B4C1A9AEC86710F1AA" = {
-			"isa" = "PBXBuildFile";
-			"fileRef" = "6EEB81AC2DA431866D00EDDA";
-		};
-		"AE5FFECA51724086D14220CB" = {
-			"path" = "App/CameraExtensionController.swift";
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "sourcecode.swift";
-			"sourceTree" = "<group>";
-		};
-		"D70F28E2AE0B3011EA85F73F" = {
-			"isa" = "PBXSourcesBuildPhase";
-			"buildActionMask" = "2147483647";
-			"files" = (
-				"7BB4EE7935237FEADEF13707",
-				"C23664B4C1A9AEC86710F1AA",
-				"2D30CD12DB594CD85609ADBB",
-				"86A3B44D7E5D594003D656D1",
-			);
-			"runOnlyForDeploymentPostprocessing" = "0";
-		};
-		"8122248BAE3E07EE32EDA6AB" = {
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "Video/FrameComposer.swift";
-			"sourceTree" = "<group>";
-		};
-		"BE8CDDEBB4FC36DB84B694DE" = {
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "Video/CameraCapture.swift";
-			"sourceTree" = "<group>";
-		};
-		"DA4C6F326A2F546EA54656BB" = {
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "Video/VideoModel.swift";
-			"sourceTree" = "<group>";
-		};
-		"AB16C3EDA1A4DF0F89E2E5AF" = {
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "sourcecode.cpp.objcpp";
-			"path" = "Video/VirtualCameraClient.mm";
-			"sourceTree" = "<group>";
-		};
-		"7C0999BA84766F2C458A9ED7" = {
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "sourcecode.c.h";
-			"path" = "Video/VirtualCameraClient.h";
-			"sourceTree" = "<group>";
-		};
-		"9F3A7CCBCA11C7A098F79DDF" = {
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "Video/LatestVideoFrame.swift";
-			"sourceTree" = "<group>";
-		};
-		"087463E0E71121BA2C363166" = {
-			"isa" = "PBXGroup";
-			"children" = (
-				"8122248BAE3E07EE32EDA6AB",
-				"BE8CDDEBB4FC36DB84B694DE",
-				"DA4C6F326A2F546EA54656BB",
-				"AB16C3EDA1A4DF0F89E2E5AF",
-				"7C0999BA84766F2C458A9ED7",
-				"9F3A7CCBCA11C7A098F79DDF",
-			);
-			"name" = "Video";
-			"sourceTree" = "<group>";
-		};
-		"ED840A443C44D4EF8B2EBE81" = {
-			"isa" = "PBXBuildFile";
-			"fileRef" = "8122248BAE3E07EE32EDA6AB";
-		};
-		"99CCB528C9336A2EE5CB750C" = {
-			"isa" = "PBXBuildFile";
-			"fileRef" = "BE8CDDEBB4FC36DB84B694DE";
-		};
-		"E4E246BBCAB3E7F109021450" = {
-			"isa" = "PBXBuildFile";
-			"fileRef" = "DA4C6F326A2F546EA54656BB";
-		};
-		"67414B6F07DE692747E8CD72" = {
-			"isa" = "PBXBuildFile";
-			"fileRef" = "AB16C3EDA1A4DF0F89E2E5AF";
-		};
-		"FAE55E00831B8468BA0A2F97" = {
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "App/CameraPickerView.swift";
-			"sourceTree" = "<group>";
-		};
-		"5C57AB940FC0983384CE2D37" = {
-			"isa" = "PBXBuildFile";
-			"fileRef" = "FAE55E00831B8468BA0A2F97";
-		};
-		"86A3B44D7E5D594003D656D1" = {
-			"isa" = "PBXBuildFile";
-			"fileRef" = "9F3A7CCBCA11C7A098F79DDF";
-		};
-		"CF1DC78F716AAB0FA9F9EBE9" = {
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "Tests/VideoChecks.swift";
-			"sourceTree" = "<group>";
-		};
-		"C711CE0A8B0A44E1A1200001" = {
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "wrapper.framework";
-			"name" = "CoreMediaIO.framework";
-			"path" = "System/Library/Frameworks/CoreMediaIO.framework";
-			"sourceTree" = "SDKROOT";
-		};
-		"C711CE0A8B0A44E1A1200002" = {
-			"isa" = "PBXBuildFile";
-			"fileRef" = "C711CE0A8B0A44E1A1200001";
-		};
+/* End XCConfigurationList section */
 	};
-	"rootObject" = "244210E48437B6556980A702";
+	rootObject = 244210E48437B6556980A702 /* Project object */;
 }

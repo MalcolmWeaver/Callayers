@@ -46,9 +46,11 @@ command -v python3 >/dev/null || { printf 'Python 3 is required to acquire the r
 sdk="$(python3 "$root/scripts/acquire-macos-renderer.py" --arch "$arch")"
 build="$root/build/macos-$arch"
 if [[ -n "$team" ]]; then build="$root/build/macos-camera-$arch"; fi
-mkdir -p "$build"
+mkdir -p "$build" "$build/ModuleCache"
+export CLANG_MODULE_CACHE_PATH="$build/ModuleCache"
+export SWIFT_MODULECACHE_PATH="$build/ModuleCache"
 xcrun --sdk macosx swiftc -swift-version 5 -parse-as-library -target "$arch-apple-macos12.3" \
-    "$root/macos/App/WorkspaceModels.swift" "$root/macos/App/WorkspaceStore.swift" \
+    "$root/macos/App/WorkspaceModels.swift" "$root/macos/App/AnnotationModels.swift" "$root/macos/App/WorkspaceStore.swift" \
     "$root/macos/Tests/WorkspaceChecks.swift" -o "$build/WorkspaceChecks"
 if [[ "$arch" == "$host_arch" ]]; then
     "$build/WorkspaceChecks" 2>&1 | tee "$build/workspace-checks.log"
@@ -69,7 +71,7 @@ xcodebuild -project "$root/macos/Callayers.xcodeproj" \
     -derivedDataPath "$build" ARCHS="$arch" ONLY_ACTIVE_ARCH=YES \
     ULTRALIGHT_ROOT="$sdk" ${signing[@]+"${signing[@]}"} build 2>&1 | tee "$build/build.log"
 products="$build/Build/Products/Debug"
-app="$products/Callayers Renderer Preview.app"
+app="$products/Callayers.app"
 /usr/bin/codesign --verify --deep --strict "$app"
 /usr/bin/codesign --verify --strict "$app/Contents/Library/SystemExtensions/com.callayers.renderer-preview.camera.systemextension"
 if [[ "$arch" == "$host_arch" ]]; then
@@ -79,7 +81,10 @@ if [[ "$arch" == "$host_arch" ]]; then
 else
     printf 'Built %s; renderer execution checks require a %s Mac.\n' "$arch" "$arch"
 fi
-printf '\nMac preview: %s\n' "$app"
+if [[ "$arch" == "$host_arch" ]]; then
+    bash "$root/scripts/check-macos-features.sh" "$build" 2>&1 | tee "$build/feature-checks.log"
+fi
+printf '\nMac app: %s\n' "$app"
 if [[ -n "$team" ]]; then
     printf 'To activate the camera, install this signed app in /Applications, open it there, and choose Camera setup.\n'
 fi

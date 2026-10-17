@@ -28,3 +28,4 @@ for resource in icudt67l.dat cacert.pem; do
 done
 /usr/bin/ditto "$ULTRALIGHT_ROOT/license" "$resources/RendererLicenses"
 /usr/bin/ditto "$ULTRALIGHT_ROOT/VERSION.txt" "$resources/RendererLicenses/VERSION.txt"
+/usr/bin/ditto "$SRCROOT/../spec-v2/assets/callayers.png" "$resources/callayers.png"
