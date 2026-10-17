@@ -23,9 +23,9 @@
 }
 - (BOOL)ready { return _renderer && _renderer->ready() && !self.problem.length; }
 - (NSImage *)image { return _image; }
-- (BOOL)loadCard:(NSString *)html state:(NSString *)state {
+- (BOOL)loadCard:(NSString *)html state:(NSString *)state width:(double)width height:(double)height {
     if (!_renderer) return NO;
-    try { _bridgeProblem = @""; _renderer->loadCard(html.UTF8String, state.UTF8String); return YES; }
+    try { _bridgeProblem = @""; _renderer->loadCard(html.UTF8String, state.UTF8String, width, height); return YES; }
     catch (const std::exception& error) { _bridgeProblem = @(error.what()); return NO; }
 }
 - (void)clear {

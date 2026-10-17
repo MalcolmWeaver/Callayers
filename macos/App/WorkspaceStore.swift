@@ -52,15 +52,51 @@ final class WorkspaceStore {
 
     func save(_ document: WorkspaceDocument) throws {
         guard writable else { throw WorkspaceError.locked }
-        _ = try document.validated()
+        let document = try document.validated()
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let data = try encoder.encode(document)
+        guard data.count <= 16 * 1024 * 1024 else { throw WorkspaceError.invalid("The workspace is too large to save.") }
         guard data != lastSaved else { return }
         try manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         if let previous = lastSaved { try previous.write(to: backup, options: .atomic) }
         try data.write(to: file, options: .atomic)
         lastSaved = data
+    }
+
+    private func imageURL(_ id: UUID) -> URL {
+        directory.appendingPathComponent("images", isDirectory: true).appendingPathComponent(id.uuidString + ".png")
+    }
+
+    func saveImage(_ data: Data, id: UUID) throws {
+        guard writable else { throw WorkspaceError.locked }
+        guard data.count <= 4 * 1024 * 1024,
+              data.starts(with: [137, 80, 78, 71, 13, 10, 26, 10]) else {
+            throw WorkspaceError.invalid("The local image is invalid or too large.")
+        }
+        let url = imageURL(id)
+        try manager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
+                                    attributes: [.posixPermissions: 0o700])
+        // Asset identities are immutable. A failed workspace save can leave an
+        // unreferenced asset, but cannot damage a previous card or its backup.
+        guard !manager.fileExists(atPath: url.path) else { throw WorkspaceError.invalid("The local image already exists.") }
+        try data.write(to: url, options: .atomic)
+    }
+
+    func renderedHTML(for card: WorkspaceCard) throws -> String {
+        guard let id = card.imageID else { return card.html }
+        let url = imageURL(id)
+        let attributes = try manager.attributesOfItem(atPath: url.path)
+        guard let size = attributes[.size] as? NSNumber, size.intValue <= 4 * 1024 * 1024 else {
+            throw WorkspaceError.invalid("The saved image is too large.")
+        }
+        let data = try Data(contentsOf: url)
+        guard data.starts(with: [137, 80, 78, 71, 13, 10, 26, 10]) else { throw WorkspaceError.invalid("The saved image is unreadable.") }
+        let occurrences = card.html.components(separatedBy: "callayers-image:local").count - 1
+        guard card.html.utf8.count + occurrences * (4 * ((data.count + 2) / 3) + 22) <= 6 * 1024 * 1024 else {
+            throw WorkspaceError.invalid("The card contains too many image references.")
+        }
+        return card.html.replacingOccurrences(of: "callayers-image:local", with: "data:image/png;base64," + data.base64EncodedString())
     }
 
     func recoverBackup() throws -> WorkspaceDocument {

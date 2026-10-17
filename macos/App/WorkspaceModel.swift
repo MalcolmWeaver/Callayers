@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import UniformTypeIdentifiers
 
 @MainActor
 final class WorkspaceModel: ObservableObject {
@@ -9,6 +10,7 @@ final class WorkspaceModel: ObservableObject {
     @Published private(set) var problem = ""
     @Published private(set) var message = "Opening workspace…"
     @Published private(set) var frameSerial: UInt = 0
+    @Published private(set) var importing = false
     @Published var checkerboard = true
     let video = VideoModel()
     var editingName = false
@@ -28,7 +30,7 @@ final class WorkspaceModel: ObservableObject {
     var canRecover: Bool { store?.canRecoverBackup ?? false }
     var loading: Bool { renderers.values.contains { !$0.ready && $0.problem.isEmpty } }
     var closing: Bool { quitCompletion != nil }
-    var editable: Bool { !locked && !saving && !loading && !closing }
+    var editable: Bool { !locked && !saving && !loading && !closing && !importing }
 
     init() {
         do { store = try WorkspaceStore.applicationStore(); try open() }
@@ -88,6 +90,35 @@ final class WorkspaceModel: ObservableObject {
         save { doc in
             guard let i = doc.cards.firstIndex(where: { $0.id == id }) else { return }
             doc.cards[i].name = name; doc.cards[i].edited = Date()
+        }
+    }
+
+    func importImage() {
+        guard editable, document.cards.count < 100 else { return }
+        let panel = NSOpenPanel()
+        panel.title = "Import image"
+        panel.allowedContentTypes = [.png, .jpeg, .bmp]
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        importing = true
+        let scoped = url.startAccessingSecurityScopedResource()
+        Task {
+            let result = await Task.detached(priority: .userInitiated) { Result { try ImageImport.read(url) } }.value
+            if scoped { url.stopAccessingSecurityScopedResource() }
+            while saving && !closing { try? await Task.sleep(nanoseconds: 20_000_000) }
+            importing = false
+            guard !closing else { return }
+            do {
+                let image = try result.get()
+                guard let store else { throw WorkspaceError.locked }
+                let assetID = UUID()
+                try store.saveImage(image.png, id: assetID)
+                var card = WorkspaceCard(name: image.name, html: ImportedImage.html)
+                card.imageID = assetID
+                card.contentWidth = Double(image.width); card.contentHeight = Double(image.height)
+                card.place(scale: min(1, min(640 / card.canvasWidth, 400 / card.canvasHeight)))
+                save { doc in doc.cards.append(card); doc.selectedID = card.id }
+            } catch { problem = error.localizedDescription }
         }
     }
 
@@ -198,7 +229,11 @@ final class WorkspaceModel: ObservableObject {
         for id in Array(renderers.keys) where !visible.contains(id) { renderers.removeValue(forKey: id) }
         for card in visibleCards where renderers[card.id] == nil {
             let renderer = CLRendererBridge(resources: resources)
-            _ = renderer.loadCard(card.html, state: card.state)
+            do {
+                guard let store else { throw WorkspaceError.locked }
+                _ = renderer.loadCard(try store.renderedHTML(for: card), state: card.state,
+                                      width: card.canvasWidth, height: card.canvasHeight)
+            } catch { problem = "Couldn't open “\(card.name)”: \(error.localizedDescription)"; continue }
             renderers[card.id] = renderer
         }
         frameSerial &+= 1
@@ -209,10 +244,9 @@ final class WorkspaceModel: ObservableObject {
         for renderer in renderers.values { if renderer.tick() { changed = true } }
         let layers: [VideoLayer] = visibleCards.compactMap { card in
             guard let image = renderers[card.id]?.image?.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
-            // Renderer frames use a 1280x720 logical scene, with the card at
-            // (160,120). Crop in pixel coordinates before native placement.
+            // Crop the card canvas from the renderer before native placement.
             let sx = CGFloat(image.width) / 1280, sy = CGFloat(image.height) / 720
-            guard let cropped = image.cropping(to: CGRect(x: 160 * sx, y: 120 * sy, width: 640 * sx, height: 400 * sy)) else { return nil }
+            guard let cropped = image.cropping(to: CGRect(x: 0, y: 0, width: card.canvasWidth * sx, height: card.canvasHeight * sy)) else { return nil }
             return VideoLayer(image: cropped, rect: CGRect(x: card.x, y: card.y, width: card.width, height: card.height))
         }
         if video.tick(layers: layers) { changed = true }
@@ -227,6 +261,6 @@ final class WorkspaceModel: ObservableObject {
                 } else if !renderer.problem.isEmpty { failSave(renderer.problem); return }
             }
             if pending.isEmpty { finishSave() }
-        } else if !locked && !loading && !editingName && Date() >= nextSave { save() }
+        } else if !locked && !loading && !editingName && !importing && Date() >= nextSave { save() }
     }
 }

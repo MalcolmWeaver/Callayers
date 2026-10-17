@@ -5,6 +5,16 @@
 	};
 	"objectVersion" = "56";
 	"objects" = {
+        "CA1100000000000000000011" = {
+            "isa" = "PBXFileReference";
+            "lastKnownFileType" = "sourcecode.swift";
+            "path" = "App/ImageImport.swift";
+            "sourceTree" = "<group>";
+        };
+        "CA1100000000000000000012" = {
+            "isa" = "PBXBuildFile";
+            "fileRef" = "CA1100000000000000000011";
+        };
         "CA1100000000000000000003" = {
             "isa" = "PBXFileReference";
             "lastKnownFileType" = "sourcecode.swift";
@@ -237,6 +247,7 @@
 				"CF1DC78F716AAB0FA9F9EBE9",
                 "CA1100000000000000000001",
                 "CA1100000000000000000003",
+                "CA1100000000000000000011",
 			);
 			"name" = "Tests";
 			"sourceTree" = "<group>";
@@ -323,6 +334,7 @@
 				"5C57AB940FC0983384CE2D37",
                 "CA1100000000000000000002",
                 "CA1100000000000000000004",
+                "CA1100000000000000000012",
 			);
 			"runOnlyForDeploymentPostprocessing" = "0";
 		};

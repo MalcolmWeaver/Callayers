@@ -92,6 +92,8 @@ Build the SwiftUI sidebar, camera selection, creation/editing controls, and anno
 
 Keep the composition presented to calling apps distinct from private selection handles and annotation drafts. Verify text positioning, proportional resizing, keyboard focus, and saved-state behavior together with the preview. These interactions are a larger part of the interface work than the surrounding buttons and menus.
 
+Image-import increment built October 16, 2026: PNG/JPEG/BMP import normalizes orientation and bounds decoded dimensions, stores local PNG assets separately from card HTML, and resolves placeholders only inside the renderer. Cards now retain independent canvas dimensions with proportional placement/input routing. Version 1 workspaces upgrade to version 2 without changing legacy dimensions. Agent checks passed for decoding, JPEG orientation, persistence, missing/corrupt assets, legacy loading, real Ultralight pixels/transparency, custom dimensions, and existing renderer/storage/composition checks. Native file-picker interaction and visual acceptance remain pending; existing user workspace files were not migrated by these fixture checks.
+
 ### 4. Account and backend integration
 
 Add browser sign-in and callback handling, Keychain session storage, renewal and sign-out, AI creation/revision, cancellation, allowance handling, and telemetry with `platform: macos`. Use the existing API. The backend already accepts the Mac platform identifier; no Mac-specific backend service is planned.

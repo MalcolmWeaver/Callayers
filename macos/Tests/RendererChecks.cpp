@@ -47,7 +47,7 @@ void Click(Renderer& renderer, int x, int y) {
 }
 int main(int argc, char** argv) {
     try {
-        if (argc < 2 || argc > 3) throw std::runtime_error("Usage: RendererChecks RESOURCE_ROOT [OUTPUT_PNG]");
+        if (argc < 2 || argc > 4) throw std::runtime_error("Usage: RendererChecks RESOURCE_ROOT [OUTPUT_PNG]");
         const std::filesystem::path resources(argv[1]);
         Renderer renderer(resources.string());
         const auto card = Read(resources / "counter-card.html");
@@ -57,18 +57,18 @@ int main(int argc, char** argv) {
         const auto& frame = renderer.frame();
         Require(frame.width == 1920 && frame.height == 1080, "Wrong frame dimensions");
         Require(frame.bgra[3] == 0, "The scene background is not transparent");
-        const auto translucent = frame.bgra[size_t(160 * 1.5) * frame.rowBytes + size_t(210 * 1.5) * 4 + 3];
+        const auto translucent = frame.bgra[size_t(40 * 1.5) * frame.rowBytes + size_t(50 * 1.5) * 4 + 3];
         Require(translucent > 0 && translucent < 255, "Card transparency was lost");
         auto pixels = frame.bgra;
         Pump(renderer, 450);
         Require(pixels != renderer.frame().bgra, "The animated card did not repaint");
         std::cout << "PASS transparent 1080p pixels and animation\n";
 
-        // Card origin is (160,120). Exercise real input, not a script-triggered click.
-        Click(renderer, 235, 345);
+        // Card origin is (0,0). Exercise real input, not a script-triggered click.
+        Click(renderer, 75, 225);
         auto state = Snapshot(renderer);
         Require(state.find("\"count\":1") != std::string::npos, "Pointer input did not increment the counter");
-        Click(renderer, 280, 410);
+        Click(renderer, 120, 290);
         renderer.key(2, 'A', 0, 0, "", "", false);
         renderer.key(3, 'A', 0, 0, "a", "a", false);
         renderer.key(1, 'A', 0, 0, "", "", false);
@@ -82,7 +82,7 @@ int main(int argc, char** argv) {
         renderer.loadCard(card, state);
         Until(renderer, [&] { return renderer.ready(); }, "Card state did not restore");
         Require(Snapshot(renderer) == state, "Reload lost saved values");
-        if (argc == 3) {
+        if (argc >= 3) {
             const auto& image = renderer.frame();
             auto bitmap = ultralight::Bitmap::Create(image.width, image.height, ultralight::BitmapFormat::BGRA8_UNORM_SRGB,
                 image.rowBytes, const_cast<uint8_t*>(image.bgra.data()), image.bgra.size(), true);
@@ -120,12 +120,27 @@ int main(int argc, char** argv) {
         renderer.loadCard(card, "{\"count\":3,\"note\":\"first\"}");
         second.loadCard(card, "{\"count\":9,\"note\":\"second\"}");
         Until(renderer, [&] { second.tick(); return renderer.ready() && second.ready(); }, "Two cards did not become ready");
-        Click(second, 235, 345);
+        Click(second, 75, 225);
         Require(Snapshot(second).find("\"count\":10") != std::string::npos, "Second card did not receive input");
         Require(Snapshot(renderer).find("\"count\":3") != std::string::npos, "Input leaked into another card");
         second.clear(); Pump(second, 80);
         Require(Snapshot(renderer).find("\"note\":\"first\"") != std::string::npos, "Unloading a card changed another card's state");
         std::cout << "PASS multiple renderer instances retain independent values and input\n";
+        // The image fixture is produced by the real importer/store checks.
+        if (argc == 4) {
+            renderer.scale(1);
+            renderer.loadCard(Read(argv[3]), "{}", 320, 160);
+            Until(renderer, [&] { return renderer.ready(); }, "Imported image did not load");
+            Pump(renderer, 300);
+            const auto& image = renderer.frame();
+            auto pixel = [&](int x, int y, int component) { return image.bgra[size_t(y) * image.rowBytes + x * 4 + component]; };
+            Require(pixel(60, 60, 2) > 240 && pixel(60, 60, 3) == 255, "Imported image pixels were not rendered");
+            Require(pixel(400, 180, 3) == 0, "Imported image transparency was lost");
+            Require(pixel(500, 30, 3) == 0, "Card canvas dimensions were ignored");
+            renderer.scale(.5); Pump(renderer, 80);
+            Require(Snapshot(renderer) == "{}", "Image scaling changed state");
+            std::cout << "PASS imported local pixels, transparency and custom canvas dimensions\n";
+        }
         std::cout << "Ultralight " << Renderer::sdkVersion() << " renderer checks passed\n";
         return 0;
     } catch (const std::exception& error) {

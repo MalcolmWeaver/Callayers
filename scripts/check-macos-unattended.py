@@ -106,12 +106,13 @@ def main():
 
     signal.signal(signal.SIGTERM, interrupt)
     try:
-        for name in ('WorkspaceChecks', 'CameraChecks', 'VideoChecks', 'RendererChecks'):
+        for name in ('WorkspaceChecks', 'CameraChecks', 'VideoChecks', 'ImageImportChecks', 'RendererChecks'):
             command = [str(build / name)]
             if name == 'CameraChecks': command += [str(result_dir / 'test-picture.png')]
+            if name == 'ImageImportChecks': command += [str(result_dir / 'imported-card.html')]
             if name == 'RendererChecks':
                 command = [sys.executable, str(ROOT / 'macos/Tests/run-renderer-checks.py'),
-                           str(app.parent / name), str(app / 'Contents/Resources'), str(result_dir / 'renderer.png')]
+                           str(app.parent / name), str(app / 'Contents/Resources'), str(result_dir / 'renderer.png'), str(result_dir / 'imported-card.html')]
             with (result_dir / (name + '.log')).open('w') as log:
                 result = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, timeout=120)
             summary['checks'].append({'name': name, 'passed': result.returncode == 0})

@@ -76,13 +76,11 @@ final class CardPreviewView: NSView {
         }
         for card in model.visibleCards where model.video.preview == nil {
             guard let image = model.renderers[card.id]?.image else { continue }
-            // The proven renderer still produces a transparent 1280x720 scene
-            // with its card at (160,120). Clip and place that image natively;
-            // library state does not depend on renderer-specific layout APIs.
+            // Place the card canvas natively; scaling never reloads its HTML.
             NSGraphicsContext.saveGraphicsState()
             NSBezierPath(rect: rect(card)).addClip()
-            image.draw(in: NSRect(x: (card.x - 160 * card.scale) * sx,
-                y: (card.y - 120 * card.scale) * sy, width: 1280 * card.scale * sx,
+            image.draw(in: NSRect(x: card.x * sx,
+                y: card.y * sy, width: 1280 * card.scale * sx,
                 height: 720 * card.scale * sy), from: .zero, operation: .sourceOver,
                 fraction: 1, respectFlipped: true, hints: nil)
             NSGraphicsContext.restoreGraphicsState()
@@ -107,8 +105,8 @@ final class CardPreviewView: NSView {
     private func forward(_ event: NSEvent, id: UUID?, type: Int, button: Int) {
         guard let model = model, let card = model.visibleCards.first(where: { $0.id == id }) else { return }
         let p = point(event)
-        model.renderers[card.id]?.mouse(type, x: Int((p.x - card.x) / card.scale + 160),
-            y: Int((p.y - card.y) / card.scale + 120), button: button)
+        model.renderers[card.id]?.mouse(type, x: Int((p.x - card.x) / card.scale),
+            y: Int((p.y - card.y) / card.scale), button: button)
     }
     override func mouseDown(with event: NSEvent) {
         // Periodic snapshots must not swallow clicks or keystrokes. A later
@@ -132,7 +130,7 @@ final class CardPreviewView: NSView {
         if let drag = drag {
             let p = point(event)
             if drag.resizing {
-                let delta = max((p.x - drag.start.x) / 640, (p.y - drag.start.y) / 400)
+                let delta = max((p.x - drag.start.x) / drag.card.canvasWidth, (p.y - drag.start.y) / drag.card.canvasHeight)
                 model?.placeSelected(scale: drag.card.scale + delta)
             } else { model?.placeSelected(x: drag.card.x + p.x - drag.start.x, y: drag.card.y + p.y - drag.start.y) }
         } else { forward(event, id: pointerID, type: 0, button: 1) }
@@ -154,8 +152,8 @@ final class CardPreviewView: NSView {
     override func scrollWheel(with event: NSEvent) {
         guard let card = hit(point(event)) else { return }
         let p = point(event), factor = event.hasPreciseScrollingDeltas ? 1.0 : 24.0
-        model?.renderers[card.id]?.scroll(x: Int((p.x - card.x) / card.scale + 160),
-            y: Int((p.y - card.y) / card.scale + 120), deltaX: Int(event.scrollingDeltaX * factor), deltaY: Int(event.scrollingDeltaY * factor))
+        model?.renderers[card.id]?.scroll(x: Int((p.x - card.x) / card.scale),
+            y: Int((p.y - card.y) / card.scale), deltaX: Int(event.scrollingDeltaX * factor), deltaY: Int(event.scrollingDeltaY * factor))
     }
     override func keyDown(with event: NSEvent) {
         guard let id = focusedID, model?.document.selectedID == id, model?.closing == false else { return }

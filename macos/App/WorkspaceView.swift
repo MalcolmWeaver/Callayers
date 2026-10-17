@@ -16,6 +16,8 @@ struct WorkspaceView: View {
             VStack(alignment: .leading, spacing: 14) {
                 Text("Callayers").font(.title2.weight(.semibold))
                 Text("Mac workspace preview").font(.subheadline).foregroundColor(.secondary)
+                Button(model.importing ? "Importing…" : "Import image") { model.importImage() }
+                    .disabled(!model.editable || model.document.cards.count >= 100)
                 HStack {
                     Button("Add counter") { model.addCounter() }
                         .disabled(!model.editable || model.document.cards.count >= 100)
@@ -29,7 +31,7 @@ struct WorkspaceView: View {
                             row(card)
                         }
                         if model.document.cards.isEmpty {
-                            Text("Add a counter to try saving and arranging cards.")
+                            Text("Import an image to create your first card.")
                                 .font(.subheadline).foregroundColor(.secondary).padding(.top, 24)
                         }
                     }
@@ -41,7 +43,7 @@ struct WorkspaceView: View {
                         .font(.caption).foregroundColor(.secondary)
                     geometry("Horizontal", value: card.x, range: 0...(1280 - card.width)) { model.placeSelected(x: $0) }
                     geometry("Vertical", value: card.y, range: 0...(720 - card.height)) { model.placeSelected(y: $0) }
-                    geometry("Size", value: card.scale, range: 0.5...1.4) { model.placeSelected(scale: $0) }
+                    geometry("Size", value: card.scale, range: 0.1...card.maximumScale) { model.placeSelected(scale: $0) }
                     HStack {
                         Button("Duplicate") { model.duplicateSelected() }.disabled(!model.editable || model.document.cards.count >= 100)
                         Button("Bring to front") { model.bringToFront() }.disabled(!model.editable)

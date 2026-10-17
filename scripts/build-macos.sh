@@ -64,6 +64,12 @@ xcrun --sdk macosx swiftc -swift-version 5 -parse-as-library -target "$arch-appl
 if [[ "$arch" == "$host_arch" ]]; then
     "$build/VideoChecks" 2>&1 | tee "$build/video-checks.log"
 fi
+xcrun --sdk macosx swiftc -swift-version 5 -parse-as-library -target "$arch-apple-macos12.3" \
+    "$root/macos/App/WorkspaceModels.swift" "$root/macos/App/WorkspaceStore.swift" \
+    "$root/macos/App/ImageImport.swift" "$root/macos/Tests/ImageImportChecks.swift" -o "$build/ImageImportChecks"
+if [[ "$arch" == "$host_arch" ]]; then
+    "$build/ImageImportChecks" "$build/imported-card.html" 2>&1 | tee "$build/image-checks.log"
+fi
 xcodebuild -project "$root/macos/Callayers.xcodeproj" \
     -scheme Callayers -configuration Debug -destination "$destination" \
     -derivedDataPath "$build" ARCHS="$arch" ONLY_ACTIVE_ARCH=YES \
@@ -74,7 +80,7 @@ app="$products/Callayers Renderer Preview.app"
 /usr/bin/codesign --verify --strict "$app/Contents/Library/SystemExtensions/com.callayers.renderer-preview.camera.systemextension"
 if [[ "$arch" == "$host_arch" ]]; then
     python3 "$root/macos/Tests/run-renderer-checks.py" \
-        "$products/RendererChecks" "$app/Contents/Resources" "$build/renderer-preview.png" \
+        "$products/RendererChecks" "$app/Contents/Resources" "$build/renderer-preview.png" "$build/imported-card.html" \
         2>&1 | tee "$build/renderer-checks.log"
 else
     printf 'Built %s; renderer execution checks require a %s Mac.\n' "$arch" "$arch"

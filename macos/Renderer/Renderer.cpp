@@ -90,7 +90,7 @@ struct Renderer::Impl {
     Frame frame;
     std::string problem, pendingHTML, pendingState = "{}";
     bool hostReady = false, hasPending = false, cardReady = false;
-    double scale = 1;
+    double scale = 1, width = 640, height = 400;
     std::chrono::steady_clock::time_point opened = std::chrono::steady_clock::now();
     explicit Impl(const std::string& root) : runtime(GetRuntime(root)) {
         auto session = runtime.renderer->CreateSession(false, "callayers-renderer-preview");
@@ -112,9 +112,12 @@ struct Renderer::Impl {
 };
 Renderer::Renderer(const std::string& root) : impl_(std::make_unique<Impl>(root)) {}
 Renderer::~Renderer() = default;
-void Renderer::loadCard(std::string html, std::string state) {
+void Renderer::loadCard(std::string html, std::string state, double width, double height) {
     auto& p = *impl_; p.runtime.checkThread();
-    if (html.size() > 131072 || state.size() > 16384) throw std::runtime_error("The card or its saved values are too large");
+    if (html.size() > 6 * 1024 * 1024 || state.size() > 16384) throw std::runtime_error("The card or its saved values are too large");
+    if (!std::isfinite(width) || !std::isfinite(height) || width < 1 || width > 1280 || height < 1 || height > 720)
+        throw std::runtime_error("Invalid card dimensions");
+    p.width = width; p.height = height;
     p.pendingHTML = std::move(html); p.pendingState = std::move(state);
     p.hasPending = true; p.cardReady = false; p.problem.clear();
     p.opened = std::chrono::steady_clock::now();
@@ -134,7 +137,7 @@ bool Renderer::tick() {
             p.hostReady = true;
         }
         if (p.hostReady && p.hasPending) {
-            const auto result = p.eval("CallayersHost.load(" + Quote(p.pendingHTML) + "," + Quote(p.pendingState) + ")");
+            const auto result = p.eval("CallayersHost.load(" + Quote(p.pendingHTML) + "," + Quote(p.pendingState) + "," + std::to_string(p.width) + "," + std::to_string(p.height) + ")");
             if (result != "ok") throw std::runtime_error(result);
             p.eval("CallayersHost.scale(" + std::to_string(p.scale) + ")");
             p.hasPending = false;
@@ -200,7 +203,7 @@ void Renderer::key(int type, int vk, int nk, unsigned modifiers, const std::stri
 }
 void Renderer::blur() { impl_->runtime.checkThread(); impl_->view->Unfocus(); }
 void Renderer::scale(double value) {
-    if (!std::isfinite(value) || value < .5 || value > 1.4) throw std::runtime_error("Invalid card scale");
+    if (!std::isfinite(value) || value < .1 || value > 4) throw std::runtime_error("Invalid card scale");
     auto& p = *impl_; p.runtime.checkThread(); p.scale = value;
     if (p.hostReady) p.eval("CallayersHost.scale(" + std::to_string(value) + ")");
 }
