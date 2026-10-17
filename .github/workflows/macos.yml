@@ -1,15 +1,74 @@
-name: Mac app — Build and check
+name: Mac app — Build, test and publish
 on:
-  pull_request:
-    paths: ['macos/**', 'scripts/*macos*', '.github/workflows/macos.yml']
-  push:
-    branches: [main]
-    paths: ['macos/**', 'scripts/*macos*', '.github/workflows/macos.yml']
   workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Publish a release or run build and tests only'
+        required: true
+        default: publish
+        type: choice
+        options: [publish, check]
+      increment:
+        description: 'Version increment for the candidate (check-only runs publish nothing)'
+        required: true
+        default: patch
+        type: choice
+        options: [patch, minor, major]
 permissions:
   contents: read
+concurrency:
+  group: macos-release
+  cancel-in-progress: false
 jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      build: ${{ steps.version.outputs.build }}
+      sha: ${{ steps.source.outputs.sha }}
+    steps:
+      - name: Require main for publication
+        if: inputs.mode == 'publish' && github.ref != 'refs/heads/main'
+        run: echo '::error::Select main to publish; check-only runs may use another branch.' && exit 1
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.mode == 'publish' && 'main' || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check publishing configuration
+        if: inputs.mode == 'publish'
+        env:
+          MACOS_CERTIFICATES_P12: ${{ secrets.MACOS_CERTIFICATES_P12 }}
+          MACOS_CERTIFICATES_PASSWORD: ${{ secrets.MACOS_CERTIFICATES_PASSWORD }}
+          MACOS_UPDATE_PRIVATE_KEY: ${{ secrets.MACOS_UPDATE_PRIVATE_KEY }}
+          MACOS_NOTARY_PRIVATE_KEY: ${{ secrets.MACOS_NOTARY_PRIVATE_KEY }}
+          MACOS_TEAM_ID: ${{ vars.MACOS_TEAM_ID }}
+          MACOS_SIGNING_IDENTITY: ${{ vars.MACOS_SIGNING_IDENTITY }}
+          MACOS_NOTARY_KEY_ID: ${{ vars.MACOS_NOTARY_KEY_ID }}
+          MACOS_NOTARY_ISSUER_ID: ${{ vars.MACOS_NOTARY_ISSUER_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_R2_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          for name in MACOS_CERTIFICATES_P12 MACOS_CERTIFICATES_PASSWORD MACOS_UPDATE_PRIVATE_KEY MACOS_NOTARY_PRIVATE_KEY MACOS_TEAM_ID MACOS_SIGNING_IDENTITY MACOS_NOTARY_KEY_ID MACOS_NOTARY_ISSUER_ID CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing Mac publishing configuration: $name"
+              exit 1
+            fi
+          done
+      - name: Test release version and retention rules
+        run: node --test tests/macos-release-version-test.mjs tests/release-version-test.mjs tests/release-retention-test.mjs
+      - name: Select next Mac version and monotonic build number
+        id: version
+        env:
+          RELEASE_INCREMENT: ${{ inputs.increment }}
+        run: node scripts/macos-release-version.mjs "$RELEASE_INCREMENT"
+      - name: Pin the source for both architectures
+        id: source
+        run: git rev-parse HEAD | sed 's/^/sha=/' >> "$GITHUB_OUTPUT"
   renderer:
+    needs: version
     strategy:
       fail-fast: false
       matrix:
@@ -19,18 +78,42 @@ jobs:
           - arch: x86_64
             runner: macos-15-intel
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 20
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Apply the new candidate version in this disposable checkout
+        env:
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+          RELEASE_BUILD: ${{ needs.version.outputs.build }}
+        run: |
+          python3 - <<'PYVERSION'
+          import os, plistlib
+          from pathlib import Path
+          for name in ['AppInfo.plist', 'CameraInfo.plist']:
+              path = Path('macos/Config') / name
+              info = plistlib.loads(path.read_bytes())
+              info['CFBundleShortVersionString'] = os.environ['RELEASE_VERSION']
+              info['CFBundleVersion'] = os.environ['RELEASE_BUILD']
+              path.write_bytes(plistlib.dumps(info))
+          PYVERSION
       - name: Build native app and run offline checks
         run: bash scripts/build-macos.sh --arch '${{ matrix.arch }}'
       - name: Validate bundled app and signed-update primitives
         run: |
           python3 scripts/check-macos-package.py 'build/macos-${{ matrix.arch }}/Build/Products/Debug/Callayers.app' --arch '${{ matrix.arch }}'
           python3 macos/Tests/check-update-signing.py 'build/macos-${{ matrix.arch }}/SourcePackages/artifacts/sparkle/Sparkle/bin/sign_update' 'build/macos-${{ matrix.arch }}/Build/Products/Debug/Callayers.app'
+      - name: Test Mac publication and signature verification without uploading
+        env:
+          CALLAYERS_SPARKLE_SIGNER: ${{ github.workspace }}/build/macos-${{ matrix.arch }}/SourcePackages/artifacts/sparkle/Sparkle/bin/sign_update
+        run: node --test tests/macos-publish-test.mjs
       - name: Archive development app
         run: |
           ditto -c -k --sequesterRsrc --keepParent \
@@ -46,3 +129,110 @@ jobs:
             build/macos-${{ matrix.arch }}/*.zip
           if-no-files-found: warn
           retention-days: 14
+      - name: Import development and Developer ID signing identities
+        if: inputs.mode == 'publish'
+        uses: apple-actions/import-codesign-certs@v7
+        with:
+          p12-file-base64: ${{ secrets.MACOS_CERTIFICATES_P12 }}
+          p12-password: ${{ secrets.MACOS_CERTIFICATES_PASSWORD }}
+      - name: Prepare private signing and notarization files
+        if: inputs.mode == 'publish'
+        env:
+          MACOS_NOTARY_PRIVATE_KEY: ${{ secrets.MACOS_NOTARY_PRIVATE_KEY }}
+          MACOS_UPDATE_PRIVATE_KEY: ${{ secrets.MACOS_UPDATE_PRIVATE_KEY }}
+          MACOS_NOTARY_KEY_ID: ${{ vars.MACOS_NOTARY_KEY_ID }}
+          MACOS_NOTARY_ISSUER_ID: ${{ vars.MACOS_NOTARY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PYKEYS'
+          import os
+          from pathlib import Path
+          directory = Path(os.environ['RUNNER_TEMP']) / 'callayers-macos-signing'
+          directory.mkdir(mode=0o700)
+          for filename, variable in [('AuthKey.p8', 'MACOS_NOTARY_PRIVATE_KEY'), ('macos-ed25519.key', 'MACOS_UPDATE_PRIVATE_KEY')]:
+              with open(directory / filename, 'x', opener=lambda p, flags: os.open(p, flags, 0o600)) as stream:
+                  stream.write(os.environ[variable].strip() + '\n')
+          PYKEYS
+          xcrun notarytool store-credentials CallayersCI \
+            --key "$RUNNER_TEMP/callayers-macos-signing/AuthKey.p8" \
+            --key-id "$MACOS_NOTARY_KEY_ID" --issuer "$MACOS_NOTARY_ISSUER_ID"
+          cat > "$RUNNER_TEMP/callayers-macos-signing/xcodebuild" <<'SHXCODE'
+          #!/bin/bash
+          exec /usr/bin/xcodebuild "$@" \
+            -authenticationKeyPath "$RUNNER_TEMP/callayers-macos-signing/AuthKey.p8" \
+            -authenticationKeyID "$MACOS_NOTARY_KEY_ID" \
+            -authenticationKeyIssuerID "$MACOS_NOTARY_ISSUER_ID"
+          SHXCODE
+          chmod 700 "$RUNNER_TEMP/callayers-macos-signing/xcodebuild"
+          echo "$RUNNER_TEMP/callayers-macos-signing" >> "$GITHUB_PATH"
+      - name: Package, notarize, staple and validate the release
+        if: inputs.mode == 'publish'
+        env:
+          MACOS_TEAM_ID: ${{ vars.MACOS_TEAM_ID }}
+          MACOS_SIGNING_IDENTITY: ${{ vars.MACOS_SIGNING_IDENTITY }}
+          MACOS_NOTARY_KEY_ID: ${{ vars.MACOS_NOTARY_KEY_ID }}
+          MACOS_NOTARY_ISSUER_ID: ${{ vars.MACOS_NOTARY_ISSUER_ID }}
+          RELEASE_ARCH: ${{ matrix.arch }}
+        run: |
+          bash scripts/package-macos.sh --arch "$RELEASE_ARCH" --team "$MACOS_TEAM_ID" \
+            --identity "$MACOS_SIGNING_IDENTITY" --notary-profile CallayersCI \
+            --ed-key-file "$RUNNER_TEMP/callayers-macos-signing/macos-ed25519.key" \
+            --output "build/mac-release-$RELEASE_ARCH"
+          node scripts/publish-macos.mjs "build/mac-release-$RELEASE_ARCH" --arch "$RELEASE_ARCH" --dry-run
+      - name: Retain the exact notarized release for publication and retries
+        if: inputs.mode == 'publish'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-release-${{ matrix.arch }}
+          path: |
+            build/mac-release-${{ matrix.arch }}/Callayers-*.zip
+            build/mac-release-${{ matrix.arch }}/Callayers-*.zip.sha256
+            build/mac-release-${{ matrix.arch }}/notarization.json
+            build/mac-release-${{ matrix.arch }}/feed/appcast.xml
+            build/mac-release-${{ matrix.arch }}/feed/latest.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Remove only this job's private signing files
+        if: always() && inputs.mode == 'publish'
+        run: |
+          python3 - <<'PYCLEAN'
+          import os
+          from pathlib import Path
+          directory = Path(os.environ['RUNNER_TEMP']) / 'callayers-macos-signing'
+          for name in ['AuthKey.p8', 'macos-ed25519.key', 'xcodebuild']:
+              (directory / name).unlink(missing_ok=True)
+          if directory.exists():
+              directory.rmdir()
+          PYCLEAN
+  publish:
+    if: inputs.mode == 'publish'
+    needs: [version, renderer]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15
+          - arch: x86_64
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: mac-release-${{ matrix.arch }}
+          path: build/mac-release
+      - name: Publish the verified archive, signed appcast and availability
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_R2_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          RELEASE_ARCH: ${{ matrix.arch }}
+        run: node scripts/publish-macos.mjs build/mac-release --arch "$RELEASE_ARCH"

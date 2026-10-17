@@ -1,7 +1,17 @@
-name: Windows app — Publish new version
+name: Windows app — Build, test and publish
 on:
   workflow_dispatch:
     inputs:
+      mode:
+        description: 'Publish a release, run checks only, or clean up old downloads'
+        required: true
+        default: publish
+        type: choice
+        options: [publish, check, cleanup]
+      cleanup_dry_run:
+        description: 'For cleanup mode: preview without deleting installers'
+        type: boolean
+        default: true
       increment:
         description: 'Increase the latest published Windows version (current and next versions appear in the run summary)'
         required: true
@@ -15,13 +25,30 @@ concurrency:
   cancel-in-progress: false
 jobs:
   release:
-    if: github.ref == 'refs/heads/main'
+    if: inputs.mode != 'cleanup'
     runs-on: windows-2022
     steps:
+      - name: Require main for publication
+        if: inputs.mode == 'publish' && github.ref != 'refs/heads/main'
+        shell: pwsh
+        run: throw 'Select the main branch to publish. Check-only runs may use another branch.'
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.mode == 'publish' && 'main' || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Check publishing configuration
+        if: inputs.mode == 'publish'
+        shell: pwsh
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_R2_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          foreach ($name in @('UPDATE_SIGNING_KEY','CLOUDFLARE_API_TOKEN','CLOUDFLARE_ACCOUNT_ID')) {
+            if (-not [Environment]::GetEnvironmentVariable($name)) { throw "Missing publishing configuration: $name" }
+          }
       - name: Select next version from the published Windows feed
         id: version
         env:
@@ -40,7 +67,11 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'Release retention tests failed.'}
           node --test tests/release-version-test.mjs
           if($LASTEXITCODE -ne 0){throw 'Release version tests failed.'}
+      - name: Windows PowerShell compatibility
+        shell: powershell
+        run: ./tests/release-update-test.ps1
       - name: Package and authenticate release
+        if: inputs.mode == 'publish'
         shell: pwsh
         env:
           UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
@@ -61,13 +92,46 @@ jobs:
             $env:UPDATE_SIGNING_KEY=''
           }
       - name: Keep installer as workflow artifact
+        if: inputs.mode == 'publish'
         uses: actions/upload-artifact@v4
         with:
           name: callayers-${{ steps.version.outputs.version }}-x64
           path: build/installers/${{ steps.version.outputs.version }}/
       - name: Upload installer to R2, then publish update feed
+        if: inputs.mode == 'publish'
         shell: pwsh
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_R2_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
         run: node scripts/publish-desktop.mjs $env:VERSION
+  cleanup:
+    if: inputs.mode == 'cleanup'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require main for cleanup
+        if: github.ref != 'refs/heads/main'
+        run: echo '::error::Select main for download cleanup.' && exit 1
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test retention rules
+        run: node --test tests/release-retention-test.mjs
+      - name: Clean up old downloads
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_R2_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          DRY_RUN: ${{ inputs.cleanup_dry_run }}
+        run: |
+          set -euo pipefail
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo '::error::Configure Cloudflare release credentials for cleanup.'
+            exit 1
+          fi
+          if [ "$DRY_RUN" = 'true' ]; then
+            node scripts/cleanup-desktop-releases.mjs --dry-run
+          else
+            node scripts/cleanup-desktop-releases.mjs
+          fi

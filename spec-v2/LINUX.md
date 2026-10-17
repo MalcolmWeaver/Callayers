@@ -117,7 +117,19 @@ ctest --test-dir build/linux-camera -R 'linux_html_renderer|linux_preview_intera
 
 The baseline `.deb` derives its minimum system-library requirements from the build host. Release builds use Ubuntu 22.04 and Qt 6.2 as the minimum baseline. CI tests the exact package on Ubuntu 24.04/26.04 and Debian 12/13 without rebuilding or running the camera post-install script. Native RPM and Arch archives wrap that same baseline payload; their dependency/runtime checks run on Fedora 43/44 and Arch containers. Newer build hosts can produce newer dependency requirements and must not be used to create the multi-version release candidate. Package extraction and `callayers --self-check` check bundled renderer loading without opening a camera, accessing saved work, or signing in. They do not establish desktop or calling-app acceptance. `CALLAYERS_BUILD_JOBS` controls package-build parallelism and `CALLAYERS_CMAKE` can select a CMake binary.
 
-Workspace and preference saves use atomic replacement. Existing Linux workspaces remain readable and gain card state/revision metadata when saved. A malformed existing workspace is retained rather than overwritten. Local session, content-created, and preview-card telemetry are bounded and best effort; consumer identity remains best effort.
+Workspace and preference saves use atomic replacement. Existing Linux workspaces remain readable and gain card state/revision metadata when saved. A malformed existing workspace is retained rather than overwritten. Session, content-created, and preview-card telemetry are implemented with bounded, best-effort delivery. Camera/output telemetry parity remains incomplete as detailed below.
+
+## Telemetry completion and verification
+
+Status reviewed October 17, 2026: `linux/src/telemetry.cpp` implements authenticated session starts, successful AI creation/revision, image import, annotation creation, and preview card application/removal with `platform: linux`. The app detects camera consumers for lifecycle behavior and status text, but that detection is not yet wired into video-state telemetry. Existing implementation does not establish live backend/PostHog acceptance.
+
+Remaining work toward [DATA.md](DATA.md#telemetry-mvp) parity:
+
+- Emit `video_state_changed` for preview visibility, consumer connection/disconnection, confirmed fresh output, and normalized consumer identity. Distinguish `none` from `unknown`; identity failure must not interrupt video.
+- Emit output-destination card application/removal from the metadata of successfully published fresh compositions. A visible card or open device alone must not imply fresh output, and the loopback device repeating its last frame must not count as ongoing fresh delivery. Document the evidence available from V4L2 publication separately from confirmed consumer receipt.
+- Cover camera-only use, minimized active calls, idle suspension/restoration, fast reconnects, stale output, sign-out/quit, and account changes. Preserve bounded delivery, retry identities, and payload privacy; do not emit events per frame or collect content, paths, process IDs, or browsing information. Check remaining delivery behavior against the shared specification rather than assuming parity.
+
+Verification milestone: add meaningful transition/delivery fixtures and backend-schema validation, then verify authenticated events through the real backend into PostHog while using Zoom and showing/hiding a card. Confirm connect/disconnect, fresh-output and card-output transitions, normalized identity or an honest unknown result, and successful content creation. Check that unchanged frames produce no repeated events and delivery failure leaves editing/video usable. Present small runtime checks in chat under [AGENTS.md](../AGENTS.md); record actual observations and tested builds in Git. Keep implementation completion, fixture passes, and live telemetry acceptance distinct.
 
 ## Sign-in
 
