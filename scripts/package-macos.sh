@@ -36,11 +36,13 @@ else
     sdk="$(python3 "$root/scripts/acquire-macos-renderer.py" --arch "$arch")"
     archive="$out/Callayers.xcarchive"
     [[ ! -e "$archive" && ! -e "$out/export" ]] || { printf 'Use a fresh output directory for each release build.\n' >&2; exit 1; }
+    # Automatic archive signing uses development credentials; developer-id export
+    # below re-signs the finished bundle for distribution.
     xcodebuild -project "$root/macos/Callayers.xcodeproj" -scheme Callayers -configuration Release \
         -destination 'generic/platform=macOS' -archivePath "$archive" -derivedDataPath "$out/DerivedData" \
         ARCHS="$arch" ONLY_ACTIVE_ARCH=YES ULTRALIGHT_ROOT="$sdk" CALLAYERS_UPDATE_ARCH="$arch" \
         CALLAYERS_RELEASE=YES CALLAYERS_UPDATE_PUBLIC_KEY="$public_key" ENABLE_HARDENED_RUNTIME=YES \
-        DEVELOPMENT_TEAM="$team" CODE_SIGN_STYLE=Automatic CODE_SIGN_IDENTITY="$identity" \
+        DEVELOPMENT_TEAM="$team" CODE_SIGN_STYLE=Automatic CODE_SIGN_IDENTITY='Apple Development' \
         CALLAYERS_APP_ENTITLEMENTS=Config/App.entitlements -allowProvisioningUpdates archive
     python3 - "$out/export-options.plist" "$team" "$identity" <<'PY'
 import plistlib,sys
