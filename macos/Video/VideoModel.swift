@@ -22,6 +22,8 @@ final class VideoModel: ObservableObject {
     private var requestedID: String?
     private var refreshTime = Date.distantPast
     private var terminated = false
+    private var authorized = true
+    var hasLiveCamera: Bool { capture.latest().0 != nil }
     private var permissionPending = false
     private static let preference = "selectedWebcamID"
 
@@ -49,7 +51,7 @@ final class VideoModel: ObservableObject {
         } else { refresh(force: true) }
     }
     private func refresh(force: Bool = false) {
-        guard !terminated else { return }
+        guard !terminated, authorized else { return }
         refreshTime = Date().addingTimeInterval(1)
         cameras = CameraCapture.devices().map { WebcamChoice(id: $0.uniqueID, name: $0.localizedName) }
         output.refresh(); outputStatus = output.status
@@ -74,10 +76,12 @@ final class VideoModel: ObservableObject {
     var hasConsumers: Bool { output.consumerCount > 0 }
     func refreshDemand() { if Date() >= refreshTime { refresh() } }
     func tick(layers: [VideoLayer], previewLayers: [VideoLayer]? = nil) -> Bool {
-        guard !terminated else { return false }
+        guard !terminated, authorized else { return false }
         if Date() >= refreshTime { refresh() }
         guard wantsFrames, let composer else { return false }
-        let camera = capture.latest().0
+        guard let camera = capture.latest().0 else {
+            let hadPreview = preview != nil; preview = nil; retainedSample = nil; return hadPreview
+        }
         do {
             guard let (sample, image) = try composer.compose(camera: camera, layers: layers, at: CMClockGetTime(CMClockGetHostTimeClock())) else { return false }
             retainedSample = sample
@@ -92,6 +96,14 @@ final class VideoModel: ObservableObject {
             }
             return true
         } catch { cameraStatus = error.localizedDescription; return false }
+    }
+    func setAuthorized(_ allowed: Bool) {
+        authorized = allowed
+        if allowed { refresh(force: true) }
+        else {
+            wantsFrames = false; output.stop(); capture.configure(id: nil, retry: true)
+            requestedID = nil; retainedSample = nil; preview = nil
+        }
     }
     func shutdown() {
         terminated = true; output.stop(); capture.configure(id: nil, retry: true)

@@ -25,7 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if saved { sender.reply(toApplicationShouldTerminate: true); return }
                 let alert = NSAlert()
                 alert.messageText = "Your workspace could not be saved"
-                alert.informativeText = "Cancel quitting to retry Save now. Quitting without saving may lose recent changes."
+                alert.informativeText = "Cancel quitting to retry saving. Quitting without saving may lose recent changes."
                 alert.addButton(withTitle: "Cancel quit")
                 alert.addButton(withTitle: "Quit without saving")
                 sender.reply(toApplicationShouldTerminate: alert.runModal() == .alertSecondButtonReturn)
@@ -39,7 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 @MainActor
 struct CallayersRendererPreviewApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
-    @StateObject private var model = WorkspaceModel()
+    @StateObject private var session = ApplicationSession()
     @StateObject private var camera = CameraExtensionController()
     @State private var showCameraSetup = false
     @State private var handledLaunch = false
@@ -90,11 +90,12 @@ struct CallayersRendererPreviewApp: App {
     }
 
     var body: some Scene {
-        WindowGroup("Callayers — Workspace Preview") {
-            WorkspaceView(model: model)
+        WindowGroup("Callayers") {
+            SessionView(session: session, auth: session.auth)
                 .frame(minWidth: 1000, idealWidth: 1280, minHeight: 640, idealHeight: 800)
                 .onAppear {
-                    delegate.model = model
+                    session.start()
+                    delegate.model = session.workspace
                     // Explicit development launch option uses the same system approval flow as the button.
                     if !handledLaunch {
                         handledLaunch = true
@@ -104,6 +105,8 @@ struct CallayersRendererPreviewApp: App {
                         }
                     }
                 }
+                .onReceive(session.$workspace) { delegate.model = $0 }
+                .preferredColorScheme(.dark)
                 .toolbar {
                     Button("Camera setup…") { showCameraSetup = true }
                 }
@@ -112,8 +115,9 @@ struct CallayersRendererPreviewApp: App {
         .commands {
             CommandGroup(replacing: .newItem) {}
             CommandGroup(after: .newItem) {
-                Button("Save Workspace") { model.save() }.keyboardShortcut("s")
-                    .disabled(!model.editable)
+                Button("Save Workspace") { session.workspace?.save() }.keyboardShortcut("s")
+                    .disabled(session.workspace?.editable != true)
+                Button("Sign out") { session.auth.signOut() }
             }
         }
     }

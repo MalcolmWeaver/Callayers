@@ -16,11 +16,11 @@ struct WorkspaceView: View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 14) {
                 Text("Callayers").font(.title2.weight(.semibold))
-                Text("Mac workspace preview").font(.subheadline).foregroundColor(.secondary)
+                Text("Your cards, saved on this Mac").font(.subheadline).foregroundColor(.secondary)
                 Button(model.importing ? "Importing…" : "Import image") { model.importImage() }
                     .disabled(!model.editable || model.document.cards.count >= 100)
                 HStack {
-                    Button("Add counter") { model.addCounter() }
+                    Button("Create with AI") { model.select(nil) }
                         .disabled(!model.editable || model.document.cards.count >= 100)
                     Spacer()
                     Button("Hide all") { model.hideAll() }.disabled(!model.editable || model.visibleCards.isEmpty)
@@ -32,7 +32,7 @@ struct WorkspaceView: View {
                             row(card)
                         }
                         if model.document.cards.isEmpty {
-                            Text("Import an image to create your first card.")
+                            Text("Create your first card")
                                 .font(.subheadline).foregroundColor(.secondary).padding(.top, 24)
                         }
                     }
@@ -49,6 +49,20 @@ struct WorkspaceView: View {
                         Button("Duplicate") { model.duplicateSelected() }.disabled(!model.editable || model.document.cards.count >= 100)
                         Button("Bring to front") { model.bringToFront() }.disabled(!model.editable)
                     }
+                }
+                Divider()
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(model.selected.map { "Edit “\($0.name)”" } ?? "New card").font(.headline).lineLimit(1)
+                    Text(model.selected == nil ? "Describe what you want to show." : "Describe what you want to change.")
+                        .font(.caption).foregroundColor(.secondary)
+                    TextEditor(text: Binding(get: { model.prompt }, set: model.setPrompt))
+                        .font(.body).frame(height: 90).overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.secondary.opacity(0.3)))
+                        .accessibilityLabel("Card prompt")
+                    HStack {
+                        Button("Send") { model.generate() }.disabled(!model.editable || model.generating || model.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        if model.generating { ProgressView().controlSize(.small); Button("Cancel") { model.cancelGeneration() } }
+                    }
+                    if !model.generationMessage.isEmpty { Text(model.generationMessage).font(.caption).foregroundColor(.secondary) }
                 }
                 Divider()
                 Text("Choose Callayers as the camera in your calling app.")

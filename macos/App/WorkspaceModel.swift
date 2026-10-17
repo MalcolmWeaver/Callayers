@@ -12,7 +12,14 @@ final class WorkspaceModel: ObservableObject {
     @Published private(set) var frameSerial: UInt = 0
     @Published private(set) var importing = false
     @Published var checkerboard = true
-    let video = VideoModel()
+    let video: VideoModel
+    private var authorized = true
+    weak var auth: AuthController?
+    @Published private(set) var generating = false
+    @Published private(set) var generationMessage = ""
+    private var generationTask: Task<Void, Never>?
+    private var generationID: UUID?
+    private let generator = GenerationService()
     @Published var annotationToolbar = false
     @Published var annotationTool: AnnotationTool = .select
     @Published var annotationColor: UInt32 = 0x56ddca
@@ -42,9 +49,10 @@ final class WorkspaceModel: ObservableObject {
     var canRecover: Bool { store?.canRecoverBackup ?? false }
     var loading: Bool { renderers.values.contains { !$0.ready && $0.problem.isEmpty } }
     var closing: Bool { quitCompletion != nil }
-    var editable: Bool { !locked && !saving && !loading && !closing && !importing }
+    var editable: Bool { authorized && !locked && !saving && !loading && !closing && !importing }
 
-    init() {
+    init(video: VideoModel? = nil, auth: AuthController? = nil) {
+        self.video = video ?? VideoModel(); self.auth = auth
         do { store = try WorkspaceStore.applicationStore(); try open() }
         catch { locked = true; problem = "Could not open your workspace. The saved file has been kept. \(error.localizedDescription)" }
         timer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
@@ -53,6 +61,53 @@ final class WorkspaceModel: ObservableObject {
         if let timer = timer { RunLoop.main.add(timer, forMode: .common) }
     }
     deinit { timer?.invalidate() }
+
+    func setAuthorized(_ allowed: Bool) {
+        if !allowed { finishText(); cancelGeneration() }
+        authorized = allowed; video.setAuthorized(allowed)
+        if !allowed { save() }
+    }
+    var prompt: String { document.promptDraft ?? "" }
+    func setPrompt(_ text: String) {
+        guard text.utf8.count <= 100_000 else { generationMessage = "Use up to 100 KB of text."; return }
+        document.promptDraft = text; nextSave = Date().addingTimeInterval(0.5)
+    }
+    func cancelGeneration() {
+        guard generating else { return }
+        generationID = nil; generationTask?.cancel(); generationTask = nil; generating = false
+        generationMessage = "Cancelled. Processing may already have used a generation."
+    }
+    func generate() {
+        guard editable, !generating, let auth, let token = auth.token, let uid = auth.grant?.saved.uid else { return }
+        let input = prompt, card = selected, ticket = GenerationTicket(card: selected)
+        do { _ = try GenerationService.body(prompt: input, card: card, ticket: ticket) }
+        catch { generationMessage = error.localizedDescription; return }
+        generationID = ticket.id; generating = true; generationMessage = card == nil ? "Creating your card…" : "Editing your card…"
+        generationTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let result = try await generator.generate(prompt: input, card: card, ticket: ticket, token: token)
+                while saving && !closing && generationID == ticket.id { try await Task.sleep(nanoseconds: 20_000_000) }
+                guard generationID == ticket.id, auth.token != nil, auth.grant?.saved.uid == uid, !closing, authorized else { return }
+                save { doc in
+                    guard self.generationID == ticket.id, self.authorized else { return }
+                    do {
+                        let id = try doc.apply(result, ticket: ticket)
+                        self.renderers.removeValue(forKey: id)
+                        if doc.promptDraft == input { doc.promptDraft = "" }
+                        self.generationMessage = "Your card is ready."
+                    } catch { self.generationMessage = error.localizedDescription }
+                    self.generating = false; self.generationID = nil
+                }
+                if !saving && generating { generating = false; generationID = nil }
+            } catch {
+                guard generationID == ticket.id else { return }
+                generating = false; generationID = nil
+                generationMessage = error.localizedDescription
+                if let failure = error as? GenerationFailure, failure.status == 401 || failure.status == 403 { auth.rejectSession() }
+            }
+        }
+    }
 
     private func open() throws {
         guard let store = store else { throw WorkspaceError.locked }
@@ -300,6 +355,8 @@ final class WorkspaceModel: ObservableObject {
 
     private func failSave(_ error: String) {
         pending = [:]; mutation = nil; saving = false
+        if generating { cancelGeneration(); generationMessage = "The card could not be saved. Retry saving before sending again." }
+        if !authorized { renderers.removeAll(); renderingPaused = true }
         problem = error.isEmpty ? "The card could not return its saved values. Reload the saved card to retry." : error
         nextSave = .distantFuture // Keep the error visible; an explicit retry is available.
         quitNeedsFreshSnapshot = false
@@ -324,6 +381,7 @@ final class WorkspaceModel: ObservableObject {
 
     private func tick() {
         video.refreshDemand()
+        if !authorized && !saving { return }
         if renderingPaused && video.wantsFrames { renderingPaused = false; syncRenderers() }
         if !renderingPaused && !video.wantsFrames && !saving && !locked { save() }
         var changed = false

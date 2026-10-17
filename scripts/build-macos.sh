@@ -77,6 +77,20 @@ xcrun --sdk macosx swiftc -swift-version 5 -parse-as-library -target "$arch-appl
 if [[ "$arch" == "$host_arch" ]]; then
     "$build/AnnotationChecks" 2>&1 | tee "$build/annotation-checks.log"
 fi
+xcrun --sdk macosx swiftc -swift-version 5 -parse-as-library -target "$arch-apple-macos12.3" \
+    "$root/macos/Services/ServiceClient.swift" "$root/macos/Services/AuthProtocol.swift" \
+    "$root/macos/Services/LoopbackSignIn.swift" "$root/macos/Services/AuthController.swift" \
+    "$root/macos/Tests/AuthChecks.swift" -o "$build/AuthChecks"
+if [[ "$arch" == "$host_arch" ]]; then
+    "$build/AuthChecks" --loopback 2>&1 | tee "$build/auth-checks.log"
+fi
+xcrun --sdk macosx swiftc -swift-version 5 -parse-as-library -target "$arch-apple-macos12.3" \
+    "$root/macos/App/Annotations.swift" "$root/macos/App/WorkspaceModels.swift" \
+    "$root/macos/Services/ServiceClient.swift" "$root/macos/Services/GenerationService.swift" \
+    "$root/macos/Tests/GenerationChecks.swift" -o "$build/GenerationChecks"
+if [[ "$arch" == "$host_arch" ]]; then
+    "$build/GenerationChecks" 2>&1 | tee "$build/generation-checks.log"
+fi
 xcodebuild -project "$root/macos/Callayers.xcodeproj" \
     -scheme Callayers -configuration Debug -destination "$destination" \
     -derivedDataPath "$build" ARCHS="$arch" ONLY_ACTIVE_ARCH=YES \
