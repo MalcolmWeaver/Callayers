@@ -13,12 +13,12 @@ final class WorkspaceStore {
 
     static func applicationStore() throws -> WorkspaceStore {
         let support = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-        return WorkspaceStore(directory: support.appendingPathComponent("Callayers/DevelopmentWorkspace", isDirectory: true))
+        return WorkspaceStore(directory: support.appendingPathComponent("Callayers/Workspace", isDirectory: true))
     }
 
     private func read(_ url: URL) throws -> (WorkspaceDocument, Data) {
         let attributes = try manager.attributesOfItem(atPath: url.path)
-        guard let size = attributes[.size] as? NSNumber, size.intValue <= 16 * 1024 * 1024 else {
+        guard let size = attributes[.size] as? NSNumber, size.intValue <= 256 * 1024 * 1024 else {
             throw WorkspaceError.invalid("The saved workspace is too large to open.")
         }
         let data = try Data(contentsOf: url)
@@ -56,6 +56,7 @@ final class WorkspaceStore {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let data = try encoder.encode(document)
+        guard data.count <= 256 * 1024 * 1024 else { throw WorkspaceError.invalid("The workspace is too large to save.") }
         guard data != lastSaved else { return }
         try manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         if let previous = lastSaved { try previous.write(to: backup, options: .atomic) }
