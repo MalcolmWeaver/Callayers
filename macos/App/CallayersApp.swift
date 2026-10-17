@@ -30,12 +30,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct CallayersRendererPreviewApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @StateObject private var model = WorkspaceModel()
+    @StateObject private var camera = CameraExtensionController()
+    @State private var showCameraSetup = false
 
     var body: some Scene {
         WindowGroup("Callayers — Workspace Preview") {
             WorkspaceView(model: model)
                 .frame(minWidth: 1000, idealWidth: 1280, minHeight: 640, idealHeight: 800)
                 .onAppear { delegate.model = model }
+                .toolbar {
+                    Button("Camera setup…") { showCameraSetup = true }
+                }
+                .sheet(isPresented: $showCameraSetup) { CameraSetupView(camera: camera) }
         }
         .commands {
             CommandGroup(replacing: .newItem) {}

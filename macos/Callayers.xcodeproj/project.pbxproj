@@ -164,6 +164,8 @@
 				"3B5B7229B74FB441FACDC16B",
 				"3BC39A78051C504EEF9862CA",
 				"4F923792C849C68BFE52CF30",
+				"AE5FFECA51724086D14220CB",
+				"475AE3E87A49B95A46F0192A",
 			);
 			"name" = "App";
 			"sourceTree" = "<group>";
@@ -197,6 +199,9 @@
 				"1B5D25A1C585CDF700906F9A",
 				"2C7562ADEEB057A0333EE8A1",
 				"FCD07712A411221D96877828",
+				"E5C423074E322CE3F6F9E3B1",
+				"42441622E97F300627D20BA2",
+				"B4AC6C785AA3C7AA4D22921F",
 			);
 			"name" = "Config";
 			"sourceTree" = "<group>";
@@ -207,6 +212,7 @@
 				"86871F2E55398CD6B62EFBA9",
 				"08D8CA31A06EE3EE90F5A139",
 				"A7845FE2A76CC1A4043D4EFF",
+				"E903E6DF21D449E68367B526",
 			);
 			"name" = "Tests";
 			"sourceTree" = "<group>";
@@ -227,6 +233,7 @@
 			"children" = (
 				"81F31879437340D5CD6ED968",
 				"5C5846C6B57382E15C0E5CFE",
+				"6C9332577E86C5230DF7964A",
 			);
 			"name" = "Products";
 			"sourceTree" = "<group>";
@@ -236,6 +243,7 @@
 			"children" = (
 				"13C4608B5138EBE9B3A45A55",
 				"08CCD6019919EE57E901413E",
+				"B72261CB07CEAA200E55C1B0",
 				"369366657F0CC118760331FE",
 				"1B3039B2E15DD2AB7EA6156D",
 				"6DC4FAD667A85B8567F612FB",
@@ -280,6 +288,8 @@
 				"BCD78D2BF88C4EE1121FF06A",
 				"206B890CB6934B9FE1B131BB",
 				"6487949BD4435A5283206D8F",
+				"315E68FF8A2289C504EFEE2C",
+				"F88D184A2C400FD933D3B9F9",
 			);
 			"runOnlyForDeploymentPostprocessing" = "0";
 		};
@@ -370,6 +380,8 @@
 				"SWIFT_OPTIMIZATION_LEVEL" = "-Onone";
 				"DEBUG_INFORMATION_FORMAT" = "dwarf";
 				"SWIFT_ACTIVE_COMPILATION_CONDITIONS" = "DEBUG";
+				"CODE_SIGN_ENTITLEMENTS" = "$(CALLAYERS_APP_ENTITLEMENTS)";
+				"REGISTER_APP_GROUPS" = "YES";
 			};
 			"name" = "Debug";
 		};
@@ -390,6 +402,8 @@
 				"GCC_OPTIMIZATION_LEVEL" = "s";
 				"SWIFT_OPTIMIZATION_LEVEL" = "-O";
 				"DEBUG_INFORMATION_FORMAT" = "dwarf-with-dsym";
+				"CODE_SIGN_ENTITLEMENTS" = "$(CALLAYERS_APP_ENTITLEMENTS)";
+				"REGISTER_APP_GROUPS" = "YES";
 			};
 			"name" = "Release";
 		};
@@ -410,10 +424,12 @@
 				"13D58F750C9F7A867F986420",
 				"EB12F685944315C425ABFF58",
 				"6664B5CB9E4CB814A73A713F",
+				"AB26D170003FE160249859D1",
 			);
 			"buildRules" = (
 			);
 			"dependencies" = (
+				"C6BCE2F15EAFEA4D80BB81D7",
 			);
 			"name" = "Callayers";
 			"productName" = "Callayers Renderer Preview";
@@ -571,6 +587,7 @@
 			"targets" = (
 				"8C1A045E96B998B40533C7FF",
 				"168396420D609F354D38189F",
+				"9D19BA051218D23939DB32DE",
 			);
 		};
 		"3BC39A78051C504EEF9862CA" = {
@@ -598,6 +615,226 @@
 			"lastKnownFileType" = "sourcecode.swift";
 			"path" = "Tests/WorkspaceChecks.swift";
 			"sourceTree" = "<group>";
+		};
+		"315E68FF8A2289C504EFEE2C" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "AE5FFECA51724086D14220CB";
+		};
+		"475AE3E87A49B95A46F0192A" = {
+			"path" = "App/CameraSetupView.swift";
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"sourceTree" = "<group>";
+		};
+		"D0B93C90A638F920B6D95D57" = {
+			"isa" = "XCBuildConfiguration";
+			"buildSettings" = {
+				"LD_RUNPATH_SEARCH_PATHS" = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS" = (
+				);
+				"INFOPLIST_FILE" = "Config/CameraInfo.plist";
+				"SKIP_INSTALL" = "YES";
+				"ENABLE_APP_SANDBOX" = "YES";
+				"GENERATE_INFOPLIST_FILE" = "NO";
+				"HEADER_SEARCH_PATHS" = (
+				);
+				"CODE_SIGN_ENTITLEMENTS" = "Config/Camera.entitlements";
+				"OTHER_LDFLAGS" = (
+				);
+				"GCC_PREPROCESSOR_DEFINITIONS" = (
+				);
+				"PRODUCT_NAME" = "$(PRODUCT_BUNDLE_IDENTIFIER)";
+				"PRODUCT_BUNDLE_IDENTIFIER" = "com.callayers.renderer-preview.camera";
+				"REGISTER_APP_GROUPS" = "YES";
+			};
+			"name" = "Release";
+		};
+		"7BB4EE7935237FEADEF13707" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "93A0FC423C50B8BC36652D78";
+		};
+		"DC83006363E34D53BE62FEFA" = {
+			"path" = "CameraExtension/TestPicture.swift";
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"sourceTree" = "<group>";
+		};
+		"6C9332577E86C5230DF7964A" = {
+			"path" = "com.callayers.renderer-preview.camera.systemextension";
+			"isa" = "PBXFileReference";
+			"includeInIndex" = "0";
+			"explicitFileType" = "wrapper.system-extension";
+			"sourceTree" = "BUILT_PRODUCTS_DIR";
+		};
+		"2D30CD12DB594CD85609ADBB" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "DC83006363E34D53BE62FEFA";
+		};
+		"C6BCE2F15EAFEA4D80BB81D7" = {
+			"isa" = "PBXTargetDependency";
+			"target" = "9D19BA051218D23939DB32DE";
+			"targetProxy" = "3A448032DF730F67CA295EC4";
+		};
+		"01A5DF8FA698D5D784688A43" = {
+			"isa" = "XCBuildConfiguration";
+			"buildSettings" = {
+				"LD_RUNPATH_SEARCH_PATHS" = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS" = (
+				);
+				"INFOPLIST_FILE" = "Config/CameraInfo.plist";
+				"SKIP_INSTALL" = "YES";
+				"ENABLE_APP_SANDBOX" = "YES";
+				"GENERATE_INFOPLIST_FILE" = "NO";
+				"HEADER_SEARCH_PATHS" = (
+				);
+				"CODE_SIGN_ENTITLEMENTS" = "Config/Camera.entitlements";
+				"OTHER_LDFLAGS" = (
+				);
+				"GCC_PREPROCESSOR_DEFINITIONS" = (
+				);
+				"PRODUCT_NAME" = "$(PRODUCT_BUNDLE_IDENTIFIER)";
+				"PRODUCT_BUNDLE_IDENTIFIER" = "com.callayers.renderer-preview.camera";
+				"REGISTER_APP_GROUPS" = "YES";
+			};
+			"name" = "Debug";
+		};
+		"AB26D170003FE160249859D1" = {
+			"buildActionMask" = "2147483647";
+			"dstSubfolderSpec" = "16";
+			"isa" = "PBXCopyFilesBuildPhase";
+			"runOnlyForDeploymentPostprocessing" = "0";
+			"dstPath" = "$(CONTENTS_FOLDER_PATH)/Library/SystemExtensions";
+			"files" = (
+				"6B10F8402BF737F20E297C77",
+			);
+			"name" = "Embed Camera Extension";
+		};
+		"6EEB81AC2DA431866D00EDDA" = {
+			"path" = "CameraExtension/CameraProvider.swift";
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"sourceTree" = "<group>";
+		};
+		"F88D184A2C400FD933D3B9F9" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "475AE3E87A49B95A46F0192A";
+		};
+		"B72261CB07CEAA200E55C1B0" = {
+			"isa" = "PBXGroup";
+			"name" = "CameraExtension";
+			"children" = (
+				"93A0FC423C50B8BC36652D78",
+				"6EEB81AC2DA431866D00EDDA",
+				"DC83006363E34D53BE62FEFA",
+			);
+			"sourceTree" = "<group>";
+		};
+		"0CD8E1F39D688D448A59669F" = {
+			"isa" = "PBXFrameworksBuildPhase";
+			"buildActionMask" = "2147483647";
+			"files" = (
+			);
+			"runOnlyForDeploymentPostprocessing" = "0";
+		};
+		"3A448032DF730F67CA295EC4" = {
+			"isa" = "PBXContainerItemProxy";
+			"containerPortal" = "244210E48437B6556980A702";
+			"remoteGlobalIDString" = "9D19BA051218D23939DB32DE";
+			"remoteInfo" = "CallayersCamera";
+			"proxyType" = "1";
+		};
+		"E903E6DF21D449E68367B526" = {
+			"path" = "Tests/CameraChecks.swift";
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"sourceTree" = "<group>";
+		};
+		"6B10F8402BF737F20E297C77" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "6C9332577E86C5230DF7964A";
+			"settings" = {
+				"ATTRIBUTES" = (
+					"CodeSignOnCopy",
+					"RemoveHeadersOnCopy",
+				);
+			};
+		};
+		"42441622E97F300627D20BA2" = {
+			"path" = "Config/Camera.entitlements";
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "text.plist.xml";
+			"sourceTree" = "<group>";
+		};
+		"CD8BF945E1BFF8BDAD7288DD" = {
+			"isa" = "XCConfigurationList";
+			"defaultConfigurationIsVisible" = "0";
+			"defaultConfigurationName" = "Debug";
+			"buildConfigurations" = (
+				"01A5DF8FA698D5D784688A43",
+				"D0B93C90A638F920B6D95D57",
+			);
+		};
+		"E5C423074E322CE3F6F9E3B1" = {
+			"path" = "Config/CameraInfo.plist";
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "text.plist.xml";
+			"sourceTree" = "<group>";
+		};
+		"93A0FC423C50B8BC36652D78" = {
+			"path" = "CameraExtension/main.swift";
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"sourceTree" = "<group>";
+		};
+		"B4AC6C785AA3C7AA4D22921F" = {
+			"path" = "Config/App.entitlements";
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "text.plist.xml";
+			"sourceTree" = "<group>";
+		};
+		"9D19BA051218D23939DB32DE" = {
+			"buildConfigurationList" = "CD8BF945E1BFF8BDAD7288DD";
+			"productReference" = "6C9332577E86C5230DF7964A";
+			"productType" = "com.apple.product-type.system-extension";
+			"productName" = "com.callayers.renderer-preview.camera";
+			"isa" = "PBXNativeTarget";
+			"buildPhases" = (
+				"D70F28E2AE0B3011EA85F73F",
+				"0CD8E1F39D688D448A59669F",
+			);
+			"dependencies" = (
+			);
+			"name" = "CallayersCamera";
+			"buildRules" = (
+			);
+		};
+		"C23664B4C1A9AEC86710F1AA" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "6EEB81AC2DA431866D00EDDA";
+		};
+		"AE5FFECA51724086D14220CB" = {
+			"path" = "App/CameraExtensionController.swift";
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"sourceTree" = "<group>";
+		};
+		"D70F28E2AE0B3011EA85F73F" = {
+			"isa" = "PBXSourcesBuildPhase";
+			"buildActionMask" = "2147483647";
+			"files" = (
+				"7BB4EE7935237FEADEF13707",
+				"C23664B4C1A9AEC86710F1AA",
+				"2D30CD12DB594CD85609ADBB",
+			);
+			"runOnlyForDeploymentPostprocessing" = "0";
 		};
 	};
 	"rootObject" = "244210E48437B6556980A702";

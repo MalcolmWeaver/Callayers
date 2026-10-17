@@ -20,8 +20,8 @@ mkdir -p "$frameworks" "$resources/resources" "$resources/RendererLicenses"
 for library in AppCore Ultralight UltralightCore WebCore; do
     source_library="$ULTRALIGHT_ROOT/bin/lib$library.dylib"
     /usr/bin/ditto "$source_library" "$frameworks/lib$library.dylib"
-    # Local development signing only. Distribution signing comes with the camera extension.
-    /usr/bin/codesign --force --sign - --timestamp=none "$frameworks/lib$library.dylib"
+    # Use the app's identity for team-signed builds as well as local previews.
+    /usr/bin/codesign --force --sign "${EXPANDED_CODE_SIGN_IDENTITY:--}" --timestamp=none "$frameworks/lib$library.dylib"
 done
 for resource in icudt67l.dat cacert.pem; do
     /usr/bin/ditto "$ULTRALIGHT_ROOT/resources/$resource" "$resources/resources/$resource"
