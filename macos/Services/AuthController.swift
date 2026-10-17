@@ -8,6 +8,11 @@ struct AIAllowance {
     init(_ json: [String: Any] = [:]) {
         enabled = json["enabled"] as? Bool ?? true; remaining = json["remaining"] as? Int; date = json["date"] as? String ?? ""
     }
+    var resetDescription: String {
+        var calendar = Calendar(identifier:.gregorian); calendar.timeZone = TimeZone(secondsFromGMT:0)!
+        let next = calendar.date(byAdding:.day,value:1,to:calendar.startOfDay(for:Date()))!
+        return "Your daily AI allowance resets at " + next.formatted(date:.omitted,time:.shortened) + ". Local editing still works."
+    }
     var exhausted: Bool {
         let formatter = DateFormatter(); formatter.dateFormat = "yyyy-MM-dd"; formatter.timeZone = TimeZone(secondsFromGMT: 0)
         return remaining == 0 && date == formatter.string(from: Date())
@@ -116,6 +121,10 @@ struct AIAllowance {
         self.saved = replacement; token = idToken; expiry = Date().addingTimeInterval(seconds)
         accountID = saved.uid; email = account["email"] as? String ?? ""; allowance = AIAllowance(account["allowance"] as? [String:Any] ?? [:])
         allowed = true; message = ""; return idToken
+    }
+    func maintain() {
+        guard allowed,expiry.timeIntervalSinceNow < 120,renewal == nil else { return }
+        Task { _ = try? await validToken() }
     }
     func validToken() async throws -> String {
         guard allowed else { throw APIError(status:401,code:"sign_in_required") }

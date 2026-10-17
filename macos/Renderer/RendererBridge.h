@@ -19,6 +19,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)mouse:(NSInteger)type x:(NSInteger)x y:(NSInteger)y button:(NSInteger)button;
 - (void)scrollAtX:(NSInteger)x y:(NSInteger)y deltaX:(NSInteger)deltaX deltaY:(NSInteger)deltaY NS_SWIFT_NAME(scroll(x:y:deltaX:deltaY:));
 - (void)keyEvent:(NSEvent *)event;
+- (void)rawKeyEvent:(NSEvent *)event;
+- (void)insertText:(NSString *)text;
 - (void)blur;
 @end
 NS_ASSUME_NONNULL_END

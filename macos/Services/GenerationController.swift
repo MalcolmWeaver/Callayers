@@ -6,7 +6,7 @@ import Combine
     @Published private(set) var message = ""
     private var operation: Task<Void,Never>?
     private var requestID: UUID?
-    func cancel() { requestID = nil; operation?.cancel(); operation = nil; busy = false; message = "Request canceled. Existing content is unchanged." }
+    func cancel() { let hadRequest = requestID != nil; requestID = nil; operation?.cancel(); operation = nil; busy = false; if hadRequest { message = "Request canceled. Existing content is unchanged." } }
     func start(prompt: String, attachments: [TextAttachment], card: WorkspaceCard?, auth: AuthController,
                apply: @escaping (UUID?,UUID?,CardContent) async -> Bool) {
         guard !busy else { return }

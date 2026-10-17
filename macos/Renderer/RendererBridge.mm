@@ -88,7 +88,14 @@
     try { _renderer->scroll(static_cast<int>(x), static_cast<int>(y), static_cast<int>(dx), static_cast<int>(dy)); }
     catch (const std::exception& error) { _bridgeProblem = @(error.what()); }
 }
-- (void)keyEvent:(NSEvent *)event {
+- (void)keyEvent:(NSEvent *)event { [self sendKeyEvent:event includeText:YES]; }
+- (void)rawKeyEvent:(NSEvent *)event { [self sendKeyEvent:event includeText:NO]; }
+- (void)insertText:(NSString *)text {
+    if (!_renderer || text.length > 16384) return;
+    try { _renderer->key(3, 0, 0, 0, text.UTF8String, text.UTF8String, false); }
+    catch (const std::exception& error) { _bridgeProblem = @(error.what()); }
+}
+- (void)sendKeyEvent:(NSEvent *)event includeText:(BOOL)includeText {
     if (!_renderer || (event.type != NSEventTypeKeyDown && event.type != NSEventTypeKeyUp)) return;
     try {
         const NSEventModifierFlags flags = event.modifierFlags;
@@ -118,7 +125,7 @@
         NSString *characters = event.characters ?: @"";
         const unichar first = characters.length ? [characters characterAtIndex:0] : 0;
         const bool printable = first >= 0x20 && first != 0x7f && !(first >= 0xf700 && first <= 0xf8ff);
-        if (event.type == NSEventTypeKeyDown && !(flags & (NSEventModifierFlagCommand | NSEventModifierFlagControl)) &&
+        if (includeText && event.type == NSEventTypeKeyDown && !(flags & (NSEventModifierFlagCommand | NSEventModifierFlagControl)) &&
             !text.empty() && (printable || key == 13))
             _renderer->key(3, key, event.keyCode, modifiers, text, unmodified, event.isARepeat);
     } catch (const std::exception& error) { _bridgeProblem = @(error.what()); }

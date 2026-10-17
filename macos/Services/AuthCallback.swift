@@ -9,6 +9,7 @@ final class AuthCallback {
     private var continuation: CheckedContinuation<String, Error>?
     private var ready: CheckedContinuation<UInt16, Error>?
     private var timeout: Task<Void, Never>?
+    private var connections: [ObjectIdentifier:NWConnection] = [:]
     private let queue = DispatchQueue(label: "com.callayers.oauth-callback")
     private let lock = NSLock()
     private var expectedState = ""
@@ -41,7 +42,7 @@ final class AuthCallback {
         let listener = try NWListener(using: parameters); self.listener = listener
         listener.newConnectionHandler = { [weak self] connection in self?.receive(connection) }
         return try await withCheckedThrowingContinuation { continuation in
-            lock.lock(); ready = continuation; lock.unlock()
+            lock.lock(); if finished { lock.unlock(); continuation.resume(throwing:CancellationError()); return }; ready = continuation; lock.unlock()
             listener.stateUpdateHandler = { [weak self] value in
                 guard let self else { return }
                 if case .ready = value, let port = listener.port { self.resolveReady(.success(port.rawValue)) }
@@ -73,6 +74,9 @@ final class AuthCallback {
         pending?.resume(with: result); listener?.cancel(); timeout?.cancel()
     }
     private func receive(_ connection: NWConnection) {
+        guard connections.count < 8 else { connection.cancel(); return }
+        let id = ObjectIdentifier(connection); connections[id] = connection
+        queue.asyncAfter(deadline:.now()+3) { [weak self,weak connection] in connection?.cancel(); self?.connections[id] = nil }
         connection.start(queue: queue)
         read(connection, data: Data())
     }

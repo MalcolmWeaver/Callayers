@@ -1,167 +1,101 @@
 import SwiftUI
 
-@MainActor
 struct WorkspaceView: View {
     @ObservedObject var model: WorkspaceModel
+    @ObservedObject var video: VideoModel
+    @ObservedObject var annotations: AnnotationController
+    @Binding var showCameraSetup: Bool
     @State private var search = ""
-    @State private var renaming: WorkspaceCard?
+    @State private var renaming: UUID?
     @State private var name = ""
-    @FocusState private var renameFocused: Bool
     @State private var deleting: WorkspaceCard?
     @State private var showDelete = false
-    @State private var confirmRecovery = false
-
+    @State private var showAnnotations = false
+    @State private var recover = false
+    @FocusState private var renameFocused: Bool
     var body: some View {
-        HStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 14) {
-                Text("Callayers").font(.title2.weight(.semibold))
-                Text("Mac workspace preview").font(.subheadline).foregroundColor(.secondary)
-                HStack {
-                    Button("Add counter") { model.addCounter() }
-                        .disabled(!model.editable || model.document.cards.count >= 100)
-                    Spacer()
-                    Button("Hide all") { model.hideAll() }.disabled(!model.editable || model.visibleCards.isEmpty)
-                }
-                TextField("Search cards", text: $search)
-                ScrollView {
-                    LazyVStack(spacing: 4) {
-                        ForEach(model.library.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }) { card in
-                            row(card)
-                        }
-                        if model.document.cards.isEmpty {
-                            Text("Add a counter to try saving and arranging cards.")
-                                .font(.subheadline).foregroundColor(.secondary).padding(.top, 24)
-                        }
-                    }
-                }
-                if let card = model.selected {
-                    Divider()
-                    Text(card.name).font(.headline).lineLimit(1).help(card.name)
-                    Text(card.visible ? "Drag the border to move; drag the corner to resize." : "Hidden from the preview.")
-                        .font(.caption).foregroundColor(.secondary)
-                    geometry("Horizontal", value: card.x, range: 0...(1280 - card.width)) { model.placeSelected(x: $0) }
-                    geometry("Vertical", value: card.y, range: 0...(720 - card.height)) { model.placeSelected(y: $0) }
-                    geometry("Size", value: card.scale, range: 0.5...1.4) { model.placeSelected(scale: $0) }
-                    HStack {
-                        Button("Duplicate") { model.duplicateSelected() }.disabled(!model.editable || model.document.cards.count >= 100)
-                        Button("Bring to front") { model.bringToFront() }.disabled(!model.editable)
-                    }
-                }
-                Divider()
-                Text("Choose Callayers as the camera in your calling app.")
-                    .font(.caption).foregroundColor(.secondary)
-            }.padding(20).frame(width: 285).background(Color(NSColor.windowBackgroundColor))
+        VStack(spacing:0) {
+            HStack(spacing:14) {
+                CallayersMark(); Text("Callayers").font(.system(size:24,weight:.semibold))
+                Menu("File") { Button("Sign out") { model.auth.signOut() }; Divider(); Button("Quit") { NSApp.terminate(nil) } }
+                Spacer()
+                Button { showAnnotations.toggle(); if !showAnnotations { annotations.tool = .select } } label: { Label("Annotate",systemImage:"pencil") }
+                    .tint(showAnnotations ? AppTheme.accent : nil).disabled(!model.editable)
+                Picker("Webcam",selection:Binding(get:{video.selectedID},set:{video.choose($0)})) {
+                    Text("Choose webcam…").tag("")
+                    ForEach(video.cameras) { Text($0.name).tag($0.id) }
+                }.labelsHidden().frame(width:235)
+                Button("Camera setup…") { showCameraSetup = true }
+            }.padding(.horizontal,24).padding(.vertical,18).background(AppTheme.sidebar)
             Divider()
-            VStack(alignment: .leading, spacing: 16) {
-                CameraPickerView(video: model.video)
-                HStack {
-                    Text("Workspace").font(.headline)
-                    Spacer()
-                    Text(model.saving ? "Saving…" : model.loading ? "Opening cards…" : model.message)
-                        .font(.caption).foregroundColor(.secondary)
-                    Button("Save now") { model.save() }.disabled(!model.editable)
-                }
-                PreviewView(model: model).aspectRatio(16.0 / 9.0, contentMode: .fit)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.secondary.opacity(0.3)))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                if !model.problem.isEmpty {
-                    Text(model.problem).foregroundColor(.red).textSelection(.enabled)
-                    HStack {
-                        if model.locked {
-                            Button("Retry opening workspace") { model.retryOpen() }
-                            if model.canRecover { Button("Restore saved backup…") { confirmRecovery = true } }
-                        } else if model.selected != nil {
-                            Button("Reload saved card") { model.reloadSavedCard() }.disabled(model.saving)
+            HStack(spacing:0) {
+                VStack(alignment:.leading,spacing:13) {
+                    Text("Cards").font(.title3.weight(.semibold))
+                    Button { model.select(nil) } label: { Text("+  Create with AI").frame(maxWidth:.infinity).padding(.vertical,6) }
+                        .buttonStyle(.borderedProminent).tint(AppTheme.accent).disabled(!model.editable)
+                    HStack { Button("Import image") { model.importImage() }; Button("Hide all") { model.hideAll() }.disabled(model.visibleCards.isEmpty) }.disabled(!model.editable)
+                    TextField("Search cards",text:$search).textFieldStyle(.roundedBorder)
+                    ScrollView {
+                        LazyVStack(spacing:4) {
+                            ForEach(model.library.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }) { row($0) }
+                            if model.library.isEmpty { Text("Create your first card").foregroundColor(.secondary).padding(.top,24) }
+                            else if !model.library.contains(where:{search.isEmpty || $0.name.localizedCaseInsensitiveContains(search)}) { Text("No matching cards").foregroundColor(.secondary).padding(.top,24) }
+                        }
+                    }.frame(maxHeight:.infinity)
+                    Divider()
+                    CardComposerView(model:model,generation:model.generation,auth:model.auth)
+                    Divider()
+                    Button("Use in a call") { showCameraSetup = true }.frame(maxWidth:.infinity)
+                    Text("In your calling app, choose Callayers.").font(.caption).foregroundColor(.secondary)
+                    Text("Your cards save automatically on this computer.").font(.caption2).foregroundColor(.secondary)
+                }.padding(18).frame(width:295).background(AppTheme.sidebar)
+                Divider()
+                VStack(spacing:14) {
+                    if showAnnotations { AnnotationToolbar(controller:annotations) }
+                    Spacer(minLength:0)
+                    PreviewView(model:model).aspectRatio(16/9,contentMode:.fit).frame(maxWidth:.infinity)
+                    Spacer(minLength:0)
+                    if !model.problem.isEmpty {
+                        Text(model.problem).font(.callout).foregroundColor(.red).textSelection(.enabled)
+                        HStack {
+                            if model.locked { Button("Retry opening") { model.retryOpen() }; if model.canRecover { Button("Restore backup…") { recover = true } } }
+                            else { Button("Retry saving") { model.save() }; if model.selected != nil { Button("Reload saved card") { model.reloadSavedCard() } } }
                         }
                     }
-                }
-            }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .alert("Delete card?", isPresented: $showDelete, presenting: deleting) { card in
-            Button("Cancel", role: .cancel) { model.editingName = false }
-            Button("Delete", role: .destructive) { model.editingName = false; model.delete(card.id) }
-        } message: { card in Text("This removes \(card.name) from your library and workspace.") }
-        .onChange(of: showDelete) { shown in if !shown { model.editingName = false } }
-        .alert("Restore the saved backup?", isPresented: $confirmRecovery) {
-            Button("Cancel", role: .cancel) {}
-            Button("Restore backup") { model.recoverBackup() }
-        } message: { Text("The previous saved workspace will reopen. The unreadable original will be preserved separately.") }
+                    HStack { Text(video.cameraStatus); Spacer(); Text(model.saving ? "Saving…" : "") }.font(.caption).foregroundColor(.secondary)
+                }.padding(24).frame(maxWidth:.infinity,maxHeight:.infinity)
+            }
+        }.background(AppTheme.background)
+        .alert("Delete card?",isPresented:$showDelete,presenting:deleting) { card in
+            Button("Cancel",role:.cancel) { model.editingName = false }
+            Button("Delete",role:.destructive) { model.editingName = false; model.delete(card.id) }
+        } message: { Text("This removes \($0.name) and its previous version. It cannot be restored.") }
+        .onChange(of:showDelete) { if !$0 { model.editingName = false } }
+        .alert("Restore the saved backup?",isPresented:$recover) { Button("Cancel",role:.cancel) { }; Button("Restore") { model.recoverBackup() } }
+            message: { Text("The previous saved workspace will reopen. The unreadable original will be preserved.") }
     }
-
-    private func geometry(_ title: String, value: Double, range: ClosedRange<Double>, change: @escaping (Double) -> Void) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title).font(.caption)
-            Slider(value: Binding(get: { value }, set: change), in: range).disabled(!model.editable)
-        }
-    }
-    private func startRename(_ card: WorkspaceCard) {
-        guard model.editable else { return }
-        model.editingName = true
-        model.select(card.id)
-        name = card.name; renaming = card
-    }
-    private var validName: Bool {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !trimmed.isEmpty && trimmed.utf16.count <= 120
-    }
-    private func finishRename() {
-        guard let card = renaming, validName else { return }
-        model.editingName = false
-        model.rename(card.id, to: name)
-        renaming = nil
-        renameFocused = false
-    }
-    private func cancelRename() {
-        renaming = nil
-        renameFocused = false
-        model.editingName = false
+    private func startRename(_ card: WorkspaceCard) { guard model.editable else { return }; model.editingName = true; model.select(card.id); name = card.name; renaming = card.id; renameFocused = true }
+    private func finishRename(cancel: Bool = false) {
+        if !cancel, let id = renaming { model.rename(id,to:name) }
+        renaming = nil; renameFocused = false; model.editingName = false
     }
     private func row(_ card: WorkspaceCard) -> some View {
-        HStack(spacing: 8) {
-            Toggle("Show \(card.name)", isOn: Binding(get: { card.visible }, set: { model.setVisible(card.id, $0) }))
-                .labelsHidden().toggleStyle(.checkbox).disabled(!model.editable)
-            if renaming?.id == card.id {
-                VStack(alignment: .leading, spacing: 3) {
-                    TextField("Card name", text: $name)
-                        .textFieldStyle(.roundedBorder)
-                        .focused($renameFocused)
-                        .onAppear { renameFocused = true }
-                        .onSubmit { finishRename() }
-                        .onExitCommand { cancelRename() }
-                        .onChange(of: renameFocused) { focused in
-                            if !focused, renaming?.id == card.id {
-                                if validName { finishRename() } else { cancelRename() }
-                            }
-                        }
-                        .help("Enter to save; Escape to cancel")
-                    if !validName {
-                        Text("Use 1–120 characters.")
-                            .font(.caption).foregroundColor(.secondary)
-                    }
-                }.frame(maxWidth: .infinity)
+        HStack(spacing:8) {
+            Toggle("Show \(card.name)",isOn:Binding(get:{card.visible},set:{model.setVisible(card.id,$0)})).labelsHidden().toggleStyle(.checkbox).disabled(!model.editable)
+            if renaming == card.id {
+                TextField("Card name",text:$name).focused($renameFocused).onSubmit { finishRename() }.onExitCommand { finishRename(cancel:true) }
+                    .onChange(of:renameFocused) { if !$0,renaming == card.id { finishRename() } }
             } else {
-                Text(card.name).lineLimit(1).help("Double-click to rename " + card.name)
-                    .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-                    .onTapGesture(count: 2) { startRename(card) }
-                    .onTapGesture { model.select(card.id) }
+                Text(card.name).lineLimit(1).frame(maxWidth:.infinity,alignment:.leading).contentShape(Rectangle()).help(card.name)
+                    .onTapGesture(count:2) { startRename(card) }.onTapGesture { model.select(card.id) }
             }
             Menu {
                 Button("Rename") { startRename(card) }
-                Button("Delete…") {
-                    guard model.editable else { return }
-                    model.editingName = true; deleting = card; showDelete = true
-                }
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 15, weight: .semibold))
-                    .frame(width: 28, height: 24).contentShape(Rectangle())
-            }
-                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-                .help("Card actions").accessibilityLabel("Actions for " + card.name)
-                .disabled(!model.editable)
-        }.padding(8)
-            .background(model.document.selectedID == card.id ? Color.accentColor.opacity(0.18) : Color.clear)
-            .cornerRadius(6)
+                Button("Bring to front") { model.select(card.id); model.stackSelected(front:true) }
+                Button("Send to back") { model.select(card.id); model.stackSelected(front:false) }
+                if card.previous != nil { Button("Restore previous version") { model.select(card.id); model.restorePrevious() } }
+                Divider(); Button("Delete…") { deleting = card; showDelete = true; model.editingName = true }
+            } label: { Image(systemName:"ellipsis").frame(width:22,height:24) }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().disabled(!model.editable)
+        }.padding(8).background(model.document.selectedID == card.id ? AppTheme.accent.opacity(0.22) : .clear).cornerRadius(5)
     }
 }
