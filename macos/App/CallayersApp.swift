@@ -33,12 +33,23 @@ struct CallayersRendererPreviewApp: App {
     @StateObject private var model = WorkspaceModel()
     @StateObject private var camera = CameraExtensionController()
     @State private var showCameraSetup = false
+    @State private var handledLaunch = false
 
     var body: some Scene {
         WindowGroup("Callayers — Workspace Preview") {
             WorkspaceView(model: model)
                 .frame(minWidth: 1000, idealWidth: 1280, minHeight: 640, idealHeight: 800)
-                .onAppear { delegate.model = model }
+                .onAppear {
+                    delegate.model = model
+                    // Explicit development launch option uses the same system approval flow as the button.
+                    if !handledLaunch {
+                        handledLaunch = true
+                        if ProcessInfo.processInfo.arguments.contains("--activate-camera") {
+                            showCameraSetup = true
+                            camera.install()
+                        }
+                    }
+                }
                 .toolbar {
                     Button("Camera setup…") { showCameraSetup = true }
                 }

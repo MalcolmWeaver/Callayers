@@ -80,7 +80,10 @@ final class VideoModel: ObservableObject {
             guard let (sample, image) = try composer.compose(camera: camera, layers: layers, at: CMClockGetTime(CMClockGetHostTimeClock())) else { return false }
             retainedSample = sample
             preview = NSImage(cgImage: image, size: NSSize(width: 1280, height: 720))
-            if output.consumerCount > 0 { _ = output.sendSample(sample) }
+            if output.consumerCount > 0 {
+                _ = output.sendSample(sample)
+                if outputStatus != output.status { outputStatus = output.status }
+            }
             return true
         } catch { cameraStatus = error.localizedDescription; return false }
     }

@@ -2,6 +2,7 @@ import Foundation
 import CoreMediaIO
 import IOKit.audio
 import os
+import Security
 
 final class CameraProvider: NSObject, CMIOExtensionProviderSource {
     private(set) var provider: CMIOExtensionProvider!
@@ -40,6 +41,7 @@ final class CameraDevice: NSObject, CMIOExtensionDeviceSource {
     private var producer: CMIOExtensionClient?
     private var receiving = false
     private var consuming = false
+    private var loggedFirstFrame = false
     private var generation: UInt = 0
     private let latest = LatestVideoFrame()
     static let consumerProperty = CMIOExtensionProperty(rawValue: "4cc_cact_glob_0000")
@@ -103,14 +105,49 @@ final class CameraDevice: NSObject, CMIOExtensionDeviceSource {
         device.notifyPropertiesChanged([Self.consumerProperty: CMIOExtensionPropertyState<AnyObject>(value: String(streamCount) as NSString)])
     }
     func authorizeProducer(_ client: CMIOExtensionClient) -> Bool {
-        if #available(macOS 13, *), client.signingID != "com.callayers.renderer-preview" { return false }
-        guard producer == nil || producer?.clientID == client.clientID else { return false }
+        // CMIO can report "unknown" even for Apple Development signed clients.
+        // Validate the process signature, identifier, and our own signing team instead.
+        var ownCode: SecCode?
+        var ownStaticCode: SecStaticCode?
+        var ownInfo: CFDictionary?
+        var guest: SecCode?
+        var requirement: SecRequirement?
+        guard SecCodeCopySelf([], &ownCode) == errSecSuccess, let ownCode,
+              SecCodeCopyStaticCode(ownCode, [], &ownStaticCode) == errSecSuccess, let ownStaticCode,
+              SecCodeCopySigningInformation(ownStaticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &ownInfo) == errSecSuccess,
+              let info = ownInfo as? [String: Any],
+              let team = info[kSecCodeInfoTeamIdentifier as String] as? String,
+              team.range(of: "^[A-Z0-9]{10}$", options: .regularExpression) != nil else {
+            logger.error("Cannot establish camera extension signing team")
+            return false
+        }
+        let rule = "anchor apple generic and identifier \"com.callayers.renderer-preview\" and certificate leaf[subject.OU] = \"\(team)\""
+        // Use the kernel's dynamic signature rather than resolving another user's
+        // executable path, which the camera-extension sandbox cannot inspect.
+        let lookup = SecCodeCopyGuestWithAttributes(nil,
+            [kSecGuestAttributePid: client.pid, kSecGuestAttributeDynamicCode: true] as CFDictionary, [], &guest)
+        guard lookup == errSecSuccess, let guest,
+              SecRequirementCreateWithString(rule as CFString, [], &requirement) == errSecSuccess, let requirement else {
+            logger.error("Producer signature lookup failed: \(lookup)")
+            return false
+        }
+        let validity = SecCodeCheckValidity(guest, [], requirement)
+        guard validity == errSecSuccess else {
+            logger.error("Producer signature rejected: \(validity)")
+            return false
+        }
+        guard producer == nil || producer?.clientID == client.clientID else {
+            logger.error("Producer request rejected: another client owns the sink")
+            return false
+        }
         producer = client
         return true
     }
     func startReceiving() {
         guard producer != nil else { return }
         receiving = true
+        loggedFirstFrame = false
+        logger.notice("Workspace input started")
         ensureTimer()
     }
     func stopReceiving() {
@@ -131,7 +168,10 @@ final class CameraDevice: NSObject, CMIOExtensionDeviceSource {
                 self.consuming = false
                 guard self.receiving, let sample else { return }
                 let now = CMClockGetTime(CMClockGetHostTimeClock())
-                self.latest.accept(sample, now: now)
+                if self.latest.accept(sample, now: now), !self.loggedFirstFrame {
+                    self.loggedFirstFrame = true
+                    self.logger.notice("First fresh workspace frame received")
+                }
                 let nanos = CMTimeConvertScale(now, timescale: 1_000_000_000, method: .default).value
                 self.input.stream.notifyScheduledOutputChanged(CMIOExtensionScheduledOutput(sequenceNumber: sequence,
                     hostTimeInNanoseconds: UInt64(max(0, nanos))))
