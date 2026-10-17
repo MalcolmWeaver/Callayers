@@ -35,6 +35,29 @@ struct CallayersRendererPreviewApp: App {
     @State private var showCameraSetup = false
     @State private var handledLaunch = false
 
+    init() {
+        #if DEBUG
+        let arguments = ProcessInfo.processInfo.arguments
+        if let index = arguments.firstIndex(of: "--check-camera-transport") {
+            // Exit before SwiftUI instantiates the workspace or opens a webcam.
+            guard arguments.count == index + 4,
+                  let duration = Double(arguments[index + 1]), duration.isFinite,
+                  duration >= 5, duration <= 86400 else { exit(2) }
+            // Independent of the main run loop, so a stalled camera API cannot
+            // leave this isolated test producer alive indefinitely.
+            DispatchQueue.global().asyncAfter(deadline: .now() + duration + 45) { _exit(124) }
+            let reportURL = URL(fileURLWithPath: arguments[index + 2])
+            var report = CLRunCameraTransportChecks(duration) as! [String: Any]
+            report["runID"] = arguments[index + 3]
+            do {
+                let data = try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
+                try data.write(to: reportURL, options: .atomic)
+            } catch { fputs("Cannot write camera test report: \(error)\n", stderr); exit(2) }
+            exit((report["passed"] as? Bool) == true ? 0 : 1)
+        }
+        #endif
+    }
+
     var body: some Scene {
         WindowGroup("Callayers — Workspace Preview") {
             WorkspaceView(model: model)

@@ -5,6 +5,16 @@
 	};
 	"objectVersion" = "56";
 	"objects" = {
+        "CA1100000000000000000001" = {
+            "isa" = "PBXFileReference";
+            "lastKnownFileType" = "sourcecode.cpp.objcpp";
+            "path" = "Tests/CameraTransportChecks.mm";
+            "sourceTree" = "<group>";
+        };
+        "CA1100000000000000000002" = {
+            "isa" = "PBXBuildFile";
+            "fileRef" = "CA1100000000000000000001";
+        };
 		"23BC76EE33C11A714C2853A8" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
@@ -215,6 +225,7 @@
 				"A7845FE2A76CC1A4043D4EFF",
 				"E903E6DF21D449E68367B526",
 				"CF1DC78F716AAB0FA9F9EBE9",
+                "CA1100000000000000000001",
 			);
 			"name" = "Tests";
 			"sourceTree" = "<group>";
@@ -299,6 +310,7 @@
 				"E4E246BBCAB3E7F109021450",
 				"67414B6F07DE692747E8CD72",
 				"5C57AB940FC0983384CE2D37",
+                "CA1100000000000000000002",
 			);
 			"runOnlyForDeploymentPostprocessing" = "0";
 		};
