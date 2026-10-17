@@ -4,9 +4,21 @@ Callayers on Mac follows [APP.md](APP.md), using the existing backend and local 
 
 ## Current development status — October 17, 2026
 
-The Mac source now includes image cards, the native annotation editor, card revision/restoration, local persistence and idle lifecycle, account/Keychain integration, AI creation/revision, bounded telemetry, and release/update preparation. Intel automated checks exercise the actual webcam, renderer, isolated app session, transport and recovery; service protocols use controlled fixtures. Apple silicon builds compile and sign on this Intel machine, but do not execute here. The public-download UI and notarization/update tooling are prepared locally; nothing has been published.
+The user accepted the current MVP on October 17, 2026 and chose to make it available as an early-adopter beta without waiting for the polish backlog below. The Mac source now includes image cards, the native annotation editor, card revision/restoration, local persistence and idle lifecycle, account/Keychain integration, AI creation/revision, bounded telemetry, and release/update preparation. Intel automated checks exercise the actual webcam, renderer, isolated app session, transport and recovery; service protocols use controlled fixtures. Apple silicon builds compile and sign on this Intel machine, but do not execute here. The public-download UI and notarization/update tooling are prepared locally; nothing has been published.
 
-Remaining acceptance depends on real Google consent and generation, native UI/IME and calling-app behavior with the updated extension, a physical Apple silicon Mac, and an installed upgrade. Public release also needs Developer ID signing, notarization credentials, a retained update signing key and hosted artifacts. An Apple Development build is a development checkpoint, not a notarized public release. See the increment evidence below for exact tested builds and unresolved boundaries.
+The current MVP is accepted overall; the historical increment evidence below distinguishes automated checks from specific runtime observations. Physical Apple silicon execution and an installed automatic upgrade remain unverified. Today's release work is Developer ID signing, notarization credentials, a retained update signing key, Intel installation verification, and hosted artifacts. An Apple Development build is a development checkpoint, not a notarized public release.
+
+The user explicitly chose to publish both architectures for this initial beta after testing installation on Intel only. The Apple silicon download must say experimental and untested on Apple silicon hardware before download. Physical Apple silicon and installed-upgrade verification remain tracked limitations rather than prerequisites for this user-authorized beta. The accepted polish backlog does not delay this release.
+
+## Open Mac follow-ups
+
+Keep user-reported bugs and polish notes here as unchecked items. Add concrete reproduction details when observed, and close an item only after its improved build is accepted in the conversation. These are the next-week backlog; the user has chosen to launch the current MVP first.
+
+- [ ] **Camera preview off screen:** investigate the user's report that the preview offloads when off screen. Establish whether outgoing virtual-camera video is affected and make preview recovery predictable.
+- [ ] **Mac setup:** add a guided first-run flow for Applications installation, permissions, extension approval, webcam choice, and selecting Callayers in calling apps.
+- [ ] **Resolution:** improve webcam and card clarity after checking capture, rendering, composition, and receiving-app scaling.
+- [ ] **Annotation toolbar:** improve layout, selected tool feedback, and editing controls.
+- [ ] **App appearance:** refresh spacing, typography, and controls to feel at home on macOS.
 
 ## Product and interface
 

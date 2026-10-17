@@ -50,6 +50,7 @@ def verify(app, arch, distribution=False, team=None):
         assert len(base64.b64decode(info.get('SUPublicEDKey', ''), validate=True)) == 32, 'Missing update public key'
         assert info.get('SUFeedURL') == f'https://downloads.callayers.com/macos/{arch}/appcast.xml', 'Wrong architecture update feed'
         assert info.get('SURequireSignedFeed') is True and info.get('SUVerifyUpdateBeforeExtraction') is True, 'Update authenticity checks missing'
+        bundle_entitlements = []
         for target in [app, extension]:
             details = run('/usr/bin/codesign', '-d', '--verbose=4', str(target))
             assert 'Authority=Developer ID Application:' in details and '(runtime)' in details, 'Developer ID/hardened runtime missing'
@@ -59,6 +60,16 @@ def verify(app, arch, distribution=False, team=None):
             entitlements = plistlib.loads(output) if output else {}
             assert not entitlements.get('com.apple.security.get-task-allow'), 'Debug entitlement in release'
             assert not entitlements.get('com.apple.security.cs.disable-library-validation'), 'Library validation disabled'
+            bundle_entitlements.append(entitlements)
+        host_entitlements, camera_entitlements = bundle_entitlements
+        assert host_entitlements.get('com.apple.security.device.camera') is True, 'Hardened runtime camera access missing'
+        assert host_entitlements.get('com.apple.developer.system-extension.install') is True, 'Camera extension installation entitlement missing'
+        assert camera_entitlements.get('com.apple.security.app-sandbox') is True, 'Camera extension sandbox missing'
+        host_groups = set(host_entitlements.get('com.apple.security.application-groups', []))
+        camera_groups = set(camera_entitlements.get('com.apple.security.application-groups', []))
+        assert host_groups and host_groups == camera_groups, 'Host and camera extension application groups must match'
+        if team:
+            assert host_groups == {f'{team}.com.callayers.renderer-preview.camera'}, 'Unexpected camera application group'
     return info
 
 

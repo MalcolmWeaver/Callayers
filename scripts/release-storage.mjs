@@ -45,12 +45,18 @@ export function isLinuxReleaseKey(key) {
     || /^linux\/arch\/x86_64\/(callayers-(0|[1-9]\d{0,4})\.(0|[1-9]\d{0,4})\.(0|[1-9]\d{0,4})-1-x86_64\.pkg\.tar\.zst(\.sig)?|callayers\.(db|files)(\.tar\.gz)?(\.sig)?)$/.test(key);
 }
 
+export function isMacReleaseKey(key) {
+  if (/^macos\/(arm64|x86_64)\/(appcast\.xml|latest\.json)$/.test(key)) return true;
+  const match = /^macos\/releases\/((?:0|[1-9]\d{0,4})\.(?:0|[1-9]\d{0,4})\.(?:0|[1-9]\d{0,4}))\/(arm64|x86_64)\/(.+)$/.exec(key);
+  return !!match && new RegExp(`^Callayers-${match[1].replaceAll('.', '\\.')}\-[1-9]\\d*-macos-${match[2]}\\.zip(?:\\.sha256)?$`).test(match[3]);
+}
+
 export function createReleaseStore({token, account = process.env.CLOUDFLARE_ACCOUNT_ID, fetchImpl = fetch, uploadImpl = uploadWithWrangler, namespace = 'windows'}) {
-  if (!['windows', 'linux'].includes(namespace)) throw Error('Unexpected release namespace.');
+  if (!['windows', 'linux', 'macos'].includes(namespace)) throw Error('Unexpected release namespace.');
   if (!token || !/^[a-f0-9]{32}$/.test(account ?? '')) throw Error('Configure Cloudflare account and API token.');
   const endpoint = `https://api.cloudflare.com/client/v4/accounts/${account}/r2/buckets/${RELEASE_BUCKET}/objects`;
   const objectUrl = key => `${endpoint}/${key.split('/').map(encodeURIComponent).join('/')}`;
-  const allowedKey = key => namespace === 'linux' ? isLinuxReleaseKey(key) : /^(tester\/(latest|retention)\.json|releases\/(0|[1-9]\d{0,4})\.(0|[1-9]\d{0,4})\.(0|[1-9]\d{0,4})\/CallayersSetup-\3\.\4\.\5\.exe)$/.test(key);
+  const allowedKey = key => namespace === 'linux' ? isLinuxReleaseKey(key) : namespace === 'macos' ? isMacReleaseKey(key) : /^(tester\/(latest|retention)\.json|releases\/(0|[1-9]\d{0,4})\.(0|[1-9]\d{0,4})\.(0|[1-9]\d{0,4})\/CallayersSetup-\3\.\4\.\5\.exe)$/.test(key);
   const reads = new Map();
   async function request(url, options = {}) {
     return fetchImpl(url, {...options, redirect: 'error', signal: AbortSignal.timeout(120000),

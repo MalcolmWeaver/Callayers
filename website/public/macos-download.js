@@ -1,7 +1,7 @@
 async function showMacRelease(arch) {
  const link=document.getElementById(`macos-${arch}-link`),status=document.getElementById(`macos-${arch}-status`);
  if(!link||!status)return;
- const label=arch==='arm64'?'Apple silicon':'Intel';
+ const label=arch==='arm64'?'Apple silicon experimental':'Intel beta';
  try {
   const response=await fetch(`https://downloads.callayers.com/macos/${arch}/latest.json`,{cache:'no-store',credentials:'omit',signal:AbortSignal.timeout(8000)});
   if(response.status===404){status.textContent=`${label}: Not published yet.`;return;}

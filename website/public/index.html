@@ -14,7 +14,7 @@
   <div class="download-action">
     <div class="platform-picker" role="group" aria-label="Download platform">
       <button type="button" id="choose-windows" aria-pressed="false">Windows</button>
-      <button type="button" id="choose-macos" aria-pressed="false">Mac</button>
+      <button type="button" id="choose-macos" aria-pressed="false">Mac <span class="beta-label">Beta</span></button>
       <button type="button" id="choose-linux" aria-pressed="false">Linux <span class="beta-label">Beta</span></button>
     </div>
     <p id="platform-hint" class="fine">Choose Windows, Mac, or Linux to get started.</p>
@@ -26,10 +26,11 @@
     </section>
     <section id="macos-panel" aria-label="Mac installation" hidden>
       <p class="fine">Choose Apple menu → About This Mac. “Chip” means Apple silicon; “Processor” followed by Intel means Intel.</p>
-      <p id="macos-arm64-status" role="status">Apple silicon: Checking release…</p>
-      <a id="macos-arm64-link" class="button" data-download-platform="macos" hidden>Download for Apple silicon <span aria-hidden="true">↓</span></a>
-      <p id="macos-x86_64-status" role="status">Intel: Checking release…</p>
-      <a id="macos-x86_64-link" class="button" data-download-platform="macos" hidden>Download for Intel Mac <span aria-hidden="true">↓</span></a>
+      <p id="macos-x86_64-status" role="status">Intel beta: Checking release…</p>
+      <a id="macos-x86_64-link" class="button" data-download-platform="macos" hidden>Download for Intel Mac (beta) <span aria-hidden="true">↓</span></a>
+      <p id="macos-arm64-status" role="status">Apple silicon experimental: Checking release…</p>
+      <p id="macos-arm64-note" class="fine">Experimental: this build has not been tested on Apple silicon hardware.</p>
+      <a id="macos-arm64-link" class="button" data-download-platform="macos" aria-describedby="macos-arm64-note" hidden>Download for Apple silicon (experimental) <span aria-hidden="true">↓</span></a>
       <details class="install-details"><summary>Installation &amp; updates</summary><p class="fine">Open the ZIP, move Callayers into Applications, and open it there. Sign in, allow webcam access, and enable Callayers Camera when macOS asks. Choose your webcam in Callayers, then choose Callayers as the camera in your calling app. Release builds check for updates automatically.</p></details>
     </section>
     <section id="linux-panel" aria-label="Linux installation" hidden>
