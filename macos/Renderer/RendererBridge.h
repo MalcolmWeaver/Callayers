@@ -10,6 +10,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, readonly) NSString *problem;
 @property(nonatomic, readonly, nullable) NSImage *image;
 - (BOOL)loadCard:(NSString *)html state:(NSString *)state;
+- (BOOL)loadCard:(NSString *)html state:(NSString *)state width:(NSUInteger)width height:(NSUInteger)height;
 - (void)clear;
 - (BOOL)tick;
 - (void)setCardScale:(double)value;

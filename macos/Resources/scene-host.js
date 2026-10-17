@@ -45,7 +45,7 @@ window.CallayersHost = (() => {
       ++generation; frame = null; pending = null; status = 'empty';
       document.getElementById('scene').replaceChildren();
     },
-    load(html, state) {
+    load(html, state, width = 640, height = 400) {
       if (typeof html !== 'string' || !validState(state)) return 'Invalid card or saved values';
       this.clear();
       initialState = state; status = 'loading';
@@ -53,6 +53,7 @@ window.CallayersHost = (() => {
       frame.setAttribute('sandbox', 'allow-scripts');
       frame.setAttribute('allow', "camera 'none'; microphone 'none'; geolocation 'none'; clipboard-read 'none'; clipboard-write 'none'; fullscreen 'none'; autoplay 'none'");
       frame.referrerPolicy = 'no-referrer';
+      frame.style.width = `${width}px`; frame.style.height = `${height}px`;
       frame.style.transform = `scale(${scale})`;
       const script = `(${bridge})(${generation});`.replace(/<\/script/gi, '<\\/script');
       frame.srcdoc = '<!doctype html><html><head><meta charset="utf-8">' + policies +

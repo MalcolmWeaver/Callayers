@@ -28,6 +28,11 @@
     try { _bridgeProblem = @""; _renderer->loadCard(html.UTF8String, state.UTF8String); return YES; }
     catch (const std::exception& error) { _bridgeProblem = @(error.what()); return NO; }
 }
+- (BOOL)loadCard:(NSString *)html state:(NSString *)state width:(NSUInteger)width height:(NSUInteger)height {
+    if (!_renderer) return NO;
+    try { _bridgeProblem = @""; _renderer->loadCard(html.UTF8String, state.UTF8String, (unsigned)width, (unsigned)height); return YES; }
+    catch (const std::exception& error) { _bridgeProblem = @(error.what()); return NO; }
+}
 - (void)clear {
     if (!_renderer) return;
     try { _renderer->clear(); _image = nil; }

@@ -19,7 +19,7 @@ public:
     ~Renderer();
     Renderer(const Renderer&) = delete;
     Renderer& operator=(const Renderer&) = delete;
-    void loadCard(std::string html, std::string state = "{}");
+    void loadCard(std::string html, std::string state = "{}", unsigned width = 640, unsigned height = 400);
     void clear();
     bool tick();
     bool ready() const;

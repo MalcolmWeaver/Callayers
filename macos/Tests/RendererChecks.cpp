@@ -49,6 +49,14 @@ int main(int argc, char** argv) {
     try {
         if (argc < 2 || argc > 3) throw std::runtime_error("Usage: RendererChecks RESOURCE_ROOT [OUTPUT_PNG]");
         const std::filesystem::path resources(argv[1]);
+        Renderer sized(resources.string());
+        sized.loadCard("<div style='width:100%;height:100%;background:rgba(255,0,0,.5)'></div>", "{}", 1100, 650);
+        Until(sized, [&] { return sized.ready() && !sized.frame().bgra.empty(); }, "Custom card did not load");
+        Pump(sized, 100);
+        const auto& custom = sized.frame();
+        Require(custom.bgra[size_t(600 * 1.5) * custom.rowBytes + size_t(1000 * 1.5) * 4 + 3] > 0, "Large custom card was clipped");
+        sized.clear();
+        std::cout << "PASS arbitrary intrinsic card dimensions\n";
         Renderer renderer(resources.string());
         const auto card = Read(resources / "counter-card.html");
         renderer.loadCard(card);
@@ -57,18 +65,18 @@ int main(int argc, char** argv) {
         const auto& frame = renderer.frame();
         Require(frame.width == 1920 && frame.height == 1080, "Wrong frame dimensions");
         Require(frame.bgra[3] == 0, "The scene background is not transparent");
-        const auto translucent = frame.bgra[size_t(160 * 1.5) * frame.rowBytes + size_t(210 * 1.5) * 4 + 3];
+        const auto translucent = frame.bgra[size_t(40 * 1.5) * frame.rowBytes + size_t(50 * 1.5) * 4 + 3];
         Require(translucent > 0 && translucent < 255, "Card transparency was lost");
         auto pixels = frame.bgra;
         Pump(renderer, 450);
         Require(pixels != renderer.frame().bgra, "The animated card did not repaint");
         std::cout << "PASS transparent 1080p pixels and animation\n";
 
-        // Card origin is (160,120). Exercise real input, not a script-triggered click.
-        Click(renderer, 235, 345);
+        // Card origin is (0,0). Exercise real input, not a script-triggered click.
+        Click(renderer, 75, 225);
         auto state = Snapshot(renderer);
         Require(state.find("\"count\":1") != std::string::npos, "Pointer input did not increment the counter");
-        Click(renderer, 280, 410);
+        Click(renderer, 120, 290);
         renderer.key(2, 'A', 0, 0, "", "", false);
         renderer.key(3, 'A', 0, 0, "a", "a", false);
         renderer.key(1, 'A', 0, 0, "", "", false);
@@ -120,7 +128,7 @@ int main(int argc, char** argv) {
         renderer.loadCard(card, "{\"count\":3,\"note\":\"first\"}");
         second.loadCard(card, "{\"count\":9,\"note\":\"second\"}");
         Until(renderer, [&] { second.tick(); return renderer.ready() && second.ready(); }, "Two cards did not become ready");
-        Click(second, 235, 345);
+        Click(second, 75, 225);
         Require(Snapshot(second).find("\"count\":10") != std::string::npos, "Second card did not receive input");
         Require(Snapshot(renderer).find("\"count\":3") != std::string::npos, "Input leaked into another card");
         second.clear(); Pump(second, 80);
