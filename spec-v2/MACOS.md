@@ -48,6 +48,8 @@ The Xcode project currently contains the development preview and `RendererChecks
 
 ## Implementation plan
 
+Intel Mac checkpoint accepted October 16, 2026: the user verified the native workspace preview and reported "yes, cards work" after receiving the card interaction, arrangement, and reopening checks. The x86_64 Debug build completed with Xcode 26.3 on macOS 15.8.1; workspace checks, native Ultralight 1.4 renderer checks, and local signature verification passed. Tested app executable SHA-256: `8bad7cdc0206a3e5935c6a452a0a99ab05cdc2d3c28d4231dabebe568e9850f9`. Apple Silicon native verification remains pending. Next is checkpoint 2, beginning with generated-picture camera delivery.
+
 This is a substantial platform port: the interface, camera capture, camera extension, and system integration are new Mac implementations. Reuse the web assets, backend protocols, behavior, and suitable algorithms. Do not first refactor Windows and Linux into a universal core. Keep the new source under `macos/`, with one implementation shared between Intel and Silicon except for the renderer adapters and dependency selection.
 
 ### 1. Build and renderer proof
