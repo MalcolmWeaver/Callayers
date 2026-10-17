@@ -31,9 +31,14 @@ class MainWindow : public QMainWindow {
 public:
     explicit MainWindow();
 private:
+    friend struct CameraRecoveryChecks;
+    bool sessionAllowed() const;
     bool workspaceAllowed() const;
     void buildSignIn();
+    void buildCameraRecovery();
     void buildWorkspace();
+    void setCameraReady(bool ready);
+    void showCameraRecovery(const QString& title, const QString& body);
     void refresh();
     void refreshCards();
     void tick();
@@ -65,6 +70,15 @@ private:
     QVector<Annotation> annotations_;
     QVector<CameraChoice> cameras_;
     QStackedWidget* stack_ = nullptr;
+    QWidget* workspacePage_ = nullptr;
+    QWidget* libraryPanel_ = nullptr;
+    QStackedWidget* previewStack_ = nullptr;
+    QPushButton* annotateButton_ = nullptr;
+    QWidget* recoveryPage_ = nullptr;
+    QLabel* recoveryTitle_ = nullptr;
+    QLabel* recoveryMessage_ = nullptr;
+    QComboBox* recoveryCameras_ = nullptr;
+    QPushButton* recoveryRetry_ = nullptr;
     Preview* preview_ = nullptr;
     QListWidget* library_ = nullptr;
     QComboBox* camerasBox_ = nullptr;
@@ -86,6 +100,9 @@ private:
     QLabel* operationStatus_ = nullptr;
     QElapsedTimer checkpointTimer_;
     QElapsedTimer consumerTimer_;
+    QElapsedTimer cameraOpening_;
+    CameraChoice wantedCamera_;
+    bool cameraReady_ = false;
     std::future<QString> consumerQuery_;
     QString consumer_;
     Tool tool_ = Tool::Select;
