@@ -28,8 +28,11 @@ struct PreviewView: NSViewRepresentable {
     private var start: InkPoint?
     private var eraserID: UUID?
     private var editor: AnnotationTextEditor?
+    private var editorScale: CGFloat = 0
     private var editorID: UUID?
     private var marked = NSAttributedString(string:"")
+    override init(frame frameRect: NSRect) { super.init(frame:frameRect); registerForDraggedTypes([.fileURL]) }
+    required init?(coder: NSCoder) { super.init(coder:coder); registerForDraggedTypes([.fileURL]) }
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -39,6 +42,18 @@ struct PreviewView: NSViewRepresentable {
         super.viewDidMoveToWindow()
         guard let window,window.delegate !== closeDelegate else { return }
         let delegate = WorkspaceCloseDelegate(original:window.delegate); closeDelegate = delegate; window.delegate = delegate
+    }
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard model?.editable == true, let urls = sender.draggingPasteboard.readObjects(forClasses:[NSURL.self],options:[.urlReadingFileURLsOnly:true]) as? [URL],
+              urls.count == 1,["png","jpg","jpeg","bmp"].contains(urls[0].pathExtension.lowercased()) else { return [] }
+        return .copy
+    }
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard draggingEntered(sender) == .copy,let urls = sender.draggingPasteboard.readObjects(forClasses:[NSURL.self],options:[.urlReadingFileURLsOnly:true]) as? [URL],let url = urls.first else { return false }
+        model?.importImage(url:url); return true
+    }
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize); syncEditor(); needsDisplay = true
     }
     override func updateTrackingAreas() {
         if let tracking { removeTrackingArea(tracking) }
@@ -204,6 +219,12 @@ struct PreviewView: NSViewRepresentable {
             input.wantsLayer = true; input.layer?.borderColor = NSColor.systemCyan.cgColor; input.layer?.borderWidth = 1
             addSubview(input); editor = input; editorID = item.id; window?.makeFirstResponder(input)
         }
-        editor?.frame = rect(item)
+        if let editor, editorScale != sx || editor.frame != rect(item) {
+            editorScale = sx; editor.frame = rect(item)
+            let attributes = AnnotationRenderer.textAttributes(item,scale:sx)
+            editor.typingAttributes = attributes
+            editor.textStorage?.addAttributes(attributes,range:NSRange(location:0,length:editor.string.utf16.count))
+            editor.textContainer?.containerSize = CGSize(width:item.box.width*sx,height:item.box.height*sy)
+        }
     }
 }

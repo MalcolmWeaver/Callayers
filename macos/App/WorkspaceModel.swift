@@ -24,10 +24,11 @@ import UniformTypeIdentifiers
     private var timer: Timer?
     private var observations = Set<AnyCancellable>()
     private var pending: [UUID:UInt] = [:]
-    private var mutation: ((inout WorkspaceDocument)->Void)?
+    private var saveFlow = WorkspaceSaveFlow()
     private var nextSave = Date.distantFuture
     private var quitCompletion: ((Bool)->Void)?
-    private var quitNeedsFreshSnapshot = false
+    @Published private(set) var rendererProblem = ""
+    private var failedCardID: UUID?
     private var runtimeActive = false
     private var annotationImage: CGImage?
     private var afterSave: [()->Void] = []
@@ -52,7 +53,7 @@ import UniformTypeIdentifiers
         auth.$allowed.removeDuplicates().sink { [weak self] allowed in
             guard let self else { return }
             self.video.setSessionAllowed(allowed)
-            if !allowed { self.generation.cancel(); self.runtimeActive = false; self.save() }
+            if !allowed { self.generation.cancel(); self.runtimeActive = false; if self.saving { self.saveFlow.requestFreshSnapshot() } else { self.save() } }
             self.objectWillChange.send()
         }.store(in:&observations)
         timer = Timer(timeInterval:1.0/30,repeats:true) { [weak self] _ in Task { @MainActor [weak self] in self?.tick() } }
@@ -109,7 +110,7 @@ import UniformTypeIdentifiers
         guard editable, let id = document.selectedID else { return }
         save { doc in guard let i = doc.cards.firstIndex(where:{$0.id == id}) else { return }; _ = CardRevision.restore(&doc.cards[i]) }
     }
-    func reloadSavedCard() { guard !locked,!saving,let id = document.selectedID else { return }; renderers[id] = nil; rendererRevisions[id] = nil; problem = ""; syncRenderers() }
+    func reloadSavedCard() { guard !locked,!saving,let id = failedCardID ?? document.selectedID else { return }; renderers[id] = nil; rendererRevisions[id] = nil; problem = ""; syncRenderers() }
     func importImage(url: URL? = nil) {
         guard editable,document.cards.count < 100 else { return }
         var source = url
@@ -128,34 +129,43 @@ import UniformTypeIdentifiers
     }
     func generate(attachments: [TextAttachment]) {
         let epoch = auth.epoch
-        generation.start(prompt:document.prompt,attachments:attachments,card:selected,auth:auth) { [weak self] id,revision,content in
+        generation.start(prompt:document.prompt,attachments:attachments,card:selected,auth:auth) { [weak self] id,revision,content,permit in
             guard let self else { return false }
-            return await self.applyContent(id:id,revision:revision,content:content,epoch:epoch,kind:id == nil ? "ai_create" : "ai_revision")
+            return await self.applyContent(id:id,revision:revision,content:content,epoch:epoch,kind:id == nil ? "ai_create" : "ai_revision",permit:permit)
         }
     }
-    func applyContent(id: UUID?,revision: UUID?,content: CardContent,epoch: UUID,kind: String) async -> Bool {
-        for _ in 0..<100 { if !saving { break }; try? await Task.sleep(nanoseconds:50_000_000) }
-        guard !Task.isCancelled, editable,auth.epoch == epoch,content.valid() else { return false }
+    func applyContent(id: UUID?,revision: UUID?,content: CardContent,epoch: UUID,kind: String,permit: GenerationPermit? = nil) async -> Bool {
+        while saving {
+            guard !Task.isCancelled,permit?.valid != false,auth.epoch == epoch,auth.allowed,!closing else { return false }
+            do { try await Task.sleep(nanoseconds:50_000_000) } catch { return false }
+        }
+        guard !Task.isCancelled,permit?.valid != false,auth.allowed,!locked,!closing,auth.epoch == epoch,content.valid() else { return false }
         if let id { guard document.cards.contains(where:{$0.id == id && $0.revision == revision}) else { return false } }
         else if document.cards.count >= 100 { problem = "Your library has 100 cards. Remove a card before adding another."; return false }
         let createdID = id ?? UUID()
-        afterSave.append { [weak self] in guard let self,self.auth.epoch == epoch else { return }; self.onCreated?(kind,createdID) }
-        save { doc in
-            if let id,let revision,let i = doc.cards.firstIndex(where:{$0.id == id}) {
-                _ = CardRevision.apply(to:&doc.cards[i],expectedRevision:revision,content:content)
-            } else {
-                var card = WorkspaceCard(name:content.name,html:content.html); card.id = createdID
-                card.image = content.image; card.contentWidth = content.width; card.contentHeight = content.height
-                card.scale = min(1,480/content.width,340/content.height); card.visible = false; card.place(x:48,y:48)
-                doc.cards.append(card)
+        return await withCheckedContinuation { continuation in
+            save { [weak self] doc in
+                guard let self,permit?.valid != false,self.auth.allowed,self.auth.epoch == epoch else { continuation.resume(returning:false); return }
+                let applied: Bool
+                if let id,let revision,let i = doc.cards.firstIndex(where:{$0.id == id}) {
+                    applied = CardRevision.apply(to:&doc.cards[i],expectedRevision:revision,content:content)
+                } else if id == nil {
+                    var card = WorkspaceCard(name:content.name,html:content.html); card.id = createdID
+                    card.image = content.image; card.contentWidth = content.width; card.contentHeight = content.height
+                    card.scale = min(1,480/content.width,340/content.height); card.visible = false; card.place(x:48,y:48)
+                    doc.cards.append(card); applied = true
+                } else { applied = false }
+                if applied {
+                    doc.selectedID = createdID; doc.prompt = ""
+                    self.afterSave.append { [weak self] in guard let self,self.auth.epoch == epoch else { return }; self.onCreated?(kind,createdID) }
+                }
+                continuation.resume(returning:applied)
             }
-            doc.selectedID = createdID; doc.prompt = ""
         }
-        return true
     }
     func save(_ change: ((inout WorkspaceDocument)->Void)? = nil) {
         guard !locked,!saving else { return }
-        saving = true; mutation = change; pending = [:]
+        saving = true; saveFlow.begin(change); pending = [:]
         for card in document.cards {
             guard let renderer = renderers[card.id],rendererRevisions[card.id] == card.revision else { continue }
             if !renderer.ready { continue }
@@ -167,11 +177,11 @@ import UniformTypeIdentifiers
     func saveBeforeQuit(_ completion: @escaping (Bool)->Void) {
         if locked { completion(true); return }
         quitCompletion = completion
-        if saving { quitNeedsFreshSnapshot = true } else { save() }
+        if saving { saveFlow.requestFreshSnapshot() } else { save() }
     }
     private func finishSave() {
         guard !writing else { return }; writing = true
-        mutation?(&document); mutation = nil
+        saveFlow.applyPending(to:&document)
         guard let store else { failSave("Couldn't save your workspace. Retry."); return }
         let snapshot = document
         let events = afterSave; afterSave = []
@@ -183,11 +193,12 @@ import UniformTypeIdentifiers
                 guard let self else { return }
                 switch result {
                 case .success:
-                    self.saving = false; self.writing = false; self.problem = ""; self.syncRenderers()
+                    self.saving = false; self.writing = false; self.problem = ""
                     self.nextSave = self.document == snapshot ? Date().addingTimeInterval(2) : Date().addingTimeInterval(0.1)
                     events.forEach {$0()}
-                    if self.quitNeedsFreshSnapshot { self.quitNeedsFreshSnapshot = false; self.save() }
-                    else if self.quitCompletion != nil {
+                    if self.saveFlow.consumeFreshSnapshot() { self.save(); return }
+                    self.syncRenderers()
+                    if self.quitCompletion != nil {
                         Task { @MainActor in
                             await self.telemetry.finish(auth:self.auth)
                             let completion = self.quitCompletion; self.quitCompletion = nil; completion?(true)
@@ -200,8 +211,9 @@ import UniformTypeIdentifiers
     }
     private var writing = false
     private func failSave(_ error: String) {
-        pending = [:]; mutation = nil; saving = false; writing = false; problem = error; nextSave = .distantFuture; syncRenderers()
-        quitNeedsFreshSnapshot = false; let completion = quitCompletion; quitCompletion = nil; completion?(false)
+        saveFlow.applyPending(to:&document)
+        pending = [:]; saving = false; writing = false; problem = error; nextSave = .distantFuture; syncRenderers()
+        _ = saveFlow.consumeFreshSnapshot(); let completion = quitCompletion; quitCompletion = nil; completion?(false)
     }
     private func syncRenderers() {
         let visible = runtimeActive ? Set(visibleCards.map(\.id)) : []
@@ -218,6 +230,10 @@ import UniformTypeIdentifiers
         frameSerial &+= 1
     }
     private func tick() {
+        let failed = visibleCards.first { !(renderers[$0.id]?.problem.isEmpty ?? true) }
+        failedCardID = failed?.id
+        let detail = failed.map { "Couldn't open “\($0.name)”. Reload the card or hide it to continue." } ?? ""
+        if detail != rendererProblem { rendererProblem = detail }
         var changed = false
         for renderer in renderers.values { if renderer.tick() { changed = true } }
         let cardLayers: [VideoLayer] = runtimeActive ? visibleCards.compactMap { card in
@@ -245,7 +261,7 @@ import UniformTypeIdentifiers
         let active = WorkspaceLifecycle.shouldRender(allowed:auth.allowed,camera:video.cameraReady,visible:video.previewVisible,consumer:video.consumerCount > 0,locked:locked)
         if active != runtimeActive {
             runtimeActive = active
-            if active { syncRenderers() } else if !saving { save() }
+            if active { syncRenderers() } else if saving { saveFlow.requestFreshSnapshot() } else { save() }
         }
         if changed { frameSerial &+= 1 }
         if saving && !writing {

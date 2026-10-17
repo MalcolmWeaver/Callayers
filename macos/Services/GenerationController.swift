@@ -6,14 +6,16 @@ import Combine
     @Published private(set) var message = ""
     private var operation: Task<Void,Never>?
     private var requestID: UUID?
-    func cancel() { let hadRequest = requestID != nil; requestID = nil; operation?.cancel(); operation = nil; busy = false; if hadRequest { message = "Request canceled. Existing content is unchanged." } }
+    private var permit: GenerationPermit?
+    func cancel() { let hadRequest = requestID != nil; permit?.invalidate(); permit = nil; requestID = nil; operation?.cancel(); operation = nil; busy = false; if hadRequest { message = "Request canceled. Existing content is unchanged." } }
     func start(prompt: String, attachments: [TextAttachment], card: WorkspaceCard?, auth: AuthController,
-               apply: @escaping (UUID?,UUID?,CardContent) async -> Bool) {
+               apply: @escaping (UUID?,UUID?,CardContent,GenerationPermit) async -> Bool) {
         guard !busy else { return }
         let id = UUID(), epoch = auth.epoch
         let body: [String:Any]
         do { body = try GenerationContract.body(prompt:prompt,attachments:attachments,current:card,id:id) }
         catch { message = error.localizedDescription; return }
+        let permission = GenerationPermit(); permit = permission
         requestID = id; busy = true; message = card == nil ? "Creating your card…" : "Updating your card…"
         operation = Task { [weak self] in
             guard let self else { return }
@@ -26,7 +28,9 @@ import Combine
                       value["requestId"] as? String == id.uuidString.lowercased(), let object = value["card"] as? [String:Any] else { return }
                 let content = try GenerationContract.content(object,image:card?.image)
                 if let allowance = value["allowance"] as? [String:Any] { auth.allowance = AIAllowance(allowance) }
-                message = await apply(card?.id,card?.revision,content) ? "" : "The card changed while this request was running. The result was discarded."
+                let applied = await apply(card?.id,card?.revision,content,permission)
+                guard requestID == id,auth.epoch == epoch,!Task.isCancelled else { return }
+                message = applied ? "" : "The card changed while this request was running. The result was discarded."
             } catch {
                 guard requestID == id, auth.epoch == epoch else { return }
                 if let failure = error as? APIError {

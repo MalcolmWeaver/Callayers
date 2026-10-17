@@ -53,14 +53,29 @@ final class AuthFixtureProtocol: URLProtocol {
         try check(auth.allowed && auth.accountID == "user" && storage.value?.refresh == "new-refresh", "Valid session did not restore")
         let generation = GenerationController()
         var applied = 0
-        generation.start(prompt:"Make an agenda",attachments:[],card:nil,auth:auth) { _,_,_ in applied += 1; return true }
+        generation.start(prompt:"Make an agenda",attachments:[],card:nil,auth:auth) { _,_,_,_ in applied += 1; return true }
         for _ in 0..<200 { if !generation.busy { break }; try await Task.sleep(nanoseconds:10_000_000) }
         try check(applied == 1,"Valid generation did not apply: " + generation.message)
-        generation.start(prompt:"Another card",attachments:[],card:nil,auth:auth) { _,_,_ in applied += 1; return true }
+        var pendingApply: CheckedContinuation<Bool,Never>?
+        var queuedPermit: GenerationPermit?
+        generation.start(prompt:"Wait for save",attachments:[],card:nil,auth:auth) { _,_,_,permit in
+            queuedPermit = permit
+            return await withCheckedContinuation { pendingApply = $0 }
+        }
+        for _ in 0..<200 { if pendingApply != nil { break }; try await Task.sleep(nanoseconds:10_000_000) }
+        try check(pendingApply != nil,"Delayed apply did not start")
+        generation.cancel()
+        generation.start(prompt:"New request",attachments:[],card:nil,auth:auth) { _,_,_,_ in true }
+        try check(queuedPermit?.valid == false,"Cancellation did not invalidate queued save permission")
+        pendingApply?.resume(returning:false)
+        try await Task.sleep(nanoseconds:30_000_000)
+        try check(generation.message == "Creating your card…","Canceled apply overwrote a newer request status")
+        for _ in 0..<200 { if !generation.busy { break }; try await Task.sleep(nanoseconds:10_000_000) }
+        generation.start(prompt:"Another card",attachments:[],card:nil,auth:auth) { _,_,_,_ in applied += 1; return true }
         try await Task.sleep(nanoseconds:50_000_000); generation.cancel()
         try await Task.sleep(nanoseconds:300_000_000)
         try check(applied == 1,"Canceled generation changed content")
-        generation.start(prompt:"Another card",attachments:[],card:nil,auth:auth) { _,_,_ in applied += 1; return true }
+        generation.start(prompt:"Another card",attachments:[],card:nil,auth:auth) { _,_,_,_ in applied += 1; return true }
         try await Task.sleep(nanoseconds:50_000_000)
         auth.signOut()
         try await Task.sleep(nanoseconds:300_000_000)

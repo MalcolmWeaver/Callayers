@@ -20,6 +20,10 @@ import AppKit
         try check(completed == AnnotationRenderer.render(controller.items)!.dataProvider!.data! as Data,"Draft entered output")
         controller.finishText(nil)
         try check(completed == AnnotationRenderer.render(controller.items)!.dataProvider!.data! as Data,"Canceled edit changed output")
+        var styled = text; styled.font = 54
+        controller.put(styled); controller.color = "#00ff00"
+        try check(controller.selected?.font == 54,"Recolor reset the selected text font")
+        try check((AnnotationRenderer.textAttributes(styled,scale:2)[.font] as? NSFont)?.pointSize == 108,"Private editor font does not follow preview scale")
         var doc = WorkspaceDocument(); doc.annotations = [item]
         try check(try doc.validated().annotations.count == 1, "Valid annotation rejected")
         doc.annotations[0].box.width = .infinity

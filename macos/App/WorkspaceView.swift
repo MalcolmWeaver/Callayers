@@ -55,6 +55,10 @@ struct WorkspaceView: View {
                     Spacer(minLength:0)
                     PreviewView(model:model).aspectRatio(16/9,contentMode:.fit).frame(maxWidth:.infinity)
                     Spacer(minLength:0)
+                    if !model.rendererProblem.isEmpty {
+                        Text(model.rendererProblem).font(.callout).foregroundColor(.red)
+                        Button("Reload card") { model.reloadSavedCard() }.disabled(model.saving)
+                    }
                     if !model.problem.isEmpty {
                         Text(model.problem).font(.callout).foregroundColor(.red).textSelection(.enabled)
                         HStack {

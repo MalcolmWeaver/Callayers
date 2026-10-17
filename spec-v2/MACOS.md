@@ -2,6 +2,16 @@
 
 Callayers on Mac follows [APP.md](APP.md), using the existing backend and local card model. Apple Silicon is the primary product target. Intel is a compatibility target; the user's 2018 Mac mini is the initial Intel verification machine. Its installed macOS version is not yet known.
 
+## Local Apple Silicon build — October 17, 2026
+
+A local arm64 app build is prepared as Callayers 0.4.0/build 9 on an Apple M5 MacBook Air with Xcode 27. It extends the earlier renderer preview with the main GitHub workspace layout, real Google/Firebase sign-in and Keychain renewal, authenticated AI creation/revision and text sources, bounded local image import and preview drops, arbitrary card sizes, previous-version restoration, completed annotations/private native text editing, automatic background saves, camera/session/idle lifecycle handling, and the approved bounded telemetry. Application and extension identifiers remain unchanged for producer authentication; the installed product is named `Callayers.app`.
+
+Production cards are stored in `~/Library/Application Support/Callayers/Workspace/`; the earlier `DevelopmentWorkspace` is left separate. New content and backups retain local image pixels, while AI revision requests contain only the local image placeholder. The full app requires validated Google sign-in and a working selected webcam before opening its workspace.
+
+The final arm64 package build, native renderer isolation observer, workspace/domain/image/auth/session/generation/annotation/delivery/save-flow/telemetry checks, signature verification, and ZIP integrity checks pass. Backend tests pass 36/36; the deployed service health reports generation, revision, and telemetry ready. Independent code review identified and verified fixes for deferred content retention, final snapshots before renderer teardown, renderer errors, editor resizing, image drops, annotation recoloring, and queued-request cancellation. These automated checks do not establish successful real-account sign-in, AI generation, interactive visual acceptance, or calling-app video on this Mac.
+
+This Mac currently has no Apple signing identity and Xcode exposes only a Personal Team. The local app and extension are ad-hoc signed; actual camera extension activation and Meet/Zoom acceptance remain blocked on paid-team signing and normal macOS approval. Public distribution, notarization, release/update hosting, and Intel acceptance are separate from this local build. The checkpoint notes below retain the earlier preview history.
+
 ## Product and interface
 
 Use the Windows app as the reference for workspace layout and interactions, including card selection, visibility, arrangement, annotation tools, and private editing. Adapt menus, keyboard shortcuts, permissions, and window behavior to macOS conventions. Reusing Linux code must not require preserving its current interface choices.

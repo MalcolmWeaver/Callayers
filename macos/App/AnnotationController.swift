@@ -42,10 +42,16 @@ enum AnnotationGeometry {
 
 @MainActor final class AnnotationController: ObservableObject {
     @Published var tool: AnnotationTool = .select
-    @Published var color = "#ffd166" { didSet { updateSelectedStyle() } }
-    @Published var size = 6.0 { didSet { updateSelectedStyle() } }
-    @Published var font = 36.0 { didSet { updateSelectedStyle() } }
-    @Published var selectedID: UUID?
+    @Published var color = "#ffd166" { didSet { updateSelectedStyle(color:color) } }
+    @Published var size = 6.0 { didSet { updateSelectedStyle(size:size) } }
+    @Published var font = 36.0 { didSet { updateSelectedStyle(font:font) } }
+    private var adjustingStyle = false
+    @Published var selectedID: UUID? {
+        didSet {
+            guard let item = selected else { return }
+            adjustingStyle = true; color = item.color; size = item.size; font = item.font; adjustingStyle = false
+        }
+    }
     @Published var editing: Annotation?
     @Published private(set) var items: [Annotation] = []
     var changed: (([Annotation],Bool)->Void)?
@@ -66,8 +72,8 @@ enum AnnotationGeometry {
         item.text = String(text.prefix(4096))
         put(item,creation:!items.contains(where:{$0.id == item.id}))
     }
-    private func updateSelectedStyle() {
-        guard var item = selected, editing == nil else { return }
-        item.color = color; item.size = size; item.font = font; put(item)
+    private func updateSelectedStyle(color: String? = nil,size: Double? = nil,font: Double? = nil) {
+        guard !adjustingStyle,var item = selected,editing == nil else { return }
+        if let color { item.color = color }; if let size { item.size = size }; if let font { item.font = font }; put(item)
     }
 }

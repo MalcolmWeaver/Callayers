@@ -7,13 +7,14 @@ export CLANG_MODULE_CACHE_PATH="$build/ModuleCache"
 export SWIFT_MODULECACHE_PATH="$build/ModuleCache"
 models=("$root/macos/App/WorkspaceModels.swift" "$root/macos/App/AnnotationModels.swift")
 auth=("$root/macos/Services/BackendClient.swift" "$root/macos/Services/AuthCallback.swift" "$root/macos/Services/SessionKeychain.swift" "$root/macos/Services/AuthController.swift")
-generation=("$root/macos/Services/GenerationContract.swift" "$root/macos/Services/GenerationController.swift")
+generation=("$root/macos/Services/GenerationPermit.swift" "$root/macos/Services/GenerationContract.swift" "$root/macos/Services/GenerationController.swift")
 check() {
     local name="$1"; shift
     xcrun --sdk macosx swiftc -swift-version 5 -parse-as-library "$@" "$root/macos/Tests/$name.swift" -o "$build/$name"
     "$build/$name"
 }
 check DomainChecks "${models[@]}" "$root/macos/App/CardRevision.swift"
+check SaveFlowChecks "${models[@]}" "$root/macos/App/WorkspaceSaveFlow.swift" "$root/macos/Services/GenerationPermit.swift"
 check ImageChecks "${models[@]}" "$root/macos/App/ImageImport.swift"
 check AuthChecks "${auth[@]}"
 check AuthSessionChecks "${models[@]}" "${auth[@]}" "${generation[@]}"
