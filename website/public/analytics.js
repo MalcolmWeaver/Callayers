@@ -80,6 +80,7 @@
  });
  document.addEventListener('click',event=>{
   const link=event.target.closest?.('a');if(!link)return;
+  if(link.dataset?.bookingLocation){window.callayersTrack('setup_booking_clicked',{button_location:link.dataset.bookingLocation});return;}
   if(link.dataset?.downloadPlatform==='macos')window.callayersTrack('installer_download_clicked',{platform:'macos',version:link.dataset.version,architecture:link.id==='macos-arm64-link'?'arm64':'x86_64',button_location:'download'});
   if(link.id==='installer-link'||link.dataset?.downloadPlatform==='windows')window.callayersTrack('installer_download_clicked',{version:link.dataset.version,button_location:link.id==='installer-link'?'download':link.closest('header')?'navigation':'hero'});
   else if(link.getAttribute('href')==='#download')window.callayersTrack('get_callayers_clicked',{button_location:link.closest('header')?'navigation':'hero'});

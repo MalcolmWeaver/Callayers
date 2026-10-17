@@ -2,6 +2,10 @@
 
 Build small improvements with observable outcomes.
 
+## Git remote writes
+
+Agents may prepare changes and create local commits. Agents must not write to Git remotes. The user performs remote writes, including pushing commits or tags, creating or deleting remote branches, and merging remote pull requests. Do not bypass this rule through hosting APIs, tools, workflows, or another agent. Remote reads, such as fetch and inspection, are allowed.
+
 ## Feature verification
 
 When a feature is implemented and its build is ready, include a short **Verification: <feature>** section in the chat response. Do not create a separate verification document or checklist file.
@@ -21,6 +25,12 @@ The user performs runtime verification; the agent prepares builds and fixes fail
 Keep observations in the conversation. The agent records the accepted outcome and tested build in Git. If a fix needs another build, provide updated verification steps in chat when that build is ready, focused on the affected behavior.
 
 Add resource measurements only when needed to assess a concrete usability concern.
+
+## Mac development builds
+
+Use Apple Development signing for Mac builds intended for the user to launch or to access the real Keychain session, webcam, or virtual camera. Build through `bash scripts/build-macos.sh --team TEAM_ID`, reusing the configured team and bundle identifiers. Verify signing for both the host and embedded camera extension. See [Mac development](README.md#mac-development) for the build and installation workflow.
+
+Unsigned or ad-hoc builds are limited to isolated automated fixtures and static asset inspection; do not present them as normal interactive verification builds. Local development does not need notarization on each rebuild. Public downloads follow the Developer ID and notarization process in [release operations](release/README.md#mac-build-and-release-preparation).
 
 ## Model recommendations
 

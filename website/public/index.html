@@ -1,16 +1,21 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Callayers — Bring your ideas into the call</title><meta name="description" content="Create interactive cards, draw on your webcam and bring the result into your video call. Check downloads for Windows, Mac and Linux."><link rel="icon" href="/callayers-mark.svg" type="image/svg+xml"><link rel="stylesheet" href="/styles.css"><script src="/download-ui.js" defer></script><script src="/download.js" defer></script><script src="/linux-download.js" defer></script><script src="/macos-download.js" defer></script><script src="/analytics.js" defer></script></head>
-<body><header class="wrap"><a class="brand" href="/" aria-label="Callayers home"><img class="brand-logo" src="/callayers-mark.svg" alt="" width="40" height="40">callayers</a><a href="#download" class="nav-link" data-download-cta><span data-download-label>Get Callayers</span> <span aria-hidden="true">↗</span></a></header>
-<main><section class="hero wrap"><div class="hero-copy"><p class="eyebrow">YOUR CAMERA. YOUR IDEAS.</p><h1>Bring more<br><span>into the call.</span></h1><p class="intro">Turn an idea into an interactive card. Add an image, sketch a thought, and show it all alongside your webcam.</p><a class="button" href="#download" data-download-cta><span data-download-label>Get Callayers</span> <svg class="download-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3v12M7 10l5 5 5-5M5 16v4h14v-4"/></svg></a><p class="fine">Windows · Mac · Linux beta</p></div></section>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Callayers — Bring your ideas into the call</title><meta name="description" content="Create interactive cards, draw on your webcam and bring the result into your video call. Book a setup call or install Callayers yourself on Windows, Mac or Linux."><link rel="icon" href="/callayers-mark.svg" type="image/svg+xml"><link rel="stylesheet" href="/styles.css"><script src="/download-ui.js" defer></script><script src="/download.js" defer></script><script src="/linux-download.js" defer></script><script src="/macos-download.js" defer></script><script src="/analytics.js" defer></script></head>
+<body><header class="wrap"><a class="brand" href="/" aria-label="Callayers home"><img class="brand-logo" src="/callayers-mark.svg" alt="" width="40" height="40">callayers</a><a href="https://calendar.app.google/CVnzAvt71HkYhqK38" class="nav-link" target="_blank" rel="noopener" aria-label="Book a setup call (opens in a new tab)" data-booking-location="navigation">Book a setup call <span aria-hidden="true">↗</span></a></header>
+<main><section class="hero wrap"><div class="hero-copy"><p class="eyebrow">YOUR CAMERA. YOUR IDEAS.</p><h1>Bring more<br><span>into the call.</span></h1><p class="intro">Turn an idea into an interactive card. Add an image, sketch a thought, and show it all alongside your webcam.</p><a class="button" href="https://calendar.app.google/CVnzAvt71HkYhqK38" target="_blank" rel="noopener" aria-label="Book a setup call (opens in a new tab)" data-booking-location="hero">Book a setup call <span aria-hidden="true">↗</span></a><p class="fine">Early access for Windows, Mac and Linux. Personal setup help recommended.</p></div></section>
 <figure class="product-visual wrap"><img src="/callayers-zoom-windows.png" alt="Illustrated Zoom meeting on Windows showing a presenter beside a Today's plan card, with Choose a direction circled in lavender." width="1672" height="941" fetchpriority="high"><figcaption>Your webcam, cards and annotations — together in Zoom. Illustrative mockup.</figcaption></figure>
 <section class="features wrap" aria-label="What you can do"><article><span class="feature-number">01 / CREATE</span><h2>Say it. Make a card.</h2><p>Describe what you need. Create and revise interactive cards with AI, then use their controls while presenting.</p></article><article><span class="feature-number">02 / EXPLAIN</span><h2>Show the thought.</h2><p>Bring in an image. Add text, draw an arrow or sketch directly over your camera view.</p></article><article><span class="feature-number">03 / SHARE</span><h2>Choose Callayers.</h2><p>Select the Callayers camera in your calling app. Your webcam, cards and annotations travel together.</p></article></section>
 <section id="download" class="download wrap" aria-labelledby="download-heading">
   <div class="download-copy">
     <p class="eyebrow">GET CALLAYERS</p>
-    <h2 id="download-heading">Ready for your next call.</h2>
-    <p>Choose your setup. Then sign in with Google, select your webcam, and create your first card.</p>
-    <p class="fine">Your webcam, cards, and annotations — together in your calling app.</p>
+    <h2 id="download-heading">Let’s get Callayers working on your computer.</h2>
+    <p>Callayers is in early access. Book a setup call with Malcolm for help installing it, connecting your webcam, and getting your first card into a video call.</p>
   </div>
+  <div class="setup-action">
+    <a class="button" href="https://calendar.app.google/CVnzAvt71HkYhqK38" target="_blank" rel="noopener" aria-label="Book a setup call (opens in a new tab)" data-booking-location="setup">Book a setup call <span aria-hidden="true">↗</span></a>
+    <p class="fine">Choose a time on Google Calendar.</p>
+  </div>
+  <details id="self-service-downloads" class="self-service">
+    <summary>Prefer to install it yourself? <span>View downloads and setup instructions.</span></summary>
   <div class="download-action">
     <div class="platform-picker" role="group" aria-label="Download platform">
       <button type="button" id="choose-windows" aria-pressed="false">Windows</button>
@@ -20,9 +25,10 @@
     <p id="platform-hint" class="fine">Choose Windows, Mac, or Linux to get started.</p>
     <section id="windows-download" aria-label="Windows download" hidden>
       <p id="release-status" role="status">Windows: Checking release…</p>
-      <a id="installer-link" class="button" hidden>Download for Windows <span aria-hidden="true">↓</span></a>
+      <p id="windows-install-note" class="fine">The Windows installer is currently unsigned, so Windows may show an unknown-publisher warning.</p>
+      <a id="installer-link" class="button" aria-describedby="windows-install-note" hidden>Download for Windows <span aria-hidden="true">↓</span></a>
       <p class="fine">For Windows 10 &amp; 11 on Intel/AMD 64-bit PCs.</p>
-      <details class="install-details"><summary>Installation &amp; updates</summary><p class="fine">The tester installer is unsigned; Windows may show an unknown-publisher warning. Updates install automatically when it’s safe, keeping your saved work.</p></details>
+      <details class="install-details"><summary>Installation &amp; updates</summary><p class="fine">Updates install automatically when it’s safe, keeping your saved work.</p></details>
     </section>
     <section id="macos-panel" aria-label="Mac installation" hidden>
       <p class="fine">Choose Apple menu → About This Mac. “Chip” means Apple silicon; “Processor” followed by Intel means Intel.</p>
@@ -62,5 +68,6 @@
     </section>
     <noscript><p class="fine">Enable JavaScript to load the latest release and installation options.</p></noscript>
   </div>
+  </details>
 </section></main>
 <footer class="wrap"><span>callayers</span><a href="/privacy.html">Privacy Policy</a><a href="/terms.html">Terms of Service</a><a href="mailto:malcolm@callayers.com">malcolm@callayers.com</a><span>Made for the conversation.</span></footer></body></html>
