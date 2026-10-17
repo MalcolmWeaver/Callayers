@@ -58,6 +58,20 @@ test('verified ticket identifies original anonymous browser, removes ticket befo
  assert.deepEqual(html.calls.slice(-1),[['identify','callayers:owner']]);
 });
 
+test('setup booking clicks are distinct from downloads and do not block navigation',async()=>{
+ const page=await visit();
+ for(const button_location of ['navigation','hero','setup']){
+  page.listeners.click({target:{closest:()=>({dataset:{bookingLocation:button_location}})},
+   preventDefault(){throw Error('Booking navigation must not be blocked');}});
+  const event=page.events.at(-1);
+  assert.equal(event.event,'setup_booking_clicked');
+  assert.equal(event.properties.button_location,button_location);
+  assert.equal(event.properties.source,'callayers_website');
+ }
+ const blocked=await visit({blocked:true});
+ assert.doesNotThrow(()=>blocked.listeners.click({target:{closest:()=>({dataset:{bookingLocation:'hero'}})}}));
+});
+
 test('blocked analytics or an expired/replayed ticket never identifies an account or changes the completion page', async()=>{
  const blocked=await visit({signedIn:true,blocked:true});
  assert.deepEqual(blocked.calls,[['clean_url']]);assert.equal(blocked.requests.length,1);

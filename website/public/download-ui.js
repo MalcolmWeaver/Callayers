@@ -1,15 +1,14 @@
 (() => {
  const byId=id=>document.getElementById(id);
- const windows=byId('choose-windows'),linux=byId('choose-linux'),distro=byId('linux-distro');
+ const windows=byId('choose-windows'),linux=byId('choose-linux'),macos=byId('choose-macos'),distro=byId('linux-distro');
  if(!windows||!linux||!distro)return;
  // Browsers expose Linux, but cannot reliably identify its distribution or release.
  if(!distro.value)distro.value='ubuntu';
  const nav=typeof navigator==='undefined'?{}:navigator;
  const agent=nav.userAgent??'',platform=nav.userAgentData?.platform??nav.platform??'';
  const mobile=nav.userAgentData?.mobile||/Android|iPhone|iPad|iPod|CrOS/i.test(agent)||(/Mac/i.test(platform)&&nav.maxTouchPoints>1);
- const detected=mobile?'':/Win/i.test(platform)||/Windows NT/i.test(agent)?'windows':/Linux/i.test(platform)||/Linux/i.test(agent)?'linux':'';
+ const detected=mobile?'':/Win/i.test(platform)||/Windows NT/i.test(agent)?'windows':/Linux/i.test(platform)||/Linux/i.test(agent)?'linux':/Mac/i.test(platform)||/Macintosh/i.test(agent)?'macos':'';
  let selected=detected;
- const topLinks=[...document.querySelectorAll('[data-download-cta]')];
  const install='curl -fsSL https://downloads.callayers.com/linux/install.sh | sudo bash';
  const experimental=new Set(['debian','mint','pop','fedora','arch']);
  const native=new Set(['fedora','arch']);
@@ -39,29 +38,16 @@
  function refresh() {
   windows.setAttribute('aria-pressed',String(selected==='windows'));
   linux.setAttribute('aria-pressed',String(selected==='linux'));
+  macos?.setAttribute('aria-pressed',String(selected==='macos'));
+  if(byId('macos-panel'))byId('macos-panel').hidden=selected!=='macos';
   byId('windows-download').hidden=selected!=='windows';
   byId('linux-panel').hidden=selected!=='linux';
-  byId('platform-hint').textContent=selected?`${selected===detected?'Selected for your browser':'Selected'}: ${selected==='windows'?'Windows':'Linux'}. You can switch platforms above.`:'Choose a desktop platform. Callayers is available for Windows and supported Linux systems.';
-  const installer=byId('installer-link');
-  for(const link of topLinks){
-   const direct=selected==='windows'&&!installer.hidden;
-   link.href=direct?installer.href:'#download';
-   link.dataset.downloadPlatform=direct?'windows':'';
-   if(direct)link.dataset.version=installer.dataset.version;else delete link.dataset.version;
-   link.querySelector('[data-download-label]').textContent=selected==='linux'?'Install for Linux':selected==='windows'?'Download for Windows':'Get Callayers';
-  }
+  byId('platform-hint').textContent=selected?`${selected===detected?'Selected for your browser':'Selected'}: ${selected==='windows'?'Windows':selected==='macos'?'Mac':'Linux'}. You can switch platforms above.`:'Choose a desktop platform to check its published releases.';
   updateCommand();
  }
- for(const [button,value]of [[windows,'windows'],[linux,'linux']])button.addEventListener('click',()=>{selected=value;refresh();});
+ for(const [button,value]of [[windows,'windows'],[linux,'linux'],[macos,'macos']])button?.addEventListener('click',()=>{selected=value;refresh();});
  distro.addEventListener('change',updateCommand);
  fusion.addEventListener('change',updateCommand);
- for(const link of topLinks)link.addEventListener('click',event=>{
-  if(link.dataset.downloadPlatform==='windows')return;
-  event.preventDefault();
-  byId('download').scrollIntoView({behavior:'auto',block:'start'});
-  if(selected==='linux'&&!byId('linux-download').hidden)distro.focus({preventScroll:true});
-  else (selected==='linux'?linux:windows).focus({preventScroll:true});
- });
  byId('copy-linux').addEventListener('click',async()=>{
   const release=byId('linux-download'),command=byId('linux-command').textContent;
   if(release.hidden||byId('linux-command-panel').hidden||!command||!release.dataset.version)return;

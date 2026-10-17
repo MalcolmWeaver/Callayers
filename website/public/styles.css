@@ -32,7 +32,6 @@ h2 { font-size: 25px; line-height: 1.25; font-weight: 650; letter-spacing: -.8px
 .button:hover { background: #bbb4ff; }
 button, select { font: inherit; }
 button { cursor: pointer; }
-.download-icon { display: block; flex: none; }
 .button:focus-visible, a:focus-visible, button:focus-visible, select:focus-visible, pre:focus-visible, summary:focus-visible { outline: 3px solid var(--brand); outline-offset: 4px; }
 .button[hidden] { display: none; }
 .fine { font-size: 12px; color: var(--muted); line-height: 1.7; }
@@ -40,13 +39,25 @@ button { cursor: pointer; }
 .features p { color: var(--muted); font-size: 14px; }
 .features h2 { font-size: 21px; }
 .download { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 40px; margin-bottom: 64px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: center; gap: 64px; }
-.download > div { min-width: 0; }
+.download > * { min-width: 0; }
 .download h2 { font-size: 36px; }
 .download p { color: var(--muted); max-width: 470px; }
+.download .button { max-width: 100%; gap: 16px; }
 .download .eyebrow { color: var(--accent); }
+.setup-action .button { justify-content: center; }
+.self-service { grid-column: 1 / -1; }
+.self-service > summary { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 18px 20px; background: var(--bg); border: 1px solid #575263; border-radius: 8px; cursor: pointer; list-style: none; }
+.self-service > summary::-webkit-details-marker { display: none; }
+.self-service > summary::marker { content: ''; }
+.self-service > summary::after { content: ''; flex: 0 0 10px; height: 10px; margin: -5px 3px 0 0; border-right: 2px solid var(--accent); border-bottom: 2px solid var(--accent); transform: rotate(45deg); }
+.self-service[open] > summary::after { margin-top: 5px; transform: rotate(225deg); }
+.self-service > summary:hover, .self-service[open] > summary { border-color: var(--accent); }
+.self-service-copy strong { display: block; color: var(--text); font-size: 16px; font-weight: 600; }
+.self-service-copy > span { display: block; margin-top: 4px; color: var(--muted); font-size: 14px; }
+.self-service .download-action { margin-top: 24px; max-width: 560px; }
 .download-action .fine { max-width: none; font-size: 13px; }
 #release-status, #linux-release-status { font-size: 14px; color: var(--text); }
-.platform-picker { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; }
+.platform-picker { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 4px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; }
 .platform-picker button { padding: 10px 12px; background: transparent; border: 0; border-radius: 6px; color: var(--muted); font-size: 14px; font-weight: 650; }
 .platform-picker button[aria-pressed="true"] { background: var(--accent); color: #201d33; }
 .beta-label { margin-left: 5px; font-size: 10px; text-transform: uppercase; letter-spacing: .7px; }

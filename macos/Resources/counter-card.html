@@ -1,0 +1,29 @@
+<style>
+*{box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'DejaVu Sans',sans-serif;color:#f5f7fa}
+.card{width:640px;height:400px;padding:30px 36px;border-radius:24px;border:1px solid rgba(255,255,255,.55);background:rgba(15,22,35,.35)}
+.eyebrow{font-size:16px;letter-spacing:2px;color:#b6e7de;margin:0 0 6px}
+h1{font-size:28px;margin:0 0 12px;font-weight:600}
+.count{font-size:72px;line-height:88px;font-variant-numeric:tabular-nums}
+button{font:600 20px sans-serif;border:0;border-radius:9px;padding:10px 24px;background:#a7ebd8;color:#152321;cursor:pointer}
+button+button{margin-left:10px;background:rgba(255,255,255,.15);color:white}
+input{display:block;width:100%;margin-top:20px;padding:10px 12px;border:1px solid rgba(255,255,255,.4);border-radius:8px;background:rgba(0,0,0,.18);color:white;font:18px sans-serif}
+.track{height:8px;margin-top:24px;overflow:hidden;border-radius:4px;background:rgba(255,255,255,.12)}
+.dot{width:80px;height:8px;background:#a7ebd8;border-radius:4px;animation:travel 2s ease-in-out infinite alternate}
+@keyframes travel{from{transform:translateX(0)}to{transform:translateX(470px)}}
+</style>
+<div class="card"><p class="eyebrow">CALLAYERS</p><h1>Ideas in the picture</h1>
+<div id="count" class="count">0</div>
+<button id="add">+1</button><button id="reset">Reset</button>
+<input id="note" aria-label="Card note" placeholder="Type a note…" maxlength="120">
+<div class="track"><div class="dot"></div></div></div>
+<script>
+let count=0;
+const counter=document.getElementById('count'), note=document.getElementById('note');
+document.getElementById('add').onclick=()=>{counter.textContent=String(++count)};
+document.getElementById('reset').onclick=()=>{count=0;counter.textContent='0'};
+window.CallayersCard={
+ snapshot:()=>({count,note:note.value}),
+ restore:state=>{count=Number.isSafeInteger(state.count)?state.count:0;counter.textContent=String(count);note.value=typeof state.note==='string'?state.note.slice(0,120):''}
+};
+</script>

@@ -7,6 +7,7 @@ const source=new URL('../website/public/',import.meta.url);
 const html=await readFile(new URL('index.html',source),'utf8');
 const scripts=await Promise.all(['download-ui.js','download.js','linux-download.js'].map(name=>readFile(new URL(name,source),'utf8')));
 const base='https://downloads.callayers.com';
+const booking='https://calendar.app.google/CVnzAvt71HkYhqK38';
 const standard=`curl -fsSL ${base}/linux/install.sh | sudo bash`;
 const experimental=standard+' -s -- --allow-experimental';
 
@@ -22,9 +23,12 @@ async function page({platform='Linux x86_64',agent='',hints,blocked=false,publis
  }
  // Build fixtures from the actual page IDs and initial hidden attributes.
  for(const match of html.matchAll(/<[^>]+\bid="([^"]+)"[^>]*>/g))elements[match[1]]=new Element(/\bhidden\b/.test(match[0]));
- const links=[new Element(),new Element()];
- for(const link of links)link.label=new Element();
- const context={AbortSignal,Uint8Array,TextDecoder,atob,document:{getElementById:id=>elements[id]??null,querySelectorAll:()=>links},
+ const links=[...html.matchAll(/<a\b([^>]*\bdata-booking-location="([^"]+)"[^>]*)>([\s\S]*?)<\/a>/g)].map(match=>{
+  const link=new Element();link.href=/\bhref="([^"]+)"/.exec(match[1])[1];
+  link.dataset.bookingLocation=match[2];link.label=new Element();link.label.textContent=match[3].replace(/<[^>]*>/g,'').trim();
+  return link;
+ });
+ const context={AbortSignal,Uint8Array,TextDecoder,atob,document:{getElementById:id=>elements[id]??null,querySelectorAll:selector=>selector==='[data-booking-location]'?links:[]},
   navigator:{platform,userAgent:agent,userAgentData:hints,clipboard:{async writeText(text){if(blocked)throw Error('clipboard denied');writes.push(text);}}},
   window:analytics?{callayersTrack:(event,properties)=>{if(analyticsThrows)throw Error('blocked');events.push({event,properties});}}:{},
   fetch:async url=>{
@@ -38,36 +42,26 @@ async function page({platform='Linux x86_64',agent='',hints,blocked=false,publis
  return {elements,links,events,writes,context,choose};
 }
 
-test('Windows browser gets direct, versioned downloads at both top links',async()=>{
+test('booking stays primary after Windows release discovery and platform changes',async()=>{
  const p=await page({platform:'Win32'});
  assert.equal(p.elements['windows-download'].hidden,false);
  assert.equal(p.elements['linux-panel'].hidden,true);
- for(const link of p.links){
-  assert.equal(link.href,`${base}/releases/0.3.9/CallayersSetup-0.3.9.exe`);
-  assert.equal(link.dataset.downloadPlatform,'windows');
-  assert.equal(link.dataset.version,'0.3.9');
-  assert.equal(link.label.textContent,'Download for Windows');
- }
+ assert.equal(p.elements['installer-link'].href,`${base}/releases/0.3.9/CallayersSetup-0.3.9.exe`);
+ assert.equal(p.elements['installer-link'].dataset.version,'0.3.9');
+ assert.deepEqual(p.links.map(link=>link.dataset.bookingLocation),['navigation','hero','setup']);
+ for(const link of p.links){assert.equal(link.href,booking);assert.match(link.label.textContent,/Book a setup call/);}
  p.elements['choose-linux'].listeners.click();
- assert.equal(p.links[0].href,'#download');
- assert.equal(p.links[0].dataset.downloadPlatform,'');
- assert.equal(p.links[0].dataset.version,undefined);
+ for(const link of p.links)assert.equal(link.href,booking);
 });
 
-test('Linux browser defaults to Ubuntu with an immediate command and top links focus the picker',async()=>{
+test('Linux self-service defaults to Ubuntu with a working command',async()=>{
  const p=await page();
  assert.equal(p.elements['windows-download'].hidden,true);
  assert.equal(p.elements['linux-panel'].hidden,false);
  assert.equal(p.elements['linux-distro'].value,'ubuntu');
  assert.equal(p.elements['linux-command-panel'].hidden,false);
  assert.equal(p.elements['linux-command'].textContent,standard);
- assert.equal(p.links[0].href,'#download');
- assert.equal(p.links[0].label.textContent,'Install for Linux');
- let prevented=false;
- p.links[0].listeners.click({preventDefault(){prevented=true;}});
- assert.equal(prevented,true);
- assert.equal(p.elements.download.scrolled,true);
- assert.equal(p.elements['linux-distro'].focused,true);
+ assert.equal(p.links[0].href,booking);
  assert.equal(p.elements['linux-command'].textContent,standard);
  assert.equal(p.elements['linux-command-panel'].hidden,false);
  assert.match(p.elements['linux-distro-note'].textContent,/22.04 \/ 24.04 \/ 26.04/);
@@ -97,7 +91,7 @@ test('client hints work, while mobile, Mac, and unknown browsers can choose a pl
   const p=await page(config);
   assert.equal(p.elements['windows-download'].hidden,true);
   assert.equal(p.elements['linux-panel'].hidden,true);
-  assert.equal(p.links[0].href,'#download');
+  assert.equal(p.links[0].href,booking);
   p.elements['choose-windows'].listeners.click();
   assert.equal(p.elements['windows-download'].hidden,false);
   p.elements['choose-linux'].listeners.click();
@@ -108,7 +102,8 @@ test('client hints work, while mobile, Mac, and unknown browsers can choose a pl
 
 test('unpublished feeds never expose a direct download or copy command',async()=>{
  const p=await page({platform:'Win32',published:false});
- assert.equal(p.links[0].href,'#download');
+ assert.equal(p.links[0].href,booking);
+ assert.equal(p.elements['installer-link'].hidden,true);
  p.elements['choose-linux'].listeners.click();
  assert.equal(p.elements['linux-distro'].value,'ubuntu');
  assert.equal(p.elements['linux-command-panel'].hidden,true);
@@ -154,4 +149,28 @@ test('Fedora and Arch commands require published native repositories, and Fedora
  assert.match(p.elements['linux-distro-note'].textContent,/full system upgrade/);
  p.choose('ubuntu');
  assert.equal(p.elements['linux-command'].textContent,standard);
+});
+
+test('Mac browsers select Mac without guessing Intel versus Apple silicon',async()=>{
+ const p=await page({platform:'MacIntel'});
+ assert.equal(p.elements['macos-panel'].hidden,false);
+ assert.equal(p.elements['choose-macos'].attributes['aria-pressed'],'true');
+ assert.match(p.links[0].label.textContent,/Book a setup call/);
+ assert.equal(p.links[0].href,booking);
+ p.elements['choose-linux'].listeners.click();
+ assert.equal(p.elements['macos-panel'].hidden,true);
+ p.elements['choose-macos'].listeners.click();
+ assert.equal(p.elements['linux-panel'].hidden,true);
+});
+
+test('self-service starts collapsed and the Windows signing note comes before its download',()=>{
+ const disclosure=/<details\b[^>]*\bid="self-service-downloads"[^>]*>/.exec(html);
+ assert(disclosure);
+ assert.doesNotMatch(disclosure[0],/\bopen(?:\s|=|>)/);
+ const summary=/<summary>([\s\S]*?)<\/summary>/.exec(html.slice(disclosure.index))[1];
+ assert.equal(summary.replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim(),'Prefer to install it yourself? View downloads and setup instructions.');
+ const warning=html.indexOf('id="windows-install-note"'),download=html.indexOf('id="installer-link"');
+ assert(warning>0&&warning<download);
+ assert.match(html,/<a id="installer-link"[^>]*aria-describedby="windows-install-note"/);
+ assert.doesNotMatch(html,/data-download-cta|data-download-label/);
 });

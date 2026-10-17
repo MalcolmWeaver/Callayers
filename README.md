@@ -20,7 +20,7 @@ Cards and annotations render at 1920 × 1080 for the 1080p/30 virtual camera out
 | `release/`, `website/` | Installer/updates and public website |
 | `spec-v2/` | Specifications and delivery plan |
 
-## Development setup
+## Windows development
 
 Use Windows 10/11 x64, 64-bit PowerShell, Visual Studio Build Tools with **Desktop development with C++** and the Windows SDK, CMake 3.24+, and Windows App Runtime 1.6. The build script downloads the pinned SDK dependencies, including Ultralight.
 
@@ -53,5 +53,29 @@ ctest --test-dir build/dev-x64 -C Release --output-on-failure
 ```
 
 Run one Callayers instance at a time. Close it and any calling app using its camera before rebuilding; a loaded camera DLL can block the build. Keep the registered output folder in place. `Start Callayers.cmd` launches the older default build; use the commands above for full features.
+
+## Mac development
+
+Use full Xcode and an Apple Development certificate for the configured team. In Xcode, select the team under Settings → Accounts and create the certificate through Manage Certificates if needed. Keep the same team and bundle identifiers across local rebuilds so Keychain and camera authentication can recognize Callayers.
+
+Close Callayers and calling apps using its camera, then build from the repository root:
+
+```sh
+bash scripts/build-macos.sh --team TEAM_ID
+```
+
+Replace `TEAM_ID` with the configured team (`U42WUQ78VP` on the initial Mac). If full Xcode is not the selected command-line developer directory, prefix the command with `DEVELOPER_DIR=/path/to/Xcode.app/Contents/Developer`; the initial Mac uses `/Users/malcolm/Downloads/Xcode.app/Contents/Developer`.
+
+The script signs the app and embedded camera extension with Apple Development, verifies signatures, and runs native checks on a matching host. The signed app is written to `build/macos-camera-<arch>/Build/Products/Debug/Callayers.app`; use the exact path printed when the build finishes. `--arch arm64` or `--arch x86_64` selects a specific processor family. Cross-compiling does not verify runtime behavior on that processor.
+
+For normal interactive and virtual-camera verification, install that signed bundle as `/Applications/Callayers.app` and launch that copy:
+
+```sh
+open /Applications/Callayers.app
+```
+
+Use one Callayers instance at a time. Open Camera setup when installing or deliberately updating the camera extension; rebuilding the host alone does not prove a new extension is active. Verify the changed behavior using the short checks supplied in chat under [AGENTS.md](AGENTS.md).
+
+Use team-signed development builds whenever the app will access the real sign-in session, webcam, or virtual camera. Unsigned or ad-hoc builds are for isolated automated fixtures and static asset inspection. Local development signing does not require notarization on each iteration. Public downloads use the separate Developer ID signing, notarization, and publication workflow in [release operations](release/README.md#mac-build-and-release-preparation).
 
 More: [release and website setup](release/README.md) · [delivery plan](spec-v2/README.md) · [feature verification](AGENTS.md)

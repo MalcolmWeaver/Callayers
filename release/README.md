@@ -23,10 +23,14 @@ The installer includes the Microsoft-signed Windows App Runtime 1.6.9 redistribu
 The deployment and maintenance workflows live in `.github/workflows`:
 
 - **Backend — Test and deploy** tests relevant pull requests. Relevant merges to `main` deploy the existing Cloud Run service and validate public health/config/access. Manual runs are available for rerunning tests/deployment. Runtime settings/secrets/capacity remain independent. Failure leaves a failed Actions run; rollback uses existing Cloud Run traffic controls.
-- **Windows app — Build and test** builds all accepted MVP features and runs native and update-authentication tests on relevant pull requests and merges to `main`. It does not publish an installer.
 - **Website — Build and deploy** checks/builds website changes; passing changes on `main` deploy `website/dist` to the direct-upload Cloudflare Pages project `callayers`. Manual runs are available for rebuilding/redeploying the website.
-- **Windows app — Publish new version** is manual only (`workflow_dispatch`), on `main`. Choose `patch` (default), `minor`, or `major`. The workflow reads the latest published Windows version, calculates the next version, and displays both in the run summary. It tests, packages, signs the update manifest, retains the installer as an Actions artifact, then publishes to Cloudflare R2. Versioned installer bytes are immutable. The update feed is published only after the public installer passes its checksum check. Publishing older versions over a newer feed is rejected.
-- **Windows app — Clean up old downloads** runs daily and can be triggered manually. It keeps the latest published installer and the immediately previous published installer. Older versions have a 24-hour grace period starting when they leave that pair; they are removed on the next cleanup after the deadline. `tester/retention.json` records the protected pair and retirement deadlines. Cleanup and publication share a concurrency group. Failed/mismatched metadata stops cleanup; other bucket files and unpublished newer installers are not deleted. Manual runs default to a read-only preview. The Actions installer artifact follows GitHub's separate artifact retention policy.
+- **Windows app — Build, test and publish** is manual only (`workflow_dispatch`). Choose `publish` (default), `check`, or `cleanup`. Both build modes run native, version, retention, update-authentication and Windows PowerShell compatibility checks. Publication requires `main`; choose `patch` (default), `minor`, or `major`. It reads the published Windows version, selects the next version, packages and authenticates the installer, retains it as an artifact, and publishes to R2 only after passing checks. Check-only runs need no production secrets and upload no release. Cleanup is also manual, defaults to a preview, and requires `main`.
+- **Linux app — Build, test and publish** is manual only, with `publish` (default) and `check` modes. Both run the native build, tests, production package checks, and distribution compatibility matrix. Publication adds signing, signed repository/client validation, and R2 uploads after all checks pass.
+- **Mac app — Build, test and publish** is manual only, with `publish` (default) and `check` modes. Both run native Intel and Apple silicon checks. Publication adds Developer ID signing, notarization, stapling, final package validation, and R2 uploads after both architecture jobs pass. Mac signing configuration is described below.
+
+Desktop PRs, pushes, and schedules no longer start these workflows. Check-only runs may use a feature branch; they calculate a candidate version without advancing public metadata. Publishing selects and pins the latest `main` source. Website and backend automation retain their existing triggers.
+
+Windows retention keeps the latest published installer and its predecessor. Older versions have a 24-hour grace period, with removal on the next manual cleanup or publication after the deadline. `tester/retention.json` records the protected pair and retirement deadlines. Cleanup and publication share a concurrency group. Failed/mismatched metadata stops cleanup; other bucket files and unpublished newer installers are not deleted. GitHub artifact retention remains separate.
 
 Configure repository variables `GCP_WORKLOAD_IDENTITY_PROVIDER` and `GCP_DEPLOY_SERVICE_ACCOUNT` for backend CI, and `CLOUDFLARE_ACCOUNT_ID` for website/releases. Configure repository secrets `CLOUDFLARE_API_TOKEN` (website Pages publishing), `CLOUDFLARE_R2_API_TOKEN` (release publishing/cleanup), and `UPDATE_SIGNING_KEY` (the exact contents of the local private JSON, supplied through GitHub's secret interface or CLI stdin). Desktop releases do not use Google CI credentials. Do not put secrets into source files or command arguments. Restrict access to release workflow execution and protect `main`.
 
@@ -52,7 +56,7 @@ The GCS trial bucket `callayers-releases-955736732096` was created privately. Pu
 
 For local publication after credentials are configured, use `node scripts/publish-desktop.mjs 0.3.0`. This is a real tester release publication, not a dry run. Website deployment is independent of release publication.
 
-Preview retention with `node scripts/cleanup-desktop-releases.mjs --dry-run`; omit `--dry-run` to remove expired retired installers. Publication also cleans up already-expired installers after publishing the feed. The daily workflow handles grace-period expiry even when no further version is released. Run `node --test tests/release-retention-test.mjs` for the isolated retention checks.
+Preview retention with `node scripts/cleanup-desktop-releases.mjs --dry-run`; omit `--dry-run` to remove expired retired installers. Publication also cleans up already-expired installers after publishing the feed. There is no daily desktop cleanup workflow; use the Windows workflow's `cleanup` mode when needed. Run `node --test tests/release-retention-test.mjs` for the isolated retention checks.
 
 ## Version source of truth
 
@@ -71,7 +75,7 @@ node website/serve.mjs
 
 Open `http://127.0.0.1:4173`. Website source stays in `website/public`; build output is ignored. The source contains a home/download page and a tester privacy page. Its download control follows the published tester feed; it never creates an installer release.
 
-The download panel selects Windows or Linux using best-effort browser platform hints, with a manual platform switch for unsupported/unknown browsers and downloads for another computer. Header and hero buttons link directly to the published Windows installer when Windows is selected; Linux opens/focuses its distribution picker. Linux commands appear only after a distribution is selected: Ubuntu uses the standard installer, and Debian/Mint/Pop!_OS/Fedora/Arch include `--allow-experimental` with distribution-specific requirements. Fedora additionally offers an explicit RPM Fusion Free checkbox; its flag is never added by default. Fedora/Arch commands appear only after the published metadata advertises native repositories. Other distributions expose no install command. Browser detection does not establish Linux distribution, supported release, CPU compatibility, or Secure Boot state; the installer performs the actual machine checks. Successful Linux copies include the selected `distribution` in analytics; direct Windows hero/navigation downloads retain the existing download event with the corresponding button location.
+The download panel selects Windows, Mac, or Linux using best-effort browser platform hints, with a manual platform switch for unsupported/unknown browsers and downloads for another computer. Header and hero buttons link directly to the published Windows installer when Windows is selected; Linux opens/focuses its distribution picker. Linux commands appear only after a distribution is selected: Ubuntu uses the standard installer, and Debian/Mint/Pop!_OS/Fedora/Arch include `--allow-experimental` with distribution-specific requirements. Fedora additionally offers an explicit RPM Fusion Free checkbox; its flag is never added by default. Fedora/Arch commands appear only after the published metadata advertises native repositories. Other distributions expose no install command. Browser detection does not establish Linux distribution, supported release, CPU compatibility, or Secure Boot state; the installer performs the actual machine checks. Successful Linux copies include the selected `distribution` in analytics; direct Windows hero/navigation downloads retain the existing download event with the corresponding button location.
 
 Website/release credentials, R2 bucket/domain/CORS activation, and GitHub variable/secret activation are required before hosted delivery can be verified. Prepared builds are not runtime acceptance; step 10 remains open until the user accepts installed behavior and hosted delivery.
 
@@ -80,7 +84,7 @@ Website/release credentials, R2 bucket/domain/CORS activation, and GitHub variab
 
 The Linux beta targets **Ubuntu 22.04, 24.04, and 26.04 x64 with Secure Boot off**. Installation and camera acceptance on each desktop must precede advertising it as verified. The application package includes the pinned renderer, uses the existing production backend, and rejects development-only flags. Camera setup uses distro-maintained `v4l2loopback-dkms` or Fedora's RPM Fusion Free `akmod-v4l2loopback`; the app is not a portable driver bundle. Windows releases and signing keys remain separate.
 
-**Linux app — Build and test** runs for relevant pull requests, main updates, and manual test runs. It is also reusable by **Linux app — Publish new version**, which supplies the calculated version and pinned main commit. Ordinary CI builds use the CMake default and do not publish.
+**Linux app — Build, test and publish** runs only when manually dispatched. Choose `check` for native, package, repository-fixture and compatibility tests without production credentials or publication, or `publish` for the complete signed release. Both modes select a candidate version and pin one source commit for all jobs.
 
 The workflow builds the release package inside Ubuntu 22.04 on a GitHub Ubuntu runner, tests development interactions and the production sign-in gate, packages the production executable, and checks it after extraction without development library paths. Repository tests use a disposable signing key and real APT signature checks. The exact package is also checked for dependency resolution and renderer loading in Ubuntu 24.04/26.04 and Debian 12/13 containers. These checks use the baseline package rather than rebuilding on each distribution. The baseline payload is wrapped in RPM and Arch packages and checked in Fedora 43/44 and current Arch containers. Fedora checks resolve/download the complete dependency set including the RPM Fusion Free driver; Arch checks installed dependency metadata. No Callayers camera hook is run in hosted CI, so CI does not prove camera installation or reboot behavior.
 
@@ -98,7 +102,7 @@ Reuse repository secret `CLOUDFLARE_R2_API_TOKEN` and variable `CLOUDFLARE_ACCOU
 
 For Linux 0.3.4 adoption tracking, deploy the updated backend and website before publishing the app. The backend must accept the new `platform` event field; the website adds successful installation-command copies tagged with the published version. See [Linux adoption event semantics](../backend-v2/README.md#mvp-telemetry) for triggers, account attribution, and funnel filters. A green local build does not confirm live PostHog arrival.
 
-Run **Linux app — Publish new version** on `main` and choose `patch` (default), `minor`, or `major`. No run ID or installation-confirmation input is required. The workflow first checks required signing/storage configuration, selects the latest main commit, reads the current published Linux version, and displays the selected next version. It then calls the shared Linux build/test workflow with that version and commit. Publication waits for the development, production package, repository, and all baseline and native compatibility-container checks to pass. A signing job downloads the baseline/native artifacts from the same run, verifies checksums/versions, signs native packages and repository metadata, and retains the signed repository as `callayers-linux-signed-repository`. A separate publishing job uploads that signed artifact. Rerun failed publication jobs to preserve these exact signed bytes; rerunning successful build/sign jobs may produce different bytes for an already uploaded version. It does not accept an artifact from another run or renumber the package after building.
+Run **Linux app — Build, test and publish** on `main`, keep mode `publish`, and choose `patch` (default), `minor`, or `major`. No run ID or installation-confirmation input is required. The workflow first checks required signing/storage configuration, selects the latest main commit, reads the current published Linux version, and displays the selected next version. Its build jobs use that same version and commit. Publication waits for development, production package, repository, and all baseline/native compatibility-container checks to pass. A signing job downloads the baseline/native artifacts from the same run, verifies checksums/versions, signs native packages and repository metadata, and retains `callayers-linux-signed-repository`. A separate publishing job uploads that signed artifact. Rerun failed publication jobs to preserve these exact signed bytes; rerunning successful build/sign jobs may produce different bytes for an already uploaded version. It does not accept an artifact from another run or renumber the package after building.
 
 Publication now follows automated checks directly; there is no separate manual installation checkpoint. Actual camera setup, real Google sign-in, calling-app output, and reboot behavior across desktops remain runtime acceptance work, and hosted container success alone does not establish them.
 
@@ -123,3 +127,63 @@ Fedora requires RPM Fusion Free for its camera driver. The installer never enabl
 Arch installation performs a full upgrade, installs the matching kernel headers and `v4l2loopback-dkms`, and can require reboot/rerun if the running kernel no longer has matching headers. The Callayers repository is `linux/arch/x86_64`, with signed packages and signed pacman databases; the installer does not disable signature verification or install an AUR helper.
 
 Before hosted publication, install local candidates with `sudo bash ./install.sh --allow-experimental --package ./callayers-<version>-1.x86_64.rpm` (Fedora) or `sudo bash ./install.sh --allow-experimental --package ./callayers-<version>-1-x86_64.pkg.tar.zst` (Arch). Add the explicit Fedora repository flag only when desired. Local candidate mode does not configure Callayers repository updates; rerun the normal public installer after release.
+
+## Mac build and release preparation
+
+The current 0.4.0/build 10 launch candidate and its submitted packages remain frozen. The manual Mac Actions workflow selects a subsequent version and a build greater than the source app, source extension, and both published architecture feeds. It stamps version/build metadata only in its disposable runner checkouts; it does not modify a submitted package or advance public metadata in check-only mode. Both architecture builds must pass before publication starts.
+
+Mac Actions `check` mode needs no production credentials. For `publish`, configure these repository values through GitHub's secrets/variables UI, without placing private values in source or chat:
+
+| Type | Name | Value |
+| --- | --- | --- |
+| Secret | `MACOS_CERTIFICATES_P12` | Base64-encoded encrypted `.p12` containing the team's Apple Development and Developer ID Application identities, including their private keys |
+| Secret | `MACOS_CERTIFICATES_PASSWORD` | Password for that `.p12` |
+| Secret | `MACOS_UPDATE_PRIVATE_KEY` | Exact existing Ed25519 key-file content used for build 10; retain this key across releases |
+| Secret | `MACOS_NOTARY_PRIVATE_KEY` | App Store Connect team API private key (`.p8`) with access to notarization and automatic provisioning |
+| Variable | `MACOS_TEAM_ID` | Existing Apple team ID |
+| Variable | `MACOS_SIGNING_IDENTITY` | Full `Developer ID Application: … (TEAM_ID)` identity name |
+| Variable | `MACOS_NOTARY_KEY_ID` | App Store Connect API key ID |
+| Variable | `MACOS_NOTARY_ISSUER_ID` | That team API key's issuer ID |
+
+Reuse `CLOUDFLARE_R2_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. CI imports the identities into a temporary keychain, writes private files only under the runner's temporary directory, and authenticates Xcode provisioning/notarization through the API key. Private files and imported identities are cleaned up. Only the notarized ZIPs, checksums, notarization results, signed appcasts and availability metadata become release artifacts. Failed publication jobs can reuse those exact artifacts; do not rebuild an already published version to retry an upload. GitHub-secret configuration and a real Actions run remain necessary before the new Mac publish flow is operational.
+
+The native Mac product is `Callayers.app`; the stable bundle IDs remain `com.callayers.renderer-preview` and `com.callayers.renderer-preview.camera` so existing camera approvals and producer authentication remain valid. Intel and Apple Silicon use separate archives and feeds. The app uses pinned Sparkle 2.9.6, validates signed feeds and archives before extraction, and defers installation during camera use or unfinished AI/import work. Release startup checks the bundled extension version and requests an upgrade only while no calling app is consuming the camera; macOS can still require approval or restart. Development builds do not check the public update feed or automatically replace the installed camera.
+
+A development checkpoint can be prepared with:
+
+```sh
+bash scripts/package-macos.sh --development --arch x86_64 --team TEAM_ID
+```
+
+Use `--arch arm64` for the Silicon artifact; building it on Intel does not run its renderer or establish physical Mac acceptance. `--skip-build` packages an already verified development build. Archives contain just the application, with a separate SHA-256 file, and existing versioned archives are never overwritten. `check-macos-package.py` verifies binary architecture, bundled dependencies/resources and signatures. `macos/Tests/check-update-signing.py` exercises the actual pinned Sparkle signer using a disposable private key; it does not install an update.
+
+Public release preparation requires a **Developer ID Application** certificate with its private key, provisioning for the host and camera extension, a notarization credential saved under a named `notarytool` Keychain profile, and a durable Ed25519 update key. Apple Development signing alone is insufficient. Keep the update key out of Git and build artifacts, and back it up before publication. Generate it once in a protected, ignored local directory; the helper refuses to replace an existing file and prints only its public key:
+
+```sh
+mkdir -p .local/release-keys
+xcrun swift scripts/macos-update-key.swift --generate .local/release-keys/macos-ed25519.key
+```
+
+Prepare each architecture in its own fresh output directory:
+
+```sh
+bash scripts/package-macos.sh --arch arm64 --team TEAM_ID \
+  --identity 'Developer ID Application: YOUR NAME (TEAM_ID)' \
+  --notary-profile CallayersNotary \
+  --ed-key-file .local/release-keys/macos-ed25519.key \
+  --output build/mac-release-arm64
+```
+
+The release path archives and exports with Developer ID signing and hardened runtime, checks the app, submits to Apple's notary service, requires acceptance, staples/validates the ticket, checks Gatekeeper, then creates the final ZIP and signed Sparkle appcast. It preserves failed outputs for diagnosis and never publishes or changes `/Applications`. The script has not completed a real Developer ID export/notarization on the initial Intel machine; the needed distribution identity is not installed.
+
+Publication remains a separate operation after the chosen release's runtime acceptance. For the initial October 17 beta, the user explicitly authorizes both architectures after Intel installation verification, with the Apple silicon download labeled experimental and untested on Apple silicon hardware. Installed automatic upgrades and physical Apple silicon execution remain unverified for this beta. Immutable archives belong at `https://downloads.callayers.com/macos/releases/<version>/<arch>/`; publish the matching signed feed at `https://downloads.callayers.com/macos/<arch>/appcast.xml` only after public archive verification. Never reuse a version/build number for different public bytes. The first feed and subsequent upgrades need the same retained signing identity. Keep prior releases for recovery. Later upgrade acceptance covers saved work, an active-call deferral, extension activation/restart handling, and both processor families.
+
+Mac website availability is prepared independently for each architecture. Production packaging writes `feed/latest.json` only after notarization, stapling, and Gatekeeper assessment succeed. Publish its versioned ZIP first, then `macos/<arch>/appcast.xml` and `macos/<arch>/latest.json` last; permit HTTPS cross-origin reads for the availability JSON. The website offers explicit Apple silicon and Intel choices and never infers the CPU from `MacIntel` browser strings. Development ZIPs do not generate availability metadata and must not be published through these release paths. No Mac artifacts or website changes were published during local preparation.
+
+Validate the final prepared release without storage credentials or publication:
+
+```sh
+node scripts/publish-macos.mjs build/mac-release-arm64 --arch arm64 --dry-run
+```
+
+Use the corresponding output directory and `--arch x86_64` for Intel. The publisher reads the public update key from the final ZIP and checks the signed appcast and enclosure, notarization result, extracted bundle signatures, stapled ticket, and Gatekeeper. After runtime acceptance, omit `--dry-run` to publish using the existing `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` environment configuration. It permits only the Mac object namespace, refuses changed archives or reused builds, verifies exact anonymous public ZIP/checksum bytes before advancing the appcast, and publishes website availability last. The publisher does not need the private update key. Architectures publish separately and a failed partial upload can be retried with the same prepared release. Website deployment remains separate. Run `node --test tests/macos-publish-test.mjs tests/release-retention-test.mjs` for isolated Mac/Windows publishing checks; Linux repository fixtures require their Linux toolchain.

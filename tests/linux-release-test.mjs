@@ -7,18 +7,18 @@ import {spawnSync} from 'node:child_process';
 import {publishLinux} from '../scripts/publish-linux.mjs';
 import {createReleaseStore, RELEASE_BASE_URL} from '../scripts/release-storage.mjs';
 
-let directory, files;
+let directory, temporaryDirectory, files;
 const inRelease = 'linux/apt/dists/stable/InRelease';
 const packageKey = 'linux/apt/pool/main/c/callayers/callayers_1.0.0_amd64.deb';
 before(async () => {
-  directory = await mkdtemp(path.join(tmpdir(), 'callayers-publish-test-'));
-  const result = spawnSync('python3', ['tests/linux-repository-fixture.py', directory], {encoding: 'utf8'});
+  temporaryDirectory = await mkdtemp(path.join(tmpdir(), 'callayers-publish-test-'));
+  directory = path.join(temporaryDirectory, 'repository');
+  const result = spawnSync('python3', ['tests/linux-repository-fixture.py', temporaryDirectory], {encoding: 'utf8'});
   assert.equal(result.status, 0, result.stderr);
-  directory = path.join(directory, 'repository');
   const manifest = JSON.parse(await readFile(path.join(directory, 'manifest.json')));
   files = new Map(await Promise.all(manifest.files.map(async item => [item.key, await readFile(path.join(directory, item.key))])));
 });
-after(async () => { if (directory) await rm(path.dirname(directory), {recursive: true, force: true}); });
+after(async () => { if (temporaryDirectory) await rm(temporaryDirectory, {recursive: true, force: true}); });
 
 function fixture(initial = new Map(), failPublic = false) {
   const objects = new Map(initial), writes = [], verified = [];

@@ -3,3 +3,9 @@
 /.local/
 /backend-v2/node_modules/
 /website/dist/
+
+# Generated Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+	
