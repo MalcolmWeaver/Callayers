@@ -40,6 +40,8 @@ static void SinkQueueChanged(CMIOStreamID, void *, void *) {}
 }
 - (NSInteger)consumerCount { return _consumerCount; }
 - (NSString *)status { return _status; }
+- (NSString *)consumerApp { return _device ? (StringProperty(_device, 'capp') ?: @"unknown") : @"none"; }
+- (int64_t)deliveredTimestamp { return _device ? StringProperty(_device, 'cfrm').longLongValue : 0; }
 - (void)refresh {
     // Include software devices in the legacy C API's device list.
     auto allow = Address(kCMIOHardwarePropertyAllowScreenCaptureDevices); UInt32 yes = 1;
@@ -52,6 +54,7 @@ static void SinkQueueChanged(CMIOStreamID, void *, void *) {}
         [self stop];
         auto countAddress = Address('cact');
         if (_device) CMIOObjectRemovePropertyListener(_device, &countAddress, ConsumersChanged, nullptr);
+        if (_device) for (auto selector : {'cfrm', 'capp'}) { auto address = Address(selector); CMIOObjectRemovePropertyListener(_device, &address, ConsumersChanged, nullptr); }
         _device = 0; _sink = 0;
     }
     _consumerCount = 0;
@@ -60,6 +63,7 @@ static void SinkQueueChanged(CMIOStreamID, void *, void *) {}
         _device = found;
         auto countAddress = Address('cact');
         CMIOObjectAddPropertyListener(_device, &countAddress, ConsumersChanged, nullptr);
+        for (auto selector : {'cfrm', 'capp'}) { auto address = Address(selector); CMIOObjectAddPropertyListener(_device, &address, ConsumersChanged, nullptr); }
     }
     NSString *count = StringProperty(_device, 'cact');
     if (!count) { [self stop]; _sink = 0; _status = @"Camera update needed. Open Camera setup and install the new version."; return; }
@@ -105,5 +109,6 @@ static void SinkQueueChanged(CMIOStreamID, void *, void *) {}
     [self stop];
     auto address = Address('cact');
     if (_device) CMIOObjectRemovePropertyListener(_device, &address, ConsumersChanged, nullptr);
+    if (_device) for (auto selector : {'cfrm', 'capp'}) { auto property = Address(selector); CMIOObjectRemovePropertyListener(_device, &property, ConsumersChanged, nullptr); }
 }
 @end

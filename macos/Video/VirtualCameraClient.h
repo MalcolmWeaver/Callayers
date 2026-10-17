@@ -6,6 +6,8 @@ NS_ASSUME_NONNULL_BEGIN
 @interface CLVirtualCameraClient : NSObject
 @property(nonatomic, readonly) NSInteger consumerCount;
 @property(nonatomic, readonly) NSString *status;
+@property(nonatomic, readonly) NSString *consumerApp;
+@property(nonatomic, readonly) int64_t deliveredTimestamp;
 - (void)refresh;
 - (BOOL)sendSample:(CMSampleBufferRef)sample;
 - (void)stop;
