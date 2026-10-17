@@ -166,6 +166,7 @@
 				"4F923792C849C68BFE52CF30",
 				"AE5FFECA51724086D14220CB",
 				"475AE3E87A49B95A46F0192A",
+				"FAE55E00831B8468BA0A2F97",
 			);
 			"name" = "App";
 			"sourceTree" = "<group>";
@@ -213,6 +214,7 @@
 				"08D8CA31A06EE3EE90F5A139",
 				"A7845FE2A76CC1A4043D4EFF",
 				"E903E6DF21D449E68367B526",
+				"CF1DC78F716AAB0FA9F9EBE9",
 			);
 			"name" = "Tests";
 			"sourceTree" = "<group>";
@@ -220,6 +222,7 @@
 		"99B2612622859F92D7197CBF" = {
 			"isa" = "PBXGroup";
 			"children" = (
+				"C711CE0A8B0A44E1A1200001",
 				"8BD2FC20C69A1E6BAD334CD6",
 				"F092A2AEBE0B8E309C3F5287",
 				"885C90F66F9A72E63491669F",
@@ -244,6 +247,7 @@
 				"13C4608B5138EBE9B3A45A55",
 				"08CCD6019919EE57E901413E",
 				"B72261CB07CEAA200E55C1B0",
+				"087463E0E71121BA2C363166",
 				"369366657F0CC118760331FE",
 				"1B3039B2E15DD2AB7EA6156D",
 				"6DC4FAD667A85B8567F612FB",
@@ -290,6 +294,11 @@
 				"6487949BD4435A5283206D8F",
 				"315E68FF8A2289C504EFEE2C",
 				"F88D184A2C400FD933D3B9F9",
+				"ED840A443C44D4EF8B2EBE81",
+				"99CCB528C9336A2EE5CB750C",
+				"E4E246BBCAB3E7F109021450",
+				"67414B6F07DE692747E8CD72",
+				"5C57AB940FC0983384CE2D37",
 			);
 			"runOnlyForDeploymentPostprocessing" = "0";
 		};
@@ -313,6 +322,7 @@
 			"isa" = "PBXFrameworksBuildPhase";
 			"buildActionMask" = "2147483647";
 			"files" = (
+				"C711CE0A8B0A44E1A1200002",
 				"A7E57ED4F52F5E3646D315F0",
 				"D4D04261C034A3D77E3755E0",
 				"AA52943932FD415C864AD136",
@@ -833,8 +843,105 @@
 				"7BB4EE7935237FEADEF13707",
 				"C23664B4C1A9AEC86710F1AA",
 				"2D30CD12DB594CD85609ADBB",
+				"86A3B44D7E5D594003D656D1",
 			);
 			"runOnlyForDeploymentPostprocessing" = "0";
+		};
+		"8122248BAE3E07EE32EDA6AB" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Video/FrameComposer.swift";
+			"sourceTree" = "<group>";
+		};
+		"BE8CDDEBB4FC36DB84B694DE" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Video/CameraCapture.swift";
+			"sourceTree" = "<group>";
+		};
+		"DA4C6F326A2F546EA54656BB" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Video/VideoModel.swift";
+			"sourceTree" = "<group>";
+		};
+		"AB16C3EDA1A4DF0F89E2E5AF" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.cpp.objcpp";
+			"path" = "Video/VirtualCameraClient.mm";
+			"sourceTree" = "<group>";
+		};
+		"7C0999BA84766F2C458A9ED7" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.h";
+			"path" = "Video/VirtualCameraClient.h";
+			"sourceTree" = "<group>";
+		};
+		"9F3A7CCBCA11C7A098F79DDF" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Video/LatestVideoFrame.swift";
+			"sourceTree" = "<group>";
+		};
+		"087463E0E71121BA2C363166" = {
+			"isa" = "PBXGroup";
+			"children" = (
+				"8122248BAE3E07EE32EDA6AB",
+				"BE8CDDEBB4FC36DB84B694DE",
+				"DA4C6F326A2F546EA54656BB",
+				"AB16C3EDA1A4DF0F89E2E5AF",
+				"7C0999BA84766F2C458A9ED7",
+				"9F3A7CCBCA11C7A098F79DDF",
+			);
+			"name" = "Video";
+			"sourceTree" = "<group>";
+		};
+		"ED840A443C44D4EF8B2EBE81" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "8122248BAE3E07EE32EDA6AB";
+		};
+		"99CCB528C9336A2EE5CB750C" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "BE8CDDEBB4FC36DB84B694DE";
+		};
+		"E4E246BBCAB3E7F109021450" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "DA4C6F326A2F546EA54656BB";
+		};
+		"67414B6F07DE692747E8CD72" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "AB16C3EDA1A4DF0F89E2E5AF";
+		};
+		"FAE55E00831B8468BA0A2F97" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "App/CameraPickerView.swift";
+			"sourceTree" = "<group>";
+		};
+		"5C57AB940FC0983384CE2D37" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "FAE55E00831B8468BA0A2F97";
+		};
+		"86A3B44D7E5D594003D656D1" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "9F3A7CCBCA11C7A098F79DDF";
+		};
+		"CF1DC78F716AAB0FA9F9EBE9" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Tests/VideoChecks.swift";
+			"sourceTree" = "<group>";
+		};
+		"C711CE0A8B0A44E1A1200001" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "wrapper.framework";
+			"name" = "CoreMediaIO.framework";
+			"path" = "System/Library/Frameworks/CoreMediaIO.framework";
+			"sourceTree" = "SDKROOT";
+		};
+		"C711CE0A8B0A44E1A1200002" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "C711CE0A8B0A44E1A1200001";
 		};
 	};
 	"rootObject" = "244210E48437B6556980A702";

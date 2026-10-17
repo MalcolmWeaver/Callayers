@@ -48,12 +48,12 @@ struct WorkspaceView: View {
                     }
                 }
                 Divider()
-                Toggle("Transparency grid", isOn: $model.checkerboard).toggleStyle(.checkbox)
-                Text("Development preview. Camera and AI creation come next.")
+                Text("Choose Callayers as the camera in your calling app.")
                     .font(.caption).foregroundColor(.secondary)
             }.padding(20).frame(width: 285).background(Color(NSColor.windowBackgroundColor))
             Divider()
             VStack(alignment: .leading, spacing: 16) {
+                CameraPickerView(video: model.video)
                 HStack {
                     Text("Workspace").font(.headline)
                     Spacer()

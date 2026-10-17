@@ -10,6 +10,7 @@ final class WorkspaceModel: ObservableObject {
     @Published private(set) var message = "Opening workspace…"
     @Published private(set) var frameSerial: UInt = 0
     @Published var checkerboard = true
+    let video = VideoModel()
     var editingName = false
     private(set) var renderers: [UUID: CLRendererBridge] = [:]
     private var store: WorkspaceStore?
@@ -206,6 +207,15 @@ final class WorkspaceModel: ObservableObject {
     private func tick() {
         var changed = false
         for renderer in renderers.values { if renderer.tick() { changed = true } }
+        let layers: [VideoLayer] = visibleCards.compactMap { card in
+            guard let image = renderers[card.id]?.image?.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+            // Renderer frames use a 1280x720 logical scene, with the card at
+            // (160,120). Crop in pixel coordinates before native placement.
+            let sx = CGFloat(image.width) / 1280, sy = CGFloat(image.height) / 720
+            guard let cropped = image.cropping(to: CGRect(x: 160 * sx, y: 120 * sy, width: 640 * sx, height: 400 * sy)) else { return nil }
+            return VideoLayer(image: cropped, rect: CGRect(x: card.x, y: card.y, width: card.width, height: card.height))
+        }
+        if video.tick(layers: layers) { changed = true }
         if changed { frameSerial &+= 1 }
         if saving {
             for (id, request) in Array(pending) {

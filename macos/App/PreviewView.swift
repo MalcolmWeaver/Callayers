@@ -63,7 +63,9 @@ final class CardPreviewView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         NSColor(calibratedWhite: 0.16, alpha: 1).setFill(); bounds.fill()
         guard let model = model else { return }
-        if model.checkerboard {
+        if let picture = model.video.preview {
+            picture.draw(in: bounds, from: .zero, operation: .copy, fraction: 1, respectFlipped: true, hints: nil)
+        } else if model.checkerboard {
             let tile: CGFloat = 24
             NSColor(calibratedWhite: 0.23, alpha: 1).setFill()
             for y in stride(from: CGFloat(0), to: bounds.height, by: tile) {
@@ -72,7 +74,7 @@ final class CardPreviewView: NSView {
                 }
             }
         }
-        for card in model.visibleCards {
+        for card in model.visibleCards where model.video.preview == nil {
             guard let image = model.renderers[card.id]?.image else { continue }
             // The proven renderer still produces a transparent 1280x720 scene
             // with its card at (160,120). Clip and place that image natively;

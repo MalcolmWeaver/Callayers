@@ -69,7 +69,7 @@ final class CameraExtensionController: NSObject, ObservableObject, OSSystemExten
             if restart {
                 message = "Restart your Mac to finish \(removing ? "removing" : "activating") the Callayers camera."
             } else {
-                message = removing ? "Callayers camera removed." : "Camera activated. Select Callayers in your calling app to see the moving test picture."
+                message = removing ? "Callayers camera removed." : "Camera activated. Choose your webcam in the workspace and select Callayers in your calling app."
             }
         }
     }

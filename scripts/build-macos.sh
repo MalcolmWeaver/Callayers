@@ -58,6 +58,12 @@ xcrun --sdk macosx swiftc -swift-version 5 -parse-as-library -target "$arch-appl
 if [[ "$arch" == "$host_arch" ]]; then
     "$build/CameraChecks" "$build/camera-test-picture.png" 2>&1 | tee "$build/camera-checks.log"
 fi
+xcrun --sdk macosx swiftc -swift-version 5 -parse-as-library -target "$arch-apple-macos12.3" \
+    "$root/macos/Video/FrameComposer.swift" "$root/macos/Video/LatestVideoFrame.swift" \
+    "$root/macos/Tests/VideoChecks.swift" -o "$build/VideoChecks"
+if [[ "$arch" == "$host_arch" ]]; then
+    "$build/VideoChecks" 2>&1 | tee "$build/video-checks.log"
+fi
 xcodebuild -project "$root/macos/Callayers.xcodeproj" \
     -scheme Callayers -configuration Debug -destination "$destination" \
     -derivedDataPath "$build" ARCHS="$arch" ONLY_ACTIVE_ARCH=YES \

@@ -1,4 +1,5 @@
 #import <AppKit/AppKit.h>
+#import "../Video/VirtualCameraClient.h"
 
 NS_ASSUME_NONNULL_BEGIN
 // All methods are called on the main thread. This development preview exposes

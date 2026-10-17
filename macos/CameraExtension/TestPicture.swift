@@ -18,8 +18,10 @@ final class TestPicture {
     let format: CMVideoFormatDescription
     private let pool: CVPixelBufferPool
     private let allocationLimit = [kCVPixelBufferPoolAllocationThresholdKey: 5] as CFDictionary
+    private let offline: Bool
 
-    init() throws {
+    init(offline: Bool = false) throws {
+        self.offline = offline
         var description: CMVideoFormatDescription?
         let status = CMVideoFormatDescriptionCreate(allocator: kCFAllocatorDefault,
             codecType: kCVPixelFormatType_32BGRA, width: Int32(Self.width), height: Int32(Self.height),
@@ -65,6 +67,12 @@ final class TestPicture {
         else { throw CameraError.setup("Drawing context", -1) }
         context.setFillColor(CGColor(red: 0.035, green: 0.065, blue: 0.11, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: Self.width, height: Self.height))
+        if offline {
+            text("CALLAYERS", at: CGPoint(x: 100, y: 760), size: 88, in: context)
+            text("Camera unavailable", at: CGPoint(x: 100, y: 610), size: 48, in: context)
+            text("Open Callayers and choose your webcam", at: CGPoint(x: 100, y: 510), size: 40, in: context)
+            return
+        }
         // Quartz's bitmap context maps its bottom-left drawing coordinates
         // into the top-first pixel-buffer rows used by the video consumer.
         let colors: [CGColor] = [

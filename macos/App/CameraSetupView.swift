@@ -8,7 +8,7 @@ struct CameraSetupView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Callayers camera").font(.title2.weight(.semibold))
-            Text("This checkpoint shows a moving test picture in your calling app. Webcam video and workspace cards will follow.")
+            Text("Choose a webcam in the workspace, then select Callayers in your calling app. Install again here to update an older camera extension.")
                 .foregroundColor(.secondary)
             Text(camera.prerequisite ?? camera.message).textSelection(.enabled)
             if camera.needsApproval {
